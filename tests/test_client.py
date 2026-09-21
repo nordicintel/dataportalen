@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from conftest import FakeTransport, load_fixture
 
-from dataportal import (
+from dataportal_se import (
     Dataportal,
     Dataset,
     HTTPError,
@@ -17,7 +17,7 @@ from dataportal import (
     ServerError,
     TransportError,
 )
-from dataportal.namespaces import DCAT
+from dataportal_se.namespaces import DCAT
 
 
 def query_of(url: str) -> str:
@@ -371,7 +371,7 @@ def test_transport_failures_are_retried(transport, search_response):
 
 
 def test_closing_the_client_closes_a_transport_it_owns():
-    from dataportal.transport import UrllibTransport
+    from dataportal_se.transport import UrllibTransport
 
     owned = UrllibTransport()
     dp = Dataportal(transport=owned)

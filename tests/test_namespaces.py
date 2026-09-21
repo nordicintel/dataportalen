@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from dataportal.namespaces import (
+from dataportal_se.namespaces import (
     DCAT,
     DCTERMS,
     FOAF,

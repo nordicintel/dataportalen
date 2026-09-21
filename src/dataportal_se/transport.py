@@ -32,7 +32,7 @@ __all__ = [
     "build_url",
 ]
 
-DEFAULT_USER_AGENT = "dataportal-python/0.1.0 (+https://github.com/rubenselander/dataportal)"
+DEFAULT_USER_AGENT = "dataportal-se/0.1.0 (+https://github.com/nordicintel/dataportal)"
 
 
 def build_url(base: str, path: str, params: Optional[Mapping[str, Any]] = None) -> str:

@@ -1,6 +1,6 @@
 """The synchronous client for the Sveriges dataportal registry API.
 
-    >>> from dataportal import Dataportal
+    >>> from dataportal_se import Dataportal
     >>> dp = Dataportal()
     >>> page = dp.datasets(title="bidrag", limit=5)
     >>> page.total                                    # doctest: +SKIP
@@ -124,7 +124,7 @@ class Dataportal:
     :param languages: preferred language order for localized values.
     :param public_only: add ``public:true`` to every search (the default, and
         what the public API effectively serves).
-    :param transport: an explicit :class:`~dataportal.transport.BaseTransport`;
+    :param transport: an explicit :class:`~dataportal_se.transport.BaseTransport`;
         by default the best of httpx / requests / urllib is chosen.
     """
 
@@ -224,7 +224,7 @@ class Dataportal:
     ) -> Response:
         """Issue one request against the registry, with retries.
 
-        Returns the raw :class:`~dataportal.transport.Response`; use this for
+        Returns the raw :class:`~dataportal_se.transport.Response`; use this for
         endpoints the typed helpers do not cover.
         """
         url = absolute_url or build_url(self.base_url, path, params)
@@ -337,7 +337,7 @@ class Dataportal:
         sort: Optional[str] = ...,  # type: ignore[assignment]
         **kwargs: Any,
     ) -> SearchPage:
-        """Run a Solr search and return a :class:`~dataportal.models.SearchPage`.
+        """Run a Solr search and return a :class:`~dataportal_se.models.SearchPage`.
 
         ``model`` forces every hit into one class; by default each hit is typed
         from its own ``rdf:type``.
@@ -917,7 +917,7 @@ class Dataportal:
         """Map ``contextId`` to the organisation's title.
 
         This is what turns ``stats:datasets_in_context_170`` in
-        :class:`~dataportal.models.CatalogStatistics` into a readable name.
+        :class:`~dataportal_se.models.CatalogStatistics` into a readable name.
         """
         out: Dict[str, str] = {}
         for report in self.harvest_reports(public_sector_only=public_sector_only):

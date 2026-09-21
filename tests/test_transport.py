@@ -8,8 +8,8 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from dataportal.exceptions import ParseError
-from dataportal.transport import (
+from dataportal_se.exceptions import ParseError
+from dataportal_se.transport import (
     BaseTransport,
     Response,
     UrllibTransport,
