@@ -1,0 +1,282 @@
+{
+ "offset": 0,
+ "resource": {
+  "children": [
+   {
+    "metadata": {
+     "https://admin.dataportal.se/store/_mqa/resource/_quality": {
+      "http://entryscape.com/terms/percentage": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#short",
+        "type": "literal",
+        "value": "60.7"
+       }
+      ],
+      "http://entryscape.com/terms/success": [
+       {
+        "type": "literal",
+        "value": "true"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "type": "literal",
+        "value": "2026-05-27T03:45:26.984Z"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Total of all contexts in repository"
+       }
+      ],
+      "http://entryscape.com/terms/rating": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#decimal",
+        "type": "literal",
+        "value": "1.17"
+       }
+      ],
+      "http://entryscape.com/terms/score": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#short",
+        "type": "literal",
+        "value": "246"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/MQATotal"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "_mqa",
+    "relations": {},
+    "entryId": "_quality",
+    "info": {
+     "https://admin.dataportal.se/store/_mqa/entry/_quality": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_mqa/metadata/_quality"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/1775"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_mqa/resource/_quality"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2024-02-20T17:57:31.520+01:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/1775"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-05-27T05:45:27.846+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_mqa/relations/_quality"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/_mqa/resource/_quality": {
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "application/json"
+       }
+      ],
+      "http://entrystore.org/terms/read": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/_guest"
+       }
+      ],
+      "http://purl.org/dc/terms/extent": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#long",
+        "type": "literal",
+        "value": "4034"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/_mqa/metadata/_quality": {
+      "http://entrystore.org/terms/read": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/_guest"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "metadata": {
+     "https://admin.dataportal.se/store/645/resource/_quality": {
+      "http://entryscape.com/terms/percentage": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#short",
+        "type": "literal",
+        "value": "39.8"
+       }
+      ],
+      "http://entryscape.com/terms/success": [
+       {
+        "type": "literal",
+        "value": "true"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "type": "literal",
+        "value": "2026-05-27T03:45:25.162Z"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Hack4heritage"
+       }
+      ],
+      "http://entryscape.com/terms/rating": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#decimal",
+        "type": "literal",
+        "value": "0.11"
+       }
+      ],
+      "http://entryscape.com/terms/score": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#short",
+        "type": "literal",
+        "value": "161"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/MQA"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "645",
+    "relations": {},
+    "entryId": "_quality",
+    "info": {
+     "https://admin.dataportal.se/store/645/metadata/_quality": {
+      "http://entrystore.org/terms/read": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/_guest"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/645/entry/_quality": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/645/metadata/_quality"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/1775"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/645/resource/_quality"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2024-02-20T18:09:16.401+01:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/1775"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-05-27T05:45:26.118+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/645/relations/_quality"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/645/resource/_quality": {
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "application/json"
+       }
+      ],
+      "http://entrystore.org/terms/read": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/_guest"
+       }
+      ],
+      "http://purl.org/dc/terms/extent": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#long",
+        "type": "literal",
+        "value": "3696"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "limit": 2,
+ "results": 150,
+ "facetFields": []
+}

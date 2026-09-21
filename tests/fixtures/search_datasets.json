@@ -1,0 +1,2942 @@
+{
+ "offset": 0,
+ "resource": {
+  "children": [
+   {
+    "metadata": {
+     "_:5daab98e807e4beba10cb8b7c729b04b401118": {
+      "http://www.w3.org/ns/dcat#endDate": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2099-12-31"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#startDate": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2001-01-01"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/PeriodOfTime"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401117": {
+      "http://purl.org/dc/terms/accrualPeriodicity": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/frequency/CONT"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ajourhållning sker till största delen av Trafikverkets personal via dataleveranser från datakällan."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/MaintenanceInformation"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401116": {
+      "https://metadata.trafikverket.se/ns/deliveryFormat": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/1"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/7"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/9"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/deliveryMedium": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/186"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/187"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/754"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/881"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/DeliveryInformation"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401115": {
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Vägkategori skapas utifrån Vägnummer och Väghållare enligt följande regler per vägkategori. (Notera att det för Riksväg finns två regler!)\n\n1. Europaväg\nVäghållare: Statligt, kommunal eller enskild\nVägnummer:\n- Europaväg = JA\n- Undernummer = finns ej\n----------------------------------------------------------------\n2. Riksväg\nVäghållare: Statligt\nVägnummer:\n- Europaväg = JA\n- Undernummer = finns\n\neller:\nVäghållare: Statligt\nVägnummer:\n- Huvudnummer = 1-99\n----------------------------------------------------------------\n3. Primär länsväg\nVäghållare: Statligt\nVägnummer:\n- Huvudnummer = 100-499\n----------------------------------------------------------------\n4. Övriga länsvägar\nVäghållare: Statligt\nVägnummer:\n- Huvudnummer > 499\n\nDataprodukten använder Det svenska vägnätet som referenssystem d.v.s. utbredningarna är angivna i förhållande till bil-, cykel- eller gångnätet, se kapitel Identifiering av dataproduktspecifikation/ Relaterad dataproduktspecifikation."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Om Dataprodukten"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401114": {
+      "http://purl.org/dc/terms/hasPart": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401108"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/Production"
+       }
+      ]
+     },
+     "https://www.nvdb.se/sv/dokumentation/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: NVDB Dokumentation"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Dokument som är avsedda för dem som behöver veta mer om NVDB-systemet, vilka data som hanteras och hur de hanteras."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401113": {
+      "https://metadata.trafikverket.se/ns/production": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401114"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/dataCaptureStatement": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "¤ Initiala datakällor\n\nBefintlig dataprodukt Vägnummer, Väghållare och Vägtrafiknät används för att skapa Vägkategori.\n\n¤ Datakällor för ajourhållning\n\nVägnät där väghållare är statlig - från Trafikverket vid förändringar av det statliga vägnätet.\n\nVägnät där väghållare är kommunal – från respektive kommun enligt gällande avtal om leveranser till NVDB.  \n\nVägnät där väghållare är enskild och där dataleverantör saknas – Ajourhålls av Trafikverket."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/DataCaptureInformation"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401112": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/maintenance"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401117"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Underhåll"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/dataproduktspecifikationer-vag": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Dataproduktspecifikationer för väg- och vägtrafikdata"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida med presentation av dataprodukspecifikationer."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401111": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/delivery"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401116"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Tillhandahållande"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationsdokument: NVDB informationsmodell"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401119": {
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Initial insamling av data har skett genom att för statlig väg 2001-04-01 hämta data från Vägverkets vägdatabank (VDB den tidigare vägdatabasen, där förändringar ajourhållits kontinuerligt sedan 1980-01-01).\n\nUnderlag för ajourhållning fångas vid investeringsverksamheten för nya statliga vägar och levereras till Trafikverkets enhet för Väg- och järnvägsdata för registrering enligt uppgjorda avtal och processer."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/ProvenanceStatement"
+       }
+      ]
+     },
+     "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Nationell metadataprofil för geografisk information (Standard)"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SIS-TS 80:2018"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/anvandadata": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Använda data"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Beskrivning av tjänster för nedladdning och geodatatjänster"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_U-%C3%96/1045V%C3%A4gkategori.pdf": {
+      "http://purl.org/dc/terms/license": [
+       {
+        "type": "uri",
+        "value": "http://creativecommons.org/publicdomain/zero/1.0/"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#keyword": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "NVDB - STVDB"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "NVDB - STVDB"
+       }
+      ],
+      "http://xmlns.com/foaf/0.1/page": [
+       {
+        "type": "uri",
+        "value": "http://www.nvdb.se"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/anvandadata"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/dataproduktspecifikationer-vag"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/dokumentation/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/om-nvdb/vart-kvalitetsarbete/nvdb-datavalideringar/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/om-nvdb/vart-kvalitetsarbete/extern-kvalitetskontroll/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/contentassets/e0faf1739d244cb384aadf8c1f7a91dd/introduktion-till-nvdbs-vagnat-och-foreteelser.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/leverera-in-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/contentassets/e35b5092378a402d8dc6bd51a5e21742/netinfo-tjanstebeskrivning_v3.8.docx"
+       },
+       {
+        "type": "uri",
+        "value": "https://arbetsrum.sp.trafikverket.se/sites/20190509001811/home/DPS%20%20Arkiv/Grundegenskaper%20f%C3%B6r%20v%C3%A4gn%C3%A4t%20med%20v%C3%A4gnummer_v2.pdf"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/keyword": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/road-data"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/StateRoadNetworkDataSTVDB"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/STVDB_AdministrativeData"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/TransportMode/road"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProcessingMethod/Aggregation"
+       }
+      ],
+      "http://www.w3.org/ns/dx/prof/hasResource": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401109"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401110"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401111"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401112"
+       }
+      ],
+      "http://purl.org/dc/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_C-D/1085Det_svenska_v%C3%A4gn%C3%A4tet.pdf"
+       }
+      ],
+      "http://purl.org/dc/terms/accessRights": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+       }
+      ],
+      "http://purl.org/dc/terms/language": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/language/SWE"
+       }
+      ],
+      "https://metadata.trafikverket.se/schema/confidentiality": [
+       {
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Dataproduktspecifikation som beskriver innehåll, struktur och kvalitetskrav för dataprodukten Vägkategori. Dataprodukten beskriver Trafikverkets hierarkiska indelning av vägars betydelse för det nationella behovet av transporter. Vägkategori indelar bilnätet i Europaväg, Riksväg, Primär länsväg och Övrig länsväg."
+       }
+      ],
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/file-type/RDF"
+       },
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/file-type/PDF"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#contactPoint": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/4/resource/14"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#version": [
+       {
+        "type": "literal",
+        "value": "6.0"
+       }
+      ],
+      "http://purl.org/dc/terms/hasPart": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/224/resource/11"
+       }
+      ],
+      "http://purl.org/dc/terms/issued": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2025-05-13"
+       }
+      ],
+      "https://def.isotc211.org/model/19137-1/dataQualityInfo": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/224/resource/12"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2026-09-01"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Vägkategori - Dataproduktspecifikation"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Road category - Data Product Specification"
+       }
+      ],
+      "http://www.w3.org/ns/adms#versionNotes": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "2026-09-01\nReviderad och anpassad till nytt format av standard för dataproduktspecifikationer."
+       }
+      ],
+      "http://www.w3.org/ns/dcat#theme": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/data-theme/TRAN"
+       }
+      ],
+      "http://purl.org/dc/terms/conformsTo": [
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/ss-en-iso-191572013/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/ss-en-iso-191312022/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/relevantastandarderfrgeodataenvgledning/Om19157/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/ss-en-iso-19157-12023/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/8017694"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/86342"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/Profile"
+       }
+      ]
+     },
+     "https://www.sis.se/api/document/get/86342": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Metadata på svenska"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Metadata in Swedish"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Teknisk rapport SIS-TR 14:2012"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401107": {
+      "http://www.w3.org/ns/dcat#bbox": [
+       {
+        "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral",
+        "type": "literal",
+        "value": "POLYGON((11.11 69.06,24.16 69.06,24.16 55.34,11.11 55.34,11.11 69.06))"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Location"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401106": {
+      "http://www.w3.org/ns/prov#wasDerivedFrom": [
+       {
+        "type": "uri",
+        "value": "http://data.europa.eu/eli/reg/2010/1089/oj"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/prov#Plan"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401105": {
+      "http://www.w3.org/ns/prov#hadPlan": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401106"
+       }
+      ]
+     },
+     "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Metadata –  Del 1: Grunder"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Metadata –  Part 1: Fundamentals"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SS-EN ISO 19115–1"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Tillhandahållande av resurs"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Information om plattformar för att hämta data och instruktioner om hur man hämtar data"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401104": {
+      "http://www.w3.org/ns/prov#generated": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401103"
+       }
+      ],
+      "http://www.w3.org/ns/prov#qualifiedAssociation": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401105"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/prov#Activity"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401103": {
+      "http://purl.org/dc/terms/type": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/DegreeOfConformity/conformant"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Data, kartor och geodatatjänster"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ingångssida för information om vägar, järnvägar och trafik"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401109": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/dataCapture"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401113"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Datafångst och produktion"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401108": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Vägkategori är ett aggregat, en egen dataprodukt med egen attributuppsättning som skapas ur andra dataprodukter. Det betyder att man kombinerar dataprodukter och/eller attribut för att skapa nya attribut i den blivande dataprodukten. Historik för dataprodukten finns från den dag aggregatet är skapat."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401110": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/role/guidance"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401115"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Vägledning"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "https://metadata.trafikverket.se/store/1/resource/735": {
+      "http://xmlns.com/foaf/0.1/page": [
+       {
+        "type": "uri",
+        "value": "http://www.nvdb.se"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/anvandadata"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/dataproduktspecifikationer-vag"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/dokumentation/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/keyword": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/road-data"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/StateRoadNetworkDataSTVDB"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/STVDB_AdministrativeData"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/TransportMode/road"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/road-network-type/C"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/RoadAuthority/term2"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProcessingMethod/Aggregation"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/useLimitation": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ingen begränsning"
+       }
+      ],
+      "http://purl.org/dc/terms/accessRights": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/spatialScope": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/SpatialScope/national"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Trafikverkets indelning för det statliga vägnätets betydelse för det nationella behovet av transporter."
+       }
+      ],
+      "http://purl.org/dc/terms/spatial": [
+       {
+        "type": "uri",
+        "value": "https://sws.geonames.org/2661886"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401107"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#contactPoint": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/4/resource/14"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#landingPage": [
+       {
+        "type": "uri",
+        "value": "https://data.trafikverket.se/search/search-data/details?esc_entry=735&esc_context=1"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/transportation"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.eionet.europa.eu/gemet/concept/8641"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2024-11-12"
+       }
+      ],
+      "http://purl.org/dc/terms/conformsTo": [
+       {
+        "type": "uri",
+        "value": "http://www.opengis.net/def/crs/EPSG/0/3006"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_U-%C3%96/1045V%C3%A4gkategori.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/86342"
+       }
+      ],
+      "http://purl.org/dc/terms/temporal": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401118"
+       }
+      ],
+      "http://entryscape.org/terms/metadataIdentifier": [
+       {
+        "type": "literal",
+        "value": "38877abf-d57d-4370-844f-0ded75bc3f65"
+       }
+      ],
+      "http://purl.org/dc/terms/license": [
+       {
+        "type": "uri",
+        "value": "http://creativecommons.org/publicdomain/zero/1.0/"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#keyword": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "NVDB - STVDB"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "NVDB - STVDB"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/areaCoveredQuotient": [
+       {
+        "type": "literal",
+        "value": "449964/449964"
+       }
+      ],
+      "http://purl.org/dc/terms/accrualPeriodicity": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/frequency/CONT"
+       }
+      ],
+      "http://www.w3.org/ns/prov#wasUsedBy": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401104"
+       }
+      ],
+      "http://purl.org/dc/terms/identifier": [
+       {
+        "type": "literal",
+        "value": "46aa1cef-e72c-461a-b379-4578354d14b6"
+       }
+      ],
+      "http://www.w3.org/ns/adms#status": [
+       {
+        "type": "uri",
+        "value": "https://dataportal.se/concepts/ProgressCode/onGoing"
+       }
+      ],
+      "http://purl.org/dc/terms/language": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/language/SWE"
+       }
+      ],
+      "https://metadata.trafikverket.se/schema/confidentiality": [
+       {
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://purl.org/dc/terms/publisher": [
+       {
+        "type": "uri",
+        "value": "http://dataportal.se/organisation/SE2021006297"
+       }
+      ],
+      "http://purl.org/dc/terms/alternative": [
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Road Category"
+       }
+      ],
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "text/html"
+       },
+       {
+        "type": "literal",
+        "value": "application/vnd.ogc.wms_xml"
+       },
+       {
+        "type": "literal",
+        "value": "application/geopackage+sqlite3"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#distribution": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/838"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/941"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/1258"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "http://dataportal.se/organisation/SE2021006297"
+       }
+      ],
+      "http://purl.org/dc/terms/provenance": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401119"
+       }
+      ],
+      "http://purl.org/dc/terms/issued": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2013-12-18"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2013-12-18"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Vägkategori"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#theme": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/data-theme/TRAN"
+       },
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/theme/tn"
+       }
+      ],
+      "http://entryscape.com/terms/servedByDataService": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/186"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/187"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/881"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dcat#Dataset"
+       },
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/ServedByDataService"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Läs om våra data"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Information om Trafikverkets dataprodukter"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "http://www.nvdb.se": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: NVDB - nationell vägdatabas"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Nationell vägdatabas för dataanvändare och dataleverantörer (Trafikverket, Sveriges kommuner, skogsnäringen, Transportstyrelsen, Lantmäteriet)."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "50",
+    "relations": {},
+    "entryId": "6088",
+    "info": {
+     "https://admin.dataportal.se/store/50/entry/6088": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/50/metadata/6088"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/735"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2025-08-29T02:30:36.312+02:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T04:17:34.948+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/50/relations/6088"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entrystore.org/terms/Link"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "metadata": {
+     "https://www.nvdb.se/sv/dokumentation/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: NVDB Dokumentation"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Dokument som är avsedda för dem som behöver veta mer om NVDB-systemet, vilka data som hanteras och hur de hanteras."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401079": {
+      "http://www.w3.org/ns/dcat#bbox": [
+       {
+        "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral",
+        "type": "literal",
+        "value": "POLYGON((11.11 69.06,24.16 69.06,24.16 55.34,11.11 55.34,11.11 69.06))"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Location"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/dataproduktspecifikationer-vag": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Dataproduktspecifikationer för väg- och vägtrafikdata"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida med presentation av dataprodukspecifikationer."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401078": {
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Från 2006 förekommer företeelsen i NVDB. Initial insamling av data skedde från Lantmäteriet som har levererat uppgifter om tunnlar och från Batman. Initial laddning har skett efter hand från kommunala leverantörer.\n\nUnderlag för ajourhållning fångas hos dataleverantörerna och levereras till Trafikverkets enhet för\n\n- Statligt vägnät – från Trafikverket vid förändringar eller nybyggnation.\n\n- Kommunalt vägnät – enligt gällande avtal om leveranser till NVDB. I de projekt som drivs av Trafikverket, men påverkar den kommunala anläggningen, ansvarar Trafikverket för att förändringar om väghållaransvaret uppdateras.\n\n- Enskilt vägnät inom kommunernas leveransområden – vid förändring på det enskilda vägnätet inom kommunens leveransområden enligt gällande avtal om leveranser till NVDB.\n\n- Enskilt vägnät övrigt - Ingen officiell leverantör, levereras genom kundrapporterade avvikelser.\nFörändringar kan även fångas via avvikelsehantering."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/ProvenanceStatement"
+       }
+      ]
+     },
+     "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationsdokument: NVDB informationsmodell"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401080": {
+      "https://metadata.trafikverket.se/ns/deliveryFormat": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/1"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/7"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/8"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/87/resource/9"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/deliveryMedium": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/186"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/187"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/754"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/881"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/DeliveryInformation"
+       }
+      ]
+     },
+     "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Nationell metadataprofil för geografisk information (Standard)"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SIS-TS 80:2018"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/tjanster/system-och-verktyg/forvaltning-och-underhall/BaTMan/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Bro- och tunnelförvaltningssystem (BATMAN)"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "BATMAN är ett hjälpmedel för effektiv förvaltning av broar, tunnlar och andra typer av byggnadsverk, exempelvis färjelägen och stödkonstruktioner."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401088": {
+      "http://purl.org/dc/terms/type": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/DegreeOfConformity/conformant"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401087": {
+      "http://www.w3.org/ns/prov#generated": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401088"
+       }
+      ],
+      "http://www.w3.org/ns/prov#qualifiedAssociation": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401089"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/prov#Activity"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401086": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/dataCapture"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401082"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Datafångst och produktion"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/anvandadata": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Använda data"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Beskrivning av tjänster för nedladdning och geodatatjänster"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401085": {
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Dataprodukten består av företeelser med utbredningar som är knutna till vägnätet. \n\nDataprodukten innehåller uppgifter om överfarter, underfarter samt tunnlar som tillåter trafik. Förekommer bl.a. vid broar, planskilda korsningar, vägportar samt tunnlar. Detta för att visa var det finns konstruktioner som tillåter trafik över eller under vattendrag, dalgångar, vägar, byggnader, järnvägar, gång- och cykelvägar eller genom berg eller jord. \n\nDet är bara för konstruktioner av typen \"överfart\", \"tunnel\" samt \"överfart och underfart\" som längden anges. För typen \"överfart och underfart\" är det överfartens längd som anges. Konstruktionens längd mäts vanligen i väglinjen. Beroende på konstruktionstyp mäts längden olika. \n\nKonstruktioner av typen vägtrumma levereras ej. Som vägtrumma räknas konstruktion med teoretisk spännvidd mindre än eller lika med 2,0 m i största spannet. \n\nI attributet \"Namn\" anges endast unika BaTMan-namn, det vill säga de särskilda namn som finns i Trafikverkets konstruktionsdatabas BaTMan. Finns inget sådant namn lämnas attributvärdet tomt. För att ange beslutade, officiella namn, används attributet \"Officiellt namn\". Kommunala och statliga konstruktioner namnges endast av respektive väghållare. \nBåda namnen kan finnas samtidigt på en konstruktion, då de uppfyller olika syften. \n\nDataprodukten använder Det svenska vägnätet som referenssystem d.v.s. utbredningarna är angivna i förhållande till bil-, cykel- eller gångnätet, se kapitlet Identifiering av dataproduktspecifikationen/ Relaterad dataproduktspecifikation."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Om Dataprodukten"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401084": {
+      "http://purl.org/dc/terms/hasPart": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401095"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401096"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401097"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401098"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401099"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401100"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401101"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401102"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/Production"
+       }
+      ]
+     },
+     "https://www.sis.se/api/document/get/86342": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Metadata på svenska"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Metadata in Swedish"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Teknisk rapport SIS-TR 14:2012"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401083": {
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Produktionen sker till största delen av Trafikverkets personal via dataleveranser från olika datakällor. Vissa leverantörer har egna godkända system via vilka de kan leverera data direkt. I dataleveranserna ska information om tillkomst ingå för varje företeelse och den registreras m.h.a. dataprodukten Företeelsetillkomst, se referens #6. Bro och tunnel ska levereras för bil-, gång- och cykelnät. Tunnel: En tunnel är en för trafik anordnad passage som vanligtvis omges av berg, jord eller vatten och som mynnar i dagen. Objekten kan vara antingen en enkel tunnel eller ett system av sammanhängande tunnlar. Varje enskild tunnel registreras som en företeelse med en eller flera utbredningar. OBS! I dagligt tal säger man ofta \"gångtunnel\" eller \"cykeltunnel\" men det rör sig i de allra flesta fall om en vanlig underfart. Överfart: En överfart beskriver en passage för trafik via en konstruktion av typen bro. Underfart: Underfarter registreras vid planskilda korsningar eller vägportar. En underfart beskriver passagen under en konstruktion som oftast är en bro. Om underfarten går under flera broar skall det vara mindre än 10 meter mellan dem för att underfarten skall registreras med en enskild utbredning. I annat fall blir det två eller flera utbredningar. Överfart och underfart: I ett fåtal trafikplatser kan samma vägsträcka vara både en överfart och en underfart. Utbredningens längd är i dessa undantagsfall troligen olika för överfarten resp. underfarten på den väg som ligger i det mellersta planet. Välj den utbredning som är längst. OBS Då det inne i en tunnel finns en överfart (sådana finns!) så går överfarten tyvärr inte att registrera. Identitet: På det statliga vägnätet och på vägar med statligt driftbidrag används konstruktionsnumret från Trafikverkets brodatabas, BaTMan, som identifikationsbegrepp. Skogsnäringen har egna identiteter på sina konstruktioner och dessa läggs under detta attribut. De skogliga identiteterna ser ut enligt nedan: 999-löpnummer-Kod för bolag (ex 999-5468-100), om bron har ett Batman-id så behålls det. Löpnumret hämtas från broregistret. Koder för bolag: 100=Sveaskog, 200=SCA, 300=Biometria, 400=Stora Enso, 500=Holmen skog."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "https://metadata.trafikverket.se/store/1/resource/623": {
+      "http://xmlns.com/foaf/0.1/page": [
+       {
+        "type": "uri",
+        "value": "http://www.nvdb.se"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/anvandadata"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/dataproduktspecifikationer-vag"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/dokumentation/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_A-B/1040Bro%20och%20tunnel.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/system-och-verktyg/forvaltning-och-underhall/BaTMan/"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/keyword": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/NVDB_RoadDesign"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/NationalRoadDatabaseNVDB"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/road-data"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/TransportMode/road"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/road-network-type/C"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/RoadAuthority/term2"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/RoadAuthority/term3"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/road-network-type/B"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/RoadAuthority/term4"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/road-network-type/W"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/useLimitation": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ingen begränsning"
+       }
+      ],
+      "http://purl.org/dc/terms/accessRights": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/spatialScope": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/SpatialScope/national"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Konstruktioner som tillåter trafik över eller under vattendrag, dalgångar, vägar, byggnader, järnvägar och cykelvägar eller genom berg eller jord."
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "The dataset provides  Bridge and Tunnel data :  constructions allowing traffic over or under waterways, valleys, roads, buildings, railways, bicycle paths, through mountains or terrain."
+       }
+      ],
+      "http://purl.org/dc/terms/spatial": [
+       {
+        "type": "uri",
+        "value": "https://sws.geonames.org/2661886"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401079"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#contactPoint": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/4/resource/14"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#landingPage": [
+       {
+        "type": "uri",
+        "value": "https://data.trafikverket.se/search/search-data/details?esc_entry=623&esc_context=1"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/transportation"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.eionet.europa.eu/gemet/concept/8641"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2024-11-12"
+       }
+      ],
+      "http://purl.org/dc/terms/conformsTo": [
+       {
+        "type": "uri",
+        "value": "http://www.opengis.net/def/crs/EPSG/0/3006"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_A-B/1040Bro%20och%20tunnel.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/86342"
+       }
+      ],
+      "http://purl.org/dc/terms/temporal": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401093"
+       }
+      ],
+      "http://entryscape.org/terms/metadataIdentifier": [
+       {
+        "type": "literal",
+        "value": "b8a12ab5-c1e5-4cf3-a34a-cdeaacabbbdd"
+       }
+      ],
+      "http://purl.org/dc/terms/license": [
+       {
+        "type": "uri",
+        "value": "http://creativecommons.org/publicdomain/zero/1.0/"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#keyword": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "NVDB"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "NVDB"
+       }
+      ],
+      "https://dataportal.se/concepts/geose/areaCoveredQuotient": [
+       {
+        "type": "literal",
+        "value": "449964/449964"
+       }
+      ],
+      "http://purl.org/dc/terms/accrualPeriodicity": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/frequency/CONT"
+       }
+      ],
+      "http://www.w3.org/ns/prov#wasUsedBy": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401087"
+       }
+      ],
+      "http://purl.org/dc/terms/identifier": [
+       {
+        "type": "literal",
+        "value": "bb4c8660-d438-4d6e-9951-7fd3e861b795"
+       }
+      ],
+      "http://www.w3.org/ns/adms#status": [
+       {
+        "type": "uri",
+        "value": "https://dataportal.se/concepts/ProgressCode/onGoing"
+       }
+      ],
+      "http://purl.org/dc/terms/language": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/language/SWE"
+       }
+      ],
+      "https://metadata.trafikverket.se/schema/confidentiality": [
+       {
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://purl.org/dc/terms/publisher": [
+       {
+        "type": "uri",
+        "value": "http://dataportal.se/organisation/SE2021006297"
+       }
+      ],
+      "http://purl.org/dc/terms/alternative": [
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Bridge and Tunnel"
+       }
+      ],
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "text/html"
+       },
+       {
+        "type": "literal",
+        "value": "application/vnd.ogc.wms_xml"
+       },
+       {
+        "type": "literal",
+        "value": "application/geopackage+sqlite3"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#distribution": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/751"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/759"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/1262"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/1412"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/1413"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/2467"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "http://dataportal.se/organisation/SE2021006297"
+       }
+      ],
+      "http://purl.org/dc/terms/provenance": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401078"
+       }
+      ],
+      "http://purl.org/dc/terms/issued": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2013-07-01"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2013-07-01"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Bro och tunnel"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#theme": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/data-theme/TRAN"
+       },
+       {
+        "type": "uri",
+        "value": "http://inspire.ec.europa.eu/theme/tn"
+       }
+      ],
+      "http://entryscape.com/terms/servedByDataService": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/186"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/187"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/881"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dcat#Dataset"
+       },
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/ServedByDataService"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401082": {
+      "https://metadata.trafikverket.se/ns/production": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401083"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401084"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/dataCaptureStatement": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "¤ Initiala datakällor\n\nFrån 2006 förekommer dataprodukten i NVDB. Initial insamling av data skedde från Lantmäteriet som har levererat uppgifter om tunnlar och från Batman. Initial laddning har skett efter hand från kommunala leverantörer. \n\n¤ Datakällor för ajourhållning\n\nVägnät där väghållare är statlig - från Trafikverket vid förändringar av det statliga vägnätet. \n\nVägnät där väghållare är kommunal – från respektive kommun enligt gällande avtal om leveranser till NVDB. \n\nVägnät där väghållare är enskild och ligger inom kommuns leveransområden – från respektive kommun vid förändring enligt gällande avtal om leveranser till NVDB."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/DataCaptureInformation"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401081": {
+      "http://purl.org/dc/terms/accrualPeriodicity": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/frequency/CONT"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ajourhållning sker till största delen av Trafikverkets personal via dataleveranser från olika datakällor. Dataleverantör kan erbjudas möjlighet att ajourhålla databasen under förutsättning att man kan leverera enligt de krav som Trafikverket ställer."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/ns/MaintenanceInformation"
+       }
+      ]
+     },
+     "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Metadata –  Del 1: Grunder"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Metadata –  Part 1: Fundamentals"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SS-EN ISO 19115–1"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Tillhandahållande av resurs"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Information om plattformar för att hämta data och instruktioner om hur man hämtar data"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "https://www.sis.se/api/document/get/8017694": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Tekniskt ramverk – Handbok för  dataproduktspecifikation"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Technical framework – Manual for  data product specification"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Teknisk rapport SIS-TR 40:2015. Bygger på en äldre version av standarden."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_A-B/1040Bro%20och%20tunnel.pdf": {
+      "http://purl.org/dc/terms/license": [
+       {
+        "type": "uri",
+        "value": "http://creativecommons.org/publicdomain/zero/1.0/"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#keyword": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "NVDB"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "NVDB"
+       }
+      ],
+      "http://xmlns.com/foaf/0.1/page": [
+       {
+        "type": "uri",
+        "value": "http://www.nvdb.se"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/anvandadata"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/dataproduktspecifikationer-vag"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/dokumentation/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/globalassets/upload/styrande-och-vagledande-dokument/nvdb---informationsmodell-v8.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/system-och-verktyg/forvaltning-och-underhall/BaTMan/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/om-nvdb/vart-kvalitetsarbete/nvdb-datavalideringar/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.nvdb.se/sv/om-nvdb/vart-kvalitetsarbete/extern-kvalitetskontroll/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/contentassets/e0faf1739d244cb384aadf8c1f7a91dd/introduktion-till-nvdbs-vagnat-och-foreteelser.pdf"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/leverera-in-data/"
+       },
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/contentassets/e35b5092378a402d8dc6bd51a5e21742/netinfo-tjanstebeskrivning_v3.8.docx"
+       },
+       {
+        "type": "uri",
+        "value": "https://arbetsrum.sp.trafikverket.se/sites/20190509001811/home/DPS%20%20Arkiv/Grundegenskaper%20f%C3%B6r%20v%C3%A4gn%C3%A4t%20med%20v%C3%A4gnummer_v2.pdf"
+       }
+      ],
+      "https://metadata.trafikverket.se/ns/keyword": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/NVDB_RoadDesign"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/NationalRoadDatabaseNVDB"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/DataProductCategory/road-data"
+       },
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/TransportMode/road"
+       }
+      ],
+      "http://www.w3.org/ns/dx/prof/hasResource": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401086"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401090"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401091"
+       },
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401094"
+       }
+      ],
+      "http://purl.org/dc/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://bransch.trafikverket.se/TrvSeFiler/Dataproduktspecifikationer/V%C3%A4gdataprodukter/DPS_C-D/1085Det_svenska_v%C3%A4gn%C3%A4tet.pdf"
+       }
+      ],
+      "http://purl.org/dc/terms/accessRights": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+       }
+      ],
+      "http://purl.org/dc/terms/language": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/language/SWE"
+       }
+      ],
+      "https://metadata.trafikverket.se/schema/confidentiality": [
+       {
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://purl.org/dc/terms/publisher": [
+       {
+        "type": "uri",
+        "value": "http://dataportal.se/organisation/SE2021006297"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Dataproduktspecifikation som beskriver innehåll, struktur och kvalitetskrav för dataprodukten  Bro och tunnel. Dataprodukten omfattar data om överfarter, underfarter samt tunnlar på vägsträckor."
+       }
+      ],
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/file-type/RDF"
+       },
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/file-type/PDF"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#contactPoint": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/4/resource/14"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#version": [
+       {
+        "type": "literal",
+        "value": "14.0"
+       }
+      ],
+      "http://purl.org/dc/terms/hasPart": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/179/resource/11"
+       }
+      ],
+      "http://purl.org/dc/terms/issued": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2020-05-04"
+       }
+      ],
+      "https://def.isotc211.org/model/19137-1/dataQualityInfo": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/179/resource/12"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2026-09-01"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Bro och tunnel - Dataproduktspecifikation"
+       },
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Bridge and tunnel - Data product specification"
+       }
+      ],
+      "http://www.w3.org/ns/adms#versionNotes": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "2026-09-01\nReviderad och anpassad till nytt format av standard för dataproduktspecifikationer."
+       }
+      ],
+      "http://www.w3.org/ns/dcat#theme": [
+       {
+        "type": "uri",
+        "value": "http://publications.europa.eu/resource/authority/data-theme/TRAN"
+       }
+      ],
+      "http://purl.org/dc/terms/conformsTo": [
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/ss-en-iso-191572013/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/sseniso191152005/"
+       },
+       {
+        "type": "uri",
+        "value": "http://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/sis-ts-802018/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/ss-en-iso-191312022/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/relevantastandarderfrgeodataenvgledning/Om19157/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/ss-en-iso-19157-12023/"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/8017694"
+       },
+       {
+        "type": "uri",
+        "value": "https://www.sis.se/api/document/get/86342"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/Profile"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401102": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Underfarter registreras vid planskilda korsningar eller vägportar. En underfart beskriver passagen under en konstruktion som oftast är en bro. Om underfarten går under flera broar skall det vara mindre än 10 meter mellan dem för att underfarten skall registreras med en enskild utbredning. I annat fall blir det två eller flera utbredningar."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "3. Underfart"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401101": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "När en konstruktion har ett beslutat officiellt namn, likt Götatunneln och Högakustenbron, anges det under attributet Officiellt namn. Kommunala och statliga konstruktioner namnges endast av respektive väghållare.\n\nOm en kommun har önskemål kring namnsättningen av en statlig konstruktion ska den diskussionen föras med aktuell region på Trafikverket. Kontakta NVDBs indatastöd för vägledning.\n\nSkogsnäringen namnsätter många av sina konstruktioner och då ska dessa namn placeras under ”Officiellt namn”."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "7. Officiellt namn"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401089": {
+      "http://www.w3.org/ns/prov#hadPlan": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401092"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401100": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Produktionen sker till största delen av Trafikverkets personal via dataleveranser från olika datakällor. Vissa leverantörer har egna godkända system via vilka de kan leverera data direkt.  I dataleveranserna ska information om tillkomst ingå för varje företeelse.\n\nBro och tunnel ska levereras för bil-, gång- och cykelnät."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "https://www.sis.se/relevantastandarderfrgeodataenvgledning/Om19157/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Handledning för datakvalitet"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Handledning som stödjer den internationella standarden för geodatakvalitet SS-EN ISO 19157 Geografisk information – Datakvalitet"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Data, kartor och geodatatjänster"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Ingångssida för information om vägar, järnvägar och trafik"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401091": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/delivery"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401080"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Tillhandahållande"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401090": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/role/guidance"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401085"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Vägledning"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401099": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "6"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "På det statliga vägnätet och på vägar med statligt driftbidrag används konstruktionsnumret från Trafikverkets brodatabas, BaTMan, som identifikationsbegrepp.\nSkogsnäringen har egna identiteter på sina konstruktioner och dessa läggs under detta attribut.  De skogliga identiteterna ser ut enligt nedan:999-löpnummer-Kod för bolag (ex 999-5468-100), om bron har ett Batman-id så behålls det. Löpnumret hämtas från broregistret.\n\nKoder för bolag\n100=Sveaskog\n200=SCA\n300=Biometria\n400=Stora Enso\n500=Holmen skog\n\nUtbredningens läge för underfart, tunnel och överfart skall vara enligt figurerna nedan:"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "5. Identitet"
+       }
+      ],
+      "http://schema.org/image": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/179/resource/5"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401098": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "En tunnel är en för trafik anordnad passage som vanligtvis omges av berg, jord eller vatten och som mynnar i dagen. Objekten kan vara antingen en enkel tunnel eller ett system av sammanhängande tunnlar. Varje enskild tunnel registreras som en företeelse med en eller flera utbredningar.\n\nOBS! I dagligt tal säger man ofta ”gångtunnel” eller ”cykeltunnel” men det rör sig i de allra flesta fall om en vanlig underfart."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "1. Tunnel"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401097": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "En överfart beskriver en passage för trafik via en konstruktion av typen bro."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "2. Överfart"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "https://www.sis.se/produkter/informationsteknik-kontorsutrustning/ittillampningar/it-tillampningar-inom-vetenskap/ss-en-iso-191312022/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geographic Information - Data Product Specifications (Standard)"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SS-EN ISO 19131"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "https://www.sis.se/produkter/foretagsorganisation/kvalitet/allmant/ss-en-iso-19157-12023/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "en",
+        "value": "Geographic information - Data quality — Part 3: Data quality measures register"
+       },
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Geografisk information - Datakvalitet - Del 3: Register över datakvalitetsmått"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "SS- EN ISO 19157-3 (ej officiellt publicerad - tillfällig länk: https://defs-hosted.opengis.net/prez-hosted/catalogs/hosted:iso-19157-3/collections/ns10:qualityMeasure)"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/Standard"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401096": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "7"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "I de fall ett BaTMan-namn, ett beskrivande namn som återfinns i BaTMan, finns på konstruktionen ska det namnet finnas i attributet Namn. Saknas BaTMan-namn lämnas attributvärdet tomt."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "6. Namn"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401095": {
+      "http://qudt.org/schema/qudt/order": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://schema.org/text": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "I ett fåtal trafikplatser kan samma vägsträcka vara både en överfart och en underfart.\n\nUtbredningens längd är i dessa undantagsfall troligen olika för överfarten resp. underfarten på den väg som ligger i det mellersta planet. Välj den utbredning som är längst.\n\nOBS Då det inne i en tunnel finns en överfart (sådana finns!) så går överfarten tyvärr inte att registrera."
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "4. Överfart och underfart"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/dcmitype/Collection"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401094": {
+      "http://www.w3.org/ns/dx/prof/hasRole": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/concepts/dps-prof-roles/maintenance"
+       }
+      ],
+      "http://purl.org/dc/terms/subject": [
+       {
+        "type": "bnode",
+        "value": "_:5daab98e807e4beba10cb8b7c729b04b401081"
+       }
+      ],
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "value": "Underhåll"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/dx/prof/ResourceDescriptor"
+       }
+      ]
+     },
+     "https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: Läs om våra data"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Information om Trafikverkets dataprodukter"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401093": {
+      "http://www.w3.org/ns/dcat#endDate": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2099-12-31"
+       }
+      ],
+      "http://www.w3.org/ns/dcat#startDate": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2001-01-01"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://purl.org/dc/terms/PeriodOfTime"
+       }
+      ]
+     },
+     "_:5daab98e807e4beba10cb8b7c729b04b401092": {
+      "http://www.w3.org/ns/prov#wasDerivedFrom": [
+       {
+        "type": "uri",
+        "value": "http://data.europa.eu/eli/reg/2010/1089/oj"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://www.w3.org/ns/prov#Plan"
+       }
+      ]
+     },
+     "http://www.nvdb.se": {
+      "http://purl.org/dc/terms/title": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Informationssida: NVDB - nationell vägdatabas"
+       }
+      ],
+      "http://purl.org/dc/terms/description": [
+       {
+        "type": "literal",
+        "lang": "sv",
+        "value": "Nationell vägdatabas för dataanvändare och dataleverantörer (Trafikverket, Sveriges kommuner, skogsnäringen, Transportstyrelsen, Lantmäteriet)."
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://xmlns.com/foaf/0.1/Document"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "50",
+    "relations": {},
+    "entryId": "6079",
+    "info": {
+     "https://admin.dataportal.se/store/50/entry/6079": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/50/metadata/6079"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://metadata.trafikverket.se/store/1/resource/623"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2025-08-29T02:30:24.595+02:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T04:17:34.586+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/50/relations/6079"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entrystore.org/terms/Link"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "limit": 2,
+ "results": 23548,
+ "facetFields": []
+}
