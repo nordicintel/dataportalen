@@ -1,0 +1,359 @@
+{
+ "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.xlsx": {
+  "http://www.w3.org/ns/dcat#downloadURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.xlsx"
+   }
+  ],
+  "http://purl.org/dc/terms/license": [
+   {
+    "type": "uri",
+    "value": "http://creativecommons.org/licenses/by/4.0/"
+   }
+  ],
+  "http://purl.org/dc/terms/format": [
+   {
+    "type": "literal",
+    "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+   }
+  ],
+  "http://data.europa.eu/r5r/availability": [
+   {
+    "type": "uri",
+    "value": "http://data.europa.eu/r5r/availability/stable"
+   }
+  ],
+  "http://www.w3.org/ns/adms#status": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/distribution-status/COMPLETED"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#accessURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.xlsx"
+   }
+  ],
+  "http://purl.org/dc/terms/title": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Uppdelning: Län"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://www.w3.org/ns/dcat#Distribution"
+   }
+  ]
+ },
+ "_:5daab98e807e4beba10cb8b7c729b04b400117": {
+  "http://schema.org/startDate": [
+   {
+    "datatype": "http://www.w3.org/2001/XMLSchema#gYear",
+    "type": "literal",
+    "value": "2019"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://purl.org/dc/terms/PeriodOfTime"
+   }
+  ]
+ },
+ "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/meta.json": {
+  "http://purl.org/dc/terms/license": [
+   {
+    "type": "uri",
+    "value": "http://creativecommons.org/licenses/by/4.0/"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#keyword": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "funktions-nedsättning"
+   },
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "omvårdnadsbidrag"
+   }
+  ],
+  "http://purl.org/dc/terms/accrualPeriodicity": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/frequency/ANNUAL"
+   }
+  ],
+  "http://purl.org/dc/terms/identifier": [
+   {
+    "type": "literal",
+    "value": "omv-mottagare-ar"
+   }
+  ],
+  "http://purl.org/dc/terms/accessRights": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+   }
+  ],
+  "http://purl.org/dc/terms/language": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/language/SWE"
+   }
+  ],
+  "http://purl.org/dc/terms/publisher": [
+   {
+    "type": "uri",
+    "value": "http://dataportal.se/organisation/SE2021005521"
+   }
+  ],
+  "http://purl.org/dc/terms/description": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Årsstatistik från och med 2019 över antal mottagare och utbetalt belopp efter kön, delförmån, län och ålder."
+   }
+  ],
+  "http://purl.org/dc/terms/format": [
+   {
+    "type": "literal",
+    "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+   },
+   {
+    "type": "literal",
+    "value": "application/json"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#contactPoint": [
+   {
+    "type": "uri",
+    "value": "https://catalog.forsakringskassan.se/store/9/resource/46"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#distribution": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.xlsx"
+   },
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArAld.json"
+   },
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.json"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#landingPage": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/statistik/statistikdatabas/#!/fn/omv-mottagare-ar"
+   }
+  ],
+  "http://purl.org/dc/terms/title": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Antal personer som har fått omvårdnadsbidrag"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#theme": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/data-theme/GOVE"
+   },
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/data-theme/SOCI"
+   },
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/data-theme/ECON"
+   },
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/data-theme/HEAL"
+   }
+  ],
+  "http://purl.org/dc/terms/temporal": [
+   {
+    "type": "bnode",
+    "value": "_:5daab98e807e4beba10cb8b7c729b04b400117"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://www.w3.org/ns/dcat#Dataset"
+   }
+  ]
+ },
+ "https://catalog.forsakringskassan.se/store/9/resource/46": {
+  "http://www.w3.org/2006/vcard/ns#fn": [
+   {
+    "type": "literal",
+    "value": "Statistikservice"
+   }
+  ],
+  "http://www.w3.org/2006/vcard/ns#hasEmail": [
+   {
+    "type": "uri",
+    "value": "mailto:statistikenheten@forsakringskassan.se"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://www.w3.org/2006/vcard/ns#Organization"
+   }
+  ]
+ },
+ "http://dataportal.se/organisation/SE2021005521": {
+  "http://xmlns.com/foaf/0.1/name": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Försäkringskassan"
+   }
+  ],
+  "http://xmlns.com/foaf/0.1/page": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se"
+   }
+  ],
+  "http://purl.org/dc/terms/identifier": [
+   {
+    "type": "literal",
+    "value": "2021005521"
+   }
+  ],
+  "http://purl.org/dc/terms/type": [
+   {
+    "type": "uri",
+    "value": "http://purl.org/adms/publishertype/NationalAuthority"
+   }
+  ],
+  "http://xmlns.com/foaf/0.1/mbox": [
+   {
+    "type": "uri",
+    "value": "mailto:asa.holmberg@forsakringskassan.se"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://xmlns.com/foaf/0.1/Agent"
+   }
+  ]
+ },
+ "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.json": {
+  "http://www.w3.org/ns/dcat#downloadURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.json"
+   }
+  ],
+  "http://purl.org/dc/terms/license": [
+   {
+    "type": "uri",
+    "value": "http://creativecommons.org/licenses/by/4.0/"
+   }
+  ],
+  "http://purl.org/dc/terms/format": [
+   {
+    "type": "literal",
+    "value": "application/json"
+   }
+  ],
+  "http://data.europa.eu/r5r/availability": [
+   {
+    "type": "uri",
+    "value": "http://data.europa.eu/r5r/availability/stable"
+   }
+  ],
+  "http://www.w3.org/ns/adms#status": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/distribution-status/COMPLETED"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#accessURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArLan.json"
+   }
+  ],
+  "http://purl.org/dc/terms/title": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Uppdelning: Län"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://www.w3.org/ns/dcat#Distribution"
+   }
+  ]
+ },
+ "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArAld.json": {
+  "http://www.w3.org/ns/dcat#downloadURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArAld.json"
+   }
+  ],
+  "http://purl.org/dc/terms/license": [
+   {
+    "type": "uri",
+    "value": "http://creativecommons.org/licenses/by/4.0/"
+   }
+  ],
+  "http://purl.org/dc/terms/format": [
+   {
+    "type": "literal",
+    "value": "application/json"
+   }
+  ],
+  "http://data.europa.eu/r5r/availability": [
+   {
+    "type": "uri",
+    "value": "http://data.europa.eu/r5r/availability/stable"
+   }
+  ],
+  "http://www.w3.org/ns/adms#status": [
+   {
+    "type": "uri",
+    "value": "http://publications.europa.eu/resource/authority/distribution-status/COMPLETED"
+   }
+  ],
+  "http://www.w3.org/ns/dcat#accessURL": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/OMVAntalMottagareBeloppArAld.json"
+   }
+  ],
+  "http://purl.org/dc/terms/title": [
+   {
+    "type": "literal",
+    "lang": "sv",
+    "value": "Uppdelning: Ålder"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://www.w3.org/ns/dcat#Distribution"
+   }
+  ]
+ }
+}

@@ -1,0 +1,54 @@
+{
+ "https://admin.dataportal.se/store/547/entry/28672": {
+  "http://entrystore.org/terms/metadata": [
+   {
+    "type": "uri",
+    "value": "https://admin.dataportal.se/store/547/metadata/28672"
+   }
+  ],
+  "http://purl.org/dc/terms/creator": [
+   {
+    "type": "uri",
+    "value": "https://admin.dataportal.se/store/_principals/resource/2"
+   }
+  ],
+  "http://entrystore.org/terms/resource": [
+   {
+    "type": "uri",
+    "value": "https://www.forsakringskassan.se/api/sprstatistikrapportera/public/v1/omv-mottagare-ar/meta.json"
+   }
+  ],
+  "http://purl.org/dc/terms/created": [
+   {
+    "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+    "type": "literal",
+    "value": "2026-09-19T03:59:02.256+02:00"
+   }
+  ],
+  "http://purl.org/dc/terms/contributor": [
+   {
+    "type": "uri",
+    "value": "https://admin.dataportal.se/store/_principals/resource/2"
+   }
+  ],
+  "http://purl.org/dc/terms/modified": [
+   {
+    "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+    "type": "literal",
+    "value": "2026-09-21T04:05:52.918+02:00"
+   }
+  ],
+  "http://entrystore.org/terms/relation": [
+   {
+    "type": "uri",
+    "value": "https://admin.dataportal.se/store/547/relations/28672"
+   }
+  ],
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+   {
+    "type": "uri",
+    "value": "http://entrystore.org/terms/Link"
+   }
+  ]
+ }
+}

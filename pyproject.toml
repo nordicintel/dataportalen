@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataportal"
+version = "0.1.0"
+description = "Python wrapper for the Sveriges dataportal (admin.dataportal.se / EntryStore) registry API"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "ruben selander" }]
+keywords = ["dataportal", "dcat", "dcat-ap-se", "entrystore", "open-data", "sweden"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Internet :: WWW/HTTP",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+httpx = ["httpx>=0.24"]
+requests = ["requests>=2.25"]
+async = ["httpx>=0.24"]
+dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
+
+[project.urls]
+Homepage = "https://github.com/rubenselander/dataportal"
+Documentation = "https://docs.dataportal.se/registry/api/"
+
+[project.scripts]
+dataportal = "dataportal.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataportal"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: hits the live admin.dataportal.se API"]

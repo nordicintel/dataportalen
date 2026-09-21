@@ -1,0 +1,1268 @@
+{
+ "offset": 0,
+ "resource": {
+  "children": [
+   {
+    "metadata": {
+     "https://admin.dataportal.se/store/catalogstatistics/resource/3460": {
+      "http://entrystore.org/terms/statistics#datasets_in_context_378": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_499": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_653": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "27"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_130": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_131": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "305"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_254": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_814": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_419": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_816": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "26"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_413": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "19"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_47": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "16"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_811": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_778": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "756"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_812": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_43": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "334"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#psiPageAndDcat": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "59"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_818": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "6603"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_819": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_481": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_761": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "16"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_123": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_366": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_124": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "10"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_762": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_368": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_482": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_240": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_120": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_760": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "10"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#residentDatasetCount": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "23583"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_804": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_805": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#otherDatasetCount": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "14620"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_523": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_524": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "6"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_129": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_525": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1668"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_31": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_195": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "9"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_233": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_597": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_114": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "222"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_236": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_196": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "16"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#psiPage": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "87"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_197": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "18"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_110": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_353": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_111": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "11"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_359": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_68": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "7"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_238": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "67"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_635": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "137"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_66": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "44"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_61": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_180": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "72"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_101": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "22"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_344": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_103": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_346": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_340": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_187": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "12"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_627": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_506": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_347": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "39"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_348": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "9"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_227": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "15"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_349": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_59": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "32"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_54": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "12"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_55": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_50": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "334"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_175_profDatasets_3071": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "83"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_51": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_291": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "29"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_170": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_172": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "335"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_294": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_91": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4284"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_290": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "174"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_299": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_453": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "14"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_574": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "66"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_455": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_697": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "173"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_852": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_610": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "15"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_174": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "34"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_175": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#residentPublicDatasetCount": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "23548"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_330": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_331": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_298": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_177": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "506"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_694": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_857": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_858": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_859": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_618": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_853": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_854": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_612": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "19"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_733": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "309"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_855": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_83": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "6"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_280": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_281": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_282": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_321": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_444": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#psiDatasetCount": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "10096"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_284": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_560": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "75"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_286": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "14"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_562": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_329": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_567": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_446": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "9"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_601": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "70"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_326": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_845": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_75": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "115"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_78": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "138"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entrystore.org/terms/statistics#CatalogStatistics"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_391": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_270": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "31"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_271": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_272": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "24"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_277": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "3"
+       }
+      ],
+      "http://purl.org/dc/terms/date": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "type": "literal",
+        "value": "2026-09-21"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_311": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_394": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#otherDcat": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "38"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_396": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "17"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_275": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_397": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "15"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_318": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#psiFailed": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "420"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_677": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5855"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_832": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_833": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "9"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_834": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "92"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_317": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_140": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "19"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_783": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_420": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_421": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_301": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_389": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "11"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#psiDcat": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "63"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_780": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_264": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "12"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_265": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "20"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_428": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "5"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_549": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "109"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_309": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "4"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_827": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "570"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_6": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "194"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_820": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_545": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "30"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_14": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "10"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_821": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_788": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_305": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_547": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "43"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_823": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "1"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_98": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "10"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_99": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "36"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_828": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "71"
+       }
+      ],
+      "http://entrystore.org/terms/statistics#datasets_in_context_829": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "catalogstatistics",
+    "relations": {},
+    "entryId": "3460",
+    "info": {
+     "https://admin.dataportal.se/store/catalogstatistics/entry/3460": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/catalogstatistics/metadata/3460"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/catalogstatistics/resource/3460"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T04:30:03.611+02:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T04:30:05.836+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/catalogstatistics/relations/3460"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/catalogstatistics/resource/3460": {
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entrystore.org/terms/NamedResource"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "limit": 1,
+ "results": 3442,
+ "facetFields": []
+}

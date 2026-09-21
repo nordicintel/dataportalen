@@ -1,0 +1,28 @@
+{
+ "labels": [
+  "Rådet för främjande av kommunala analyser - Kolada",
+  "Statistikmyndigheten SCB - Statistiska centralbyrån",
+  "Göteborgs universitet",
+  "Folkhälsomyndigheten",
+  "Uppsala universitet"
+ ],
+ "values": [
+  "http://dataportal.se/organisation/SE2220000315",
+  "http://dataportal.se/organisation/SE2021000837",
+  "http://dataportal.se/organisation/SE2021003153",
+  "http://dataportal.se/organisation/SE2021006545",
+  "http://dataportal.se/organisation/SE2021002932"
+ ],
+ "series": [
+  [
+   5920,
+   4315,
+   2248,
+   1329,
+   1026
+  ]
+ ],
+ "datasetCount": 23234,
+ "independentDataserviceCount": 328,
+ "publisherCount": 361
+}

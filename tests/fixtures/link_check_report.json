@@ -1,0 +1,230 @@
+{
+ "offset": 0,
+ "resource": {
+  "children": [
+   {
+    "metadata": {
+     "https://admin.dataportal.se/store/762/resource/7139": {
+      "http://entryscape.com/terms/excludedLinkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entryscape.com/terms/linkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "2"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T03:24:25.072Z"
+       }
+      ],
+      "http://entryscape.com/terms/failedLinkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/LinkCheckReport"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "762",
+    "relations": {},
+    "entryId": "7139",
+    "info": {
+     "https://admin.dataportal.se/store/762/resource/7139": {
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "application/json"
+       }
+      ],
+      "http://purl.org/dc/terms/extent": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#long",
+        "type": "literal",
+        "value": "734"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/762/entry/7139": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/762/metadata/7139"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/762/resource/7139"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T05:24:25.085+02:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T05:24:26.837+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/762/relations/7139"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "metadata": {
+     "https://admin.dataportal.se/store/104/resource/5491": {
+      "http://entryscape.com/terms/excludedLinkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "0"
+       }
+      ],
+      "http://entryscape.com/terms/linkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "9"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T03:24:18.498Z"
+       }
+      ],
+      "http://entryscape.com/terms/failedLinkChecks": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+        "type": "literal",
+        "value": "8"
+       }
+      ],
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+       {
+        "type": "uri",
+        "value": "http://entryscape.com/terms/LinkCheckReport"
+       }
+      ]
+     }
+    },
+    "rights": [
+     "readmetadata",
+     "readresource"
+    ],
+    "contextId": "104",
+    "relations": {},
+    "entryId": "5491",
+    "info": {
+     "https://admin.dataportal.se/store/104/resource/5491": {
+      "http://purl.org/dc/terms/format": [
+       {
+        "type": "literal",
+        "value": "application/json"
+       }
+      ],
+      "http://purl.org/dc/terms/extent": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#long",
+        "type": "literal",
+        "value": "4301"
+       }
+      ]
+     },
+     "https://admin.dataportal.se/store/104/entry/5491": {
+      "http://entrystore.org/terms/metadata": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/104/metadata/5491"
+       }
+      ],
+      "http://purl.org/dc/terms/creator": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://entrystore.org/terms/resource": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/104/resource/5491"
+       }
+      ],
+      "http://purl.org/dc/terms/created": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T05:24:18.512+02:00"
+       }
+      ],
+      "http://purl.org/dc/terms/contributor": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/_principals/resource/2"
+       }
+      ],
+      "http://purl.org/dc/terms/modified": [
+       {
+        "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "type": "literal",
+        "value": "2026-09-21T05:24:20.043+02:00"
+       }
+      ],
+      "http://entrystore.org/terms/relation": [
+       {
+        "type": "uri",
+        "value": "https://admin.dataportal.se/store/104/relations/5491"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "limit": 2,
+ "results": 478,
+ "facetFields": []
+}
