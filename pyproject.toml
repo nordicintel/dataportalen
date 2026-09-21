@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "dataportal-se"
 version = "0.1.0"
-description = "Python wrapper for the Sveriges dataportal (admin.dataportal.se / EntryStore) registry API"
+description = "dataportal.se as plain Python dicts: DCAT-AP-SE metadata with vocabulary URIs resolved to labels"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "ruben selander" }]
-keywords = ["dataportal", "dcat", "dcat-ap-se", "entrystore", "open-data", "sweden"]
+keywords = ["dataportal", "dcat", "dcat-ap-se", "rdf", "entrystore", "open-data", "sweden"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -31,9 +31,6 @@ dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
 [project.urls]
 Homepage = "https://github.com/nordicintel/dataportal"
 Documentation = "https://docs.dataportal.se/registry/api/"
-
-[project.scripts]
-dataportal = "dataportal_se.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dataportal_se"]

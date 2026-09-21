@@ -47,7 +47,7 @@ def test_expand_handles_curies_full_uris_and_unknown_prefixes():
 
 def test_shorten_prefers_the_longest_matching_namespace():
     assert shorten(DCAT.Dataset) == "dcat:Dataset"
-    assert shorten("http://entrystore.org/terms/pipelineresult#merge") == "pipeline:merge"
+    assert shorten("http://entryscape.com/terms/MQA") == "escape:MQA"
     assert shorten("http://example.org/x") == "http://example.org/x"
 
 

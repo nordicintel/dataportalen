@@ -1,0 +1,38 @@
+# The tests that hit admin.dataportal.se for real.
+#
+# Kept out of CI on purpose: the registry re-harvests nightly, so a failure
+# here means "the upstream API changed or is down", not "this PR is broken".
+# It publishes nothing.
+
+name: Live API
+
+on:
+  schedule:
+    # Mondays 06:00 UTC, after the registry's nightly harvest has settled.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: test against the real registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Live tests
+        env:
+          DATAPORTAL_LIVE: "1"
+          DATAPORTAL_USER_AGENT: "dataportal-se-ci (+https://github.com/nordicintel/dataportal)"
+        run: python -m pytest tests -q -m network

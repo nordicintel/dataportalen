@@ -55,7 +55,6 @@ from .models import (
     Distribution,
     Entry,
     Facet,
-    HarvestReport,
     LinkCheckReport,
     MetadataQuality,
     OrganisationStats,
@@ -63,7 +62,7 @@ from .models import (
     Standard,
     wrap_entry,
 )
-from .namespaces import DCAT, DCTERMS, FOAF, PIPELINE, Types
+from .namespaces import DCAT, DCTERMS, FOAF, Types
 from .query import Q, SORT_MODIFIED_DESC
 from .rdf import DEFAULT_LANGUAGES, Graph
 from .transport import DEFAULT_USER_AGENT, AsyncHttpxTransport, Response, build_url
@@ -601,31 +600,6 @@ class AsyncDataportal:
             "publishers": int(data.get("publisherCount", 0) or 0),
         }
 
-    async def harvest_reports(
-        self,
-        *,
-        latest_only: bool = True,
-        public_sector_only: bool = False,
-        limit: int = MAX_LIMIT,
-        merged_only: bool = True,
-    ) -> List[HarvestReport]:
-        """The most recent harvest report per organisation."""
-        parts: List[Q] = []
-        if latest_only:
-            parts.append(Q.tag("latest"))
-        if public_sector_only:
-            parts.append(Q.tag("psi"))
-        if merged_only:
-            parts.append(Q.predicate(PIPELINE.merge, True))
-        if not parts:
-            parts.append(Q.rdf_type(Types.PIPELINE_RESULT))
-        out: List[HarvestReport] = []
-        async for entry in self.iter_search(
-            Q.join(parts, "AND"), model=HarvestReport, limit=limit, sort=None
-        ):
-            out.append(entry)  # type: ignore[arg-type]
-        return out
-
     async def link_check_reports(
         self,
         *,
@@ -671,14 +645,25 @@ class AsyncDataportal:
         )
         return list(page.entries)  # type: ignore[arg-type]
 
-    async def context_names(self, *, public_sector_only: bool = False) -> Dict[str, str]:
-        """Map ``contextId`` to the organisation's title."""
-        reports = await self.harvest_reports(public_sector_only=public_sector_only)
-        return {
-            str(r.context_id): r.title
-            for r in reports
-            if r.context_id and r.title
-        }
+    async def context_names(self, *, limit: Optional[int] = None) -> Dict[str, str]:
+        """Map ``contextId`` to the catalog's title."""
+        out: Dict[str, str] = {}
+        async for catalog in self.iter_search(
+            self._entity_query(DCAT.Catalog), model=Catalog, limit=limit, sort=None
+        ):
+            if catalog.context_id and catalog.title:
+                out[str(catalog.context_id)] = catalog.title
+        return out
+
+    async def context_publishers(self, *, limit: Optional[int] = None) -> Dict[str, str]:
+        """Map ``contextId`` to the publishing organisation's URI."""
+        out: Dict[str, str] = {}
+        async for catalog in self.iter_search(
+            self._entity_query(DCAT.Catalog), model=Catalog, limit=limit, sort=None
+        ):
+            if catalog.context_id and catalog.publisher_uri:
+                out[str(catalog.context_id)] = catalog.publisher_uri
+        return out
 
     async def datasets_per_organisation(self, *, day: int = 0) -> List[Tuple[str, str, int]]:
         """``(contextId, organisation name, dataset count)`` for one day."""
