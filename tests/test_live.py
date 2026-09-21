@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from dataportal import (
+from dataportal_se import (
     Agent,
     Catalog,
     DataService,
@@ -25,7 +25,7 @@ from dataportal import (
     Distribution,
     Q,
 )
-from dataportal.namespaces import DCAT
+from dataportal_se.namespaces import DCAT
 
 pytestmark = pytest.mark.network
 
@@ -143,7 +143,7 @@ def test_entry_raw_serves_turtle(dp):
 
 
 def test_unknown_entry_ids_raise_not_found(dp):
-    from dataportal import HTTPError
+    from dataportal_se import HTTPError
 
     with pytest.raises(HTTPError):
         dp.entry_raw(999999, 999999, part="metadata")
@@ -151,8 +151,8 @@ def test_unknown_entry_ids_raise_not_found(dp):
 
 @pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
 def test_every_transport_reaches_the_registry(transport_name):
-    from dataportal.exceptions import MissingDependencyError
-    from dataportal.transport import HttpxTransport, RequestsTransport, UrllibTransport
+    from dataportal_se.exceptions import MissingDependencyError
+    from dataportal_se.transport import HttpxTransport, RequestsTransport, UrllibTransport
 
     factories = {
         "urllib": UrllibTransport,

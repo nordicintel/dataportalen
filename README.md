@@ -22,21 +22,34 @@ RDF dump — with DCAT-AP-SE 2.0.0 metadata parsed into typed objects.
 
 ## Install
 
-```bash
-pip install dataportal
-```
-
-Optional extras:
+Not on PyPI yet. Install from this repository:
 
 ```bash
-pip install "dataportal[httpx]"    # pooled HTTP/2-capable transport
-pip install "dataportal[async]"    # the asyncio client (httpx)
+pip install git+https://github.com/nordicintel/dataportal.git
 ```
+
+Or from a checkout:
+
+```bash
+pip install -e .
+```
+
+Optional extras (`pip install ".[httpx]"` from a checkout, or append
+`#egg=dataportal-se[httpx]` to the git URL):
+
+- `httpx` — pooled, HTTP/2-capable transport
+- `async` — the asyncio client (also httpx)
+- `requests` — the requests transport
+- `dev` — pytest plus both optional transports
+
+The distribution is named **`dataportal-se`** and imports as **`dataportal_se`**.
+The name `dataportal` on PyPI is an unrelated Korean public-data client, and it
+installs a top-level `dataportal` module — so don't install it expecting this.
 
 ## Quick start
 
 ```python
-from dataportal import Dataportal
+from dataportal_se import Dataportal
 
 with Dataportal() as dp:
     page = dp.datasets(title="bidrag", title_lang="sv", limit=10)
@@ -87,8 +100,8 @@ Worth knowing, because it explains the API:
 `Q` builds Solr queries, escaping colons, slashes and the rest for you:
 
 ```python
-from dataportal import Q
-from dataportal.namespaces import DCAT
+from dataportal_se import Q
+from dataportal_se.namespaces import DCAT
 
 dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
 dp.search(Q.publisher("http://dataportal.se/organisation/SE2021005521"))
@@ -126,7 +139,7 @@ EntryStore indexes predicate/object pairs under a field whose name embeds an
 MD5 of the predicate URI. `Q.predicate` and `predicate_field` compute it:
 
 ```python
-from dataportal import Q, predicate_field
+from dataportal_se import Q, predicate_field
 
 predicate_field("dcterms:subject")            # metadata.predicate.literal.256bd150
 Q.predicate("dcterms:accessRights", "http://.../PUBLIC", kind="uri")
@@ -234,7 +247,7 @@ for chunk in dp.iter_dump():     # or handle it yourself
 
 ```python
 import asyncio
-from dataportal.aio import AsyncDataportal
+from dataportal_se.aio import AsyncDataportal
 
 async def main():
     async with AsyncDataportal() as dp:
@@ -316,4 +329,4 @@ DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).

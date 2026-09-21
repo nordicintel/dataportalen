@@ -7,7 +7,7 @@ import datetime as dt
 import pytest
 from conftest import load_fixture
 
-from dataportal import (
+from dataportal_se import (
     Agent,
     CatalogStatistics,
     ContactPoint,
@@ -16,8 +16,8 @@ from dataportal import (
     Entry,
     HarvestReport,
 )
-from dataportal.models import wrap_entry
-from dataportal.namespaces import DCAT, DCTERMS
+from dataportal_se.models import wrap_entry
+from dataportal_se.namespaces import DCAT, DCTERMS
 
 
 @pytest.fixture
@@ -208,7 +208,7 @@ def test_to_json_reconstructs_when_there_was_no_raw_payload(recursive_dataset):
 
 
 def test_link_check_report_counts_links():
-    from dataportal import LinkCheckReport
+    from dataportal_se import LinkCheckReport
 
     hit = load_fixture("link_check_report.json")["resource"]["children"][0]
     report = wrap_entry(hit)
@@ -220,7 +220,7 @@ def test_link_check_report_counts_links():
 
 
 def test_metadata_quality_reads_the_mqa_score():
-    from dataportal import MetadataQuality
+    from dataportal_se import MetadataQuality
 
     children = load_fixture("metadata_quality.json")["resource"]["children"]
     scores = [wrap_entry(hit) for hit in children]

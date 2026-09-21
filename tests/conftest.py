@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dataportal.transport import BaseTransport, Response  # noqa: E402
+from dataportal_se.transport import BaseTransport, Response  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -93,7 +93,7 @@ def transport() -> FakeTransport:
 
 @pytest.fixture
 def client(transport: FakeTransport):
-    from dataportal import Dataportal
+    from dataportal_se import Dataportal
 
     with Dataportal(transport=transport, max_retries=0) as dp:
         yield dp
