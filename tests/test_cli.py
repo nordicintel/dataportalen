@@ -7,7 +7,7 @@ import json
 import pytest
 from conftest import FakeTransport, load_fixture
 
-from dataportal import cli
+from dataportal_se import cli
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def run(monkeypatch):
     """Run the CLI with a transport we control; returns (exit code, stdout)."""
 
     def runner(argv, transport):
-        import dataportal.cli as cli_module
+        import dataportal_se.cli as cli_module
 
         original = cli_module.Dataportal
 

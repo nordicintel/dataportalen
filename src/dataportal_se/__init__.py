@@ -13,7 +13,7 @@ serves every dataset visible on dataportal.se, described with DCAT-AP-SE
 
 Quick start::
 
-    from dataportal import Dataportal
+    from dataportal_se import Dataportal
 
     with Dataportal() as dp:
         page = dp.datasets(title="bidrag", limit=10)

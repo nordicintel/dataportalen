@@ -6,9 +6,9 @@ import datetime as dt
 
 import pytest
 
-from dataportal import Q, escape, escape_uri, predicate_field
-from dataportal.exceptions import QueryError
-from dataportal.namespaces import DCAT, DCTERMS
+from dataportal_se import Q, escape, escape_uri, predicate_field
+from dataportal_se.exceptions import QueryError
+from dataportal_se.namespaces import DCAT, DCTERMS
 
 
 def test_escape_covers_every_solr_metacharacter():

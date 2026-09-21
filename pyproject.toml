@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dataportal"
+name = "dataportal-se"
 version = "0.1.0"
 description = "Python wrapper for the Sveriges dataportal (admin.dataportal.se / EntryStore) registry API"
 readme = "README.md"
@@ -29,14 +29,14 @@ async = ["httpx>=0.24"]
 dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
 
 [project.urls]
-Homepage = "https://github.com/rubenselander/dataportal"
+Homepage = "https://github.com/nordicintel/dataportal"
 Documentation = "https://docs.dataportal.se/registry/api/"
 
 [project.scripts]
-dataportal = "dataportal.cli:main"
+dataportal = "dataportal_se.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dataportal"]
+packages = ["src/dataportal_se"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

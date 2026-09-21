@@ -6,10 +6,10 @@ import datetime as dt
 
 import pytest
 
-from dataportal import BNode, Graph, Literal, URIRef
-from dataportal.exceptions import ParseError
-from dataportal.namespaces import DCAT, DCTERMS, RDF, XSD
-from dataportal.rdf import parse_xsd
+from dataportal_se import BNode, Graph, Literal, URIRef
+from dataportal_se.exceptions import ParseError
+from dataportal_se.namespaces import DCAT, DCTERMS, RDF, XSD
+from dataportal_se.rdf import parse_xsd
 
 DOC = {
     "http://example.org/d1": {
