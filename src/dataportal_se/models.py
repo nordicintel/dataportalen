@@ -12,6 +12,7 @@ top; :func:`wrap_entry` picks the right one from the metadata's ``rdf:type``.
 from __future__ import annotations
 
 import datetime as _dt
+import json as _json
 from collections.abc import Sequence as _ABCSequence
 from typing import (
     Any,
@@ -35,7 +36,6 @@ from .namespaces import (
     ESCAPE,
     FOAF,
     OWL,
-    PIPELINE,
     PROV,
     RDF,
     SCHEMA,
@@ -46,6 +46,7 @@ from .namespaces import (
     expand,
 )
 from .rdf import DEFAULT_LANGUAGES, Graph, Resource
+from . import vocab as _vocab
 
 __all__ = [
     "Entry",
@@ -57,7 +58,6 @@ __all__ = [
     "Agent",
     "ContactPoint",
     "Standard",
-    "HarvestReport",
     "LinkCheckReport",
     "MetadataQuality",
     "CatalogStatistics",
@@ -76,6 +76,15 @@ E = TypeVar("E", bound="Entry")
 
 _MISSING = object()
 
+
+def _iso(value: Any) -> Optional[str]:
+    """A date/datetime as an ISO-8601 string; anything else passed through."""
+    if value is None:
+        return None
+    if isinstance(value, (_dt.date, _dt.datetime)):
+        return value.isoformat()
+    return str(value)
+
 #: Most specific first; used to pick the subject a graph is really about.
 _TYPE_PRIORITY = [
     DCAT.DatasetSeries,
@@ -84,7 +93,6 @@ _TYPE_PRIORITY = [
     DCAT.DataService,
     DCAT.Distribution,
     STATS.CatalogStatistics,
-    ES.PipelineResult,
     ESCAPE.LinkCheckReport,
     ESCAPE.MQATotal,
     ESCAPE.MQA,
@@ -403,8 +411,61 @@ class Entry:
 
     # -- output ------------------------------------------------------------
 
-    def to_json(self) -> Dict[str, Any]:
-        """The original JSON payload, or an equivalent reconstruction."""
+    def to_dict(self) -> Dict[str, Any]:
+        """A plain, JSON-serializable dict of this entry.
+
+        This is the package's primary output: no RDF terms, no URI-only
+        vocabulary values, no objects that :func:`json.dumps` chokes on.
+        Dates are ISO-8601 strings and every controlled-vocabulary field is
+        ``{"uri": ..., "label": ...}``.
+
+        Subclasses shape this per entity type; the base gives the envelope
+        plus whatever title and description are present.
+        """
+        return dict(self._envelope_dict(), **{
+            "title": self.title,
+            "titles": self.titles,
+            "description": self.description,
+            "types": self.types,
+        })
+
+    def _envelope_dict(self) -> Dict[str, Any]:
+        return {
+            "uri": self.resource_uri,
+            "context_id": self.context_id,
+            "entry_id": self.entry_id,
+        }
+
+    def _term(self, uri: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
+        """One controlled-vocabulary value as ``{"uri", "label"}``."""
+        return _vocab.term(uri, self.languages)
+
+    def _terms(self, uris: Sequence[str]) -> List[Dict[str, Optional[str]]]:
+        return _vocab.terms(uris, self.languages)
+
+    def _publisher_dict(self) -> Optional[Dict[str, Any]]:
+        """The publishing organisation, named when the graph describes it.
+
+        A search hit carries only the publisher URI; a ``recursive=True``
+        fetch carries the agent too, in which case the name comes along for
+        free instead of costing another request.
+        """
+        uri = self.resource.uri_of(DCTERMS.publisher)
+        if not uri:
+            return None
+        for ref in self.resource.refs(DCTERMS.publisher):
+            return Agent.from_resource(ref, client=self._client).to_dict()
+        return {"uri": uri, "name": None}
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """:meth:`to_dict` rendered as a JSON string."""
+        return _json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def raw_json(self) -> Dict[str, Any]:
+        """The registry's own JSON payload for this entry, untouched.
+
+        The escape hatch for anything :meth:`to_dict` does not surface.
+        """
         if self._raw is not None:
             return dict(self._raw)
         return {
@@ -416,8 +477,16 @@ class Entry:
             "relations": self.relations.to_json(),
         }
 
-    def to_dict(self) -> Dict[str, Any]:
-        """A flattened, printable summary of the resource's metadata."""
+    def to_rdf(self) -> Dict[str, Any]:
+        """The metadata graph as RDF/JSON, for callers who want the triples."""
+        return self.metadata.to_json()
+
+    def to_rdf_dict(self) -> Dict[str, List[Any]]:
+        """Every predicate on this entry's subject, keyed by CURIE.
+
+        Lossy but complete-ish: useful when a publisher uses a predicate the
+        typed accessors do not cover.
+        """
         return self.resource.to_dict()
 
     def __repr__(self) -> str:
@@ -484,6 +553,10 @@ class PeriodOfTime(_Wrapped):
         values = self.resource.values(DCAT.endDate) or self.resource.values(SCHEMA.endDate)
         return values[0] if values else None
 
+    def to_dict(self):
+        """``{"start": ..., "end": ...}`` as ISO strings where parseable."""
+        return {"start": _iso(self.start), "end": _iso(self.end)}
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<PeriodOfTime %s..%s>" % (self.start, self.end)
 
@@ -498,6 +571,9 @@ class Checksum(_Wrapped):
     @property
     def value(self) -> Optional[str]:
         return self.resource.value(SPDX.checksumValue)
+
+    def to_dict(self):
+        return {"algorithm": self.algorithm, "value": self.value}
 
 
 class ContactPoint(Entry):
@@ -558,6 +634,15 @@ class ContactPoint(Entry):
     @property
     def title(self) -> Optional[str]:  # type: ignore[override]
         return self.name or super().title
+
+    def to_dict(self):
+        return {
+            "uri": None if self.resource.is_bnode else self.resource.uri,
+            "name": self.name,
+            "email": self.email,
+            "telephone": self.telephone,
+            "url": self.url,
+        }
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<ContactPoint %r %s>" % (self.name, self.email or "")
@@ -621,6 +706,17 @@ class Agent(Entry):
     @property
     def same_as(self) -> List[str]:
         return self.resource.uris(OWL.sameAs)
+
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "name": self.name,
+            "names": self.names,
+            "type": self._term(self.agent_type),
+            "homepage": self.homepage,
+            "email": self.mbox,
+            "identifiers": self.identifiers,
+            "same_as": self.same_as,
+        })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Agent %r %s>" % (self.name, self.resource_uri or "")
@@ -721,6 +817,32 @@ class Distribution(Entry):
             return []
         return [e.as_(DataService) for e in self.fetch_many(uris)]
 
+    def to_dict(self):
+        checksum = self.checksum
+        return dict(self._envelope_dict(), **{
+            "title": self.title,
+            "titles": self.titles,
+            "description": self.description,
+            "access_url": self.access_url,
+            "access_urls": self.access_urls,
+            "download_url": self.download_url,
+            "download_urls": self.download_urls,
+            "format": self._term(self.format),
+            "media_type": self._term(self.media_type),
+            "byte_size": self.byte_size,
+            "license": self._term(self.license),
+            "rights": self.rights_statements,
+            "status": self._term(self.status),
+            "availability": self._term(self.availability),
+            "languages": self._terms(self.language_uris),
+            "conforms_to": self.conforms_to,
+            "checksum": checksum.to_dict() if checksum else None,
+            "issued": _iso(self.issued),
+            "modified": _iso(self.modified_date),
+            "access_service_uris": self.access_service_uris,
+            "documentation": self.page_uris,
+        })
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Distribution %r %s>" % (self.title, self.download_url or self.access_url or "")
 
@@ -792,6 +914,24 @@ class DataService(Entry):
         if not uris:
             return []
         return [e.as_(Dataset) for e in self.fetch_many(uris)]
+
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "title": self.title,
+            "titles": self.titles,
+            "description": self.description,
+            "endpoint_url": self.endpoint_url,
+            "endpoint_urls": self.endpoint_urls,
+            "endpoint_descriptions": self.endpoint_description_uris,
+            "serves_dataset_uris": self.serves_dataset_uris,
+            "publisher": self._publisher_dict(),
+            "themes": self._terms(self.theme_uris),
+            "license": self._term(self.license),
+            "access_rights": self._term(self.access_rights),
+            "landing_page": self.landing_page,
+            "conforms_to": self.conforms_to,
+            "contact_points": [c.to_dict() for c in self.contact_points],
+        })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<DataService %r %s>" % (self.title, self.endpoint_url or "")
@@ -1009,6 +1149,62 @@ class Dataset(Entry):
             return []
         return [e.as_(DatasetSeries) for e in self.fetch_many(uris)]
 
+    def to_dict(self, distributions=True):
+        """This dataset as a plain, JSON-serializable dict.
+
+        Vocabulary URIs come back as ``{"uri", "label"}``, dates as ISO
+        strings, and the publisher and any inline distributions as nested
+        dicts.
+
+        ``distributions`` includes the distributions present in this entry's
+        graph -- all of them after a ``recursive=True`` fetch, none of them
+        for a plain search hit, where ``distribution_uris`` still lists the
+        references.
+        """
+        temporal = self.temporal
+        out = dict(self._envelope_dict(), **{
+            "title": self.title,
+            "titles": self.titles,
+            "description": self.description,
+            "descriptions": self.descriptions,
+            "keywords": self.keywords,
+            "keywords_by_language": self.keywords_by_language,
+            "identifier": self.identifier,
+            "landing_page": self.landing_page,
+            "publisher": self._publisher_dict(),
+            "creator_uris": self.creator_uris,
+            "themes": self._terms(self.theme_uris),
+            "subjects": self._terms(self.subject_uris),
+            "license": self._term(self.license),
+            "access_rights": self._term(self.access_rights),
+            "accrual_periodicity": self._term(self.accrual_periodicity),
+            "languages": self._terms(self.language_uris),
+            "spatial": self._terms(self.spatial_uris),
+            "temporal": temporal.to_dict() if temporal else None,
+            "temporal_resolution": self.temporal_resolution,
+            "spatial_resolution_in_meters": self.spatial_resolution_in_meters,
+            "hvd_categories": self._terms(self.hvd_categories),
+            "applicable_legislation": self._terms(self.applicable_legislation),
+            "issued": _iso(self.issued),
+            "modified": _iso(self.modified_date),
+            "version": self.version,
+            "provenance": self.provenance,
+            "conforms_to": self.conforms_to,
+            "documentation": self.documentation_uris,
+            "source_uris": self.source_uris,
+            "in_series_uris": self.in_series_uris,
+            "is_part_of_uris": self.is_part_of_uris,
+            "contact_points": [c.to_dict() for c in self.contact_points],
+            "distribution_uris": self.distribution_uris,
+        })
+        if distributions:
+            out["distributions"] = [
+                Distribution.from_resource(ref, client=self._client).to_dict()
+                for ref in self.resource.refs(DCAT.distribution)
+                if ref.is_a(DCAT.Distribution)
+            ]
+        return out
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
 
@@ -1079,6 +1275,22 @@ class Catalog(Entry):
             return [e.as_(Dataset) for e in self.fetch_many(self.dataset_uris[:limit])]
         return list(client.datasets_in_context(self.context_id, limit=limit))
 
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "title": self.title,
+            "titles": self.titles,
+            "description": self.description,
+            "publisher": self._publisher_dict(),
+            "homepage": self.homepage,
+            "languages": self._terms(self.language_uris),
+            "license": self._term(self.license),
+            "theme_taxonomies": self.theme_taxonomy_uris,
+            "dataset_uris": self.dataset_uris,
+            "service_uris": self.service_uris,
+            "issued": _iso(self.issued),
+            "modified": _iso(self.modified_date),
+        })
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Catalog %r ctx=%s>" % (self.title, self.context_id)
 
@@ -1094,129 +1306,6 @@ class Standard(Entry):
 
 
 # --- registry-operational entities ------------------------------------------
-
-
-class HarvestReport(Entry):
-    """``es:PipelineResult`` -- the outcome of one nightly harvest run.
-
-    The registry tags the newest report per source with ``latest``; see
-    :meth:`Dataportal.harvest_reports`.
-    """
-
-    rdf_types = (ES.PipelineResult,)
-
-    @property
-    def source_entry_uri(self) -> Optional[str]:
-        """The harvesting pipeline entry this report came from."""
-        return self.resource.uri_of(DCTERMS.source)
-
-    @property
-    def generated_entry_uri(self) -> Optional[str]:
-        return self.resource.uri_of(PROV.generated)
-
-    @property
-    def tags(self) -> List[str]:
-        """``dcterms:subject`` literals, e.g. ``latest``, ``psi``, ``prof``."""
-        return self.resource.values(DCTERMS.subject)
-
-    @property
-    def is_latest(self) -> bool:
-        return "latest" in self.tags
-
-    @property
-    def is_public_sector(self) -> bool:
-        """Tagged ``psi`` -- the organisation belongs to the public sector."""
-        return "psi" in self.tags
-
-    # Individual step outcomes.
-    @property
-    def all_succeeded(self) -> Optional[bool]:
-        return self.resource.boolean(PIPELINE.allSucceeded)
-
-    @property
-    def one_succeeded(self) -> Optional[bool]:
-        return self.resource.boolean(PIPELINE.oneSucceeded)
-
-    @property
-    def fetch_source(self) -> Optional[bool]:
-        return self.resource.boolean(PIPELINE.fetchSource)
-
-    @property
-    def fetch_rdf(self) -> Optional[bool]:
-        return self.resource.boolean(PIPELINE.fetchRDF)
-
-    @property
-    def merged(self) -> Optional[bool]:
-        return self.resource.boolean(PIPELINE.merge)
-
-    @property
-    def success_count(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.successCount)
-
-    # Merge counters.
-    @property
-    def added(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.mergeAdded)
-
-    @property
-    def updated(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.mergeUpdated)
-
-    @property
-    def removed(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.mergeRemoved)
-
-    @property
-    def unchanged(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.mergeUnchanged)
-
-    @property
-    def resource_count(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.mergeResourceCount)
-
-    @property
-    def main_resource_count(self) -> Optional[int]:
-        """Number of primary entities (datasets) after the merge."""
-        return self.resource.integer(PIPELINE.mergeMainResourceCount)
-
-    # Validation counters.
-    @property
-    def validation_errors(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.validateErrors)
-
-    @property
-    def validation_warnings(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.validateWarnings)
-
-    @property
-    def mandatory_missing(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.validateMandatoryMissing)
-
-    @property
-    def recommended_missing(self) -> Optional[int]:
-        return self.resource.integer(PIPELINE.validateRecommendedMissing)
-
-    @property
-    def entity_counts(self) -> Dict[str, Dict[str, Optional[int]]]:
-        """Per-entity-type merge counters, keyed by the entity type URI."""
-        out: Dict[str, Dict[str, Optional[int]]] = {}
-        for ref in self.resource.refs(PIPELINE.mergeEntityType):
-            key = ref.uri_of(PIPELINE.entityType) or ref.uri
-            out[key] = {
-                "added": ref.integer(PIPELINE.mergeAdded),
-                "updated": ref.integer(PIPELINE.mergeUpdated),
-                "removed": ref.integer(PIPELINE.mergeRemoved),
-                "unchanged": ref.integer(PIPELINE.mergeUnchanged),
-            }
-        return out
-
-    @property
-    def organisation(self) -> Optional[str]:
-        """The catalog/organisation title carried by the report."""
-        return self.title
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<HarvestReport %r ctx=%s ok=%s>" % (self.title, self.context_id, self.all_succeeded)
 
 
 class LinkCheckReport(Entry):
@@ -1253,6 +1342,15 @@ class LinkCheckReport(Entry):
     @property
     def run_at(self) -> Optional[Union[_dt.date, _dt.datetime]]:
         return self.resource.date(DCTERMS.created)
+
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "checked": self.checked,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "excluded": self.excluded,
+            "run_at": _iso(self.run_at),
+        })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<LinkCheckReport ctx=%s %s/%s ok>" % (
@@ -1302,6 +1400,17 @@ class MetadataQuality(Entry):
     @property
     def assessed_at(self) -> Optional[Union[_dt.date, _dt.datetime]]:
         return self.resource.date(DCTERMS.modified)
+
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "title": self.title,
+            "score": self.score,
+            "percentage": self.percentage,
+            "rating": self.rating,
+            "succeeded": self.succeeded,
+            "is_total": self.is_total,
+            "assessed_at": _iso(self.assessed_at),
+        })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<MetadataQuality %r %s%%>" % (self.title, self.percentage)
@@ -1389,6 +1498,16 @@ class CatalogStatistics(Entry):
     def other_dcat_count(self) -> Optional[int]:
         return self._stat("otherDcat")
 
+    def to_dict(self):
+        return dict(self._envelope_dict(), **{
+            "date": _iso(self.date),
+            "dataset_count": self.dataset_count,
+            "public_dataset_count": self.public_dataset_count,
+            "other_dataset_count": self.other_dataset_count,
+            "psi_dataset_count": self.psi_dataset_count,
+            "datasets_per_context": self.datasets_per_context,
+        })
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<CatalogStatistics %s datasets=%s>" % (self.date, self.dataset_count)
 
@@ -1445,7 +1564,14 @@ class Facet:
         self.type = facet_type
 
     def as_dict(self) -> Dict[str, int]:
+        """``{value: count}``."""
         return {v.name: v.count for v in self.values}
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "values": [{"value": v.name, "count": v.count} for v in self.values],
+        }
 
     @classmethod
     def from_json(cls, data: Mapping[str, Any]) -> "Facet":
@@ -1509,6 +1635,22 @@ class SearchPage(_ABCSequence):
         """
         return self.offset + len(self.entries) < self.total and bool(self.entries)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """The whole page as a plain dict: totals, entries and facets."""
+        return {
+            "total": self.total,
+            "offset": self.offset,
+            "limit": self.limit,
+            "count": len(self.entries),
+            "has_more": self.has_more,
+            "results": [entry.to_dict() for entry in self.entries],
+            "facets": {facet.name: facet.as_dict() for facet in self.facets},
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """:meth:`to_dict` rendered as a JSON string."""
+        return _json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
     def facet(self, name: str) -> Optional[Facet]:
         for facet in self.facets:
             if facet.name == name:
@@ -1552,7 +1694,6 @@ for _model in (
     Agent,
     ContactPoint,
     Standard,
-    HarvestReport,
     LinkCheckReport,
     MetadataQuality,
     CatalogStatistics,

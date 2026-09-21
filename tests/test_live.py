@@ -112,14 +112,6 @@ def test_organisation_chart_is_consistent(dp):
     assert sum(o.dataset_count for o in orgs) >= summary["datasets"] * 0.5
 
 
-def test_harvest_reports_name_their_context(dp):
-    reports = dp.harvest_reports(limit=20)
-    assert reports
-    assert any(r.title for r in reports)
-    assert all(r.is_latest for r in reports)
-    assert any(r.main_resource_count is not None for r in reports)
-
-
 def test_catalog_statistics_walk_back_in_time(dp):
     snapshots = dp.catalog_statistics(limit=3)
     assert len(snapshots) == 3

@@ -52,7 +52,6 @@ from .models import (
     Entry,
     Facet,
     FacetValue,
-    HarvestReport,
     LinkCheckReport,
     MetadataQuality,
     OrganisationStats,
@@ -81,6 +80,7 @@ from .namespaces import (
     shorten,
 )
 from .query import Q, escape, escape_uri, predicate_field
+from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
 from .transport import (
     BaseTransport,
@@ -102,6 +102,13 @@ __all__ = [
     # query
     "Q",
     "escape",
+    # vocabulary labels
+    "Vocabulary",
+    "VOCABULARY",
+    "label",
+    "labels",
+    "term",
+    "terms",
     "escape_uri",
     "predicate_field",
     # models
@@ -114,7 +121,6 @@ __all__ = [
     "Agent",
     "ContactPoint",
     "Standard",
-    "HarvestReport",
     "LinkCheckReport",
     "MetadataQuality",
     "CatalogStatistics",

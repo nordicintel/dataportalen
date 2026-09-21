@@ -38,7 +38,6 @@ __all__ = [
     "ES",
     "ESTERMS",
     "ESCAPE",
-    "PIPELINE",
     "STATS",
     "PROF",
     "NAMESPACES",
@@ -111,8 +110,6 @@ ES = Namespace("http://entrystore.org/terms/")
 ESTERMS = ES
 #: EntryScape-specific terms (ServiceDistribution, MQA, LinkCheckReport, ...).
 ESCAPE = Namespace("http://entryscape.com/terms/")
-#: Harvest (pipeline) result properties.
-PIPELINE = Namespace("http://entrystore.org/terms/pipelineresult#")
 #: Nightly catalog statistics properties.
 STATS = Namespace("http://entrystore.org/terms/statistics#")
 
@@ -140,7 +137,6 @@ NAMESPACES: Dict[str, Namespace] = {
     "prof": PROF,
     "es": ES,
     "escape": ESCAPE,
-    "pipeline": PIPELINE,
     "stats": STATS,
 }
 
@@ -189,7 +185,6 @@ class Types:
     VCARD_INDIVIDUAL = VCARD.Individual
     STANDARD = DCTERMS.Standard
     CATALOG_STATISTICS = STATS.CatalogStatistics
-    PIPELINE_RESULT = ES.PipelineResult
     LINK_CHECK_REPORT = ESCAPE.LinkCheckReport
     MQA = ESCAPE.MQA
     MQA_TOTAL = ESCAPE.MQATotal

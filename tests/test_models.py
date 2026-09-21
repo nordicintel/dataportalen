@@ -14,7 +14,6 @@ from dataportal_se import (
     Dataset,
     Distribution,
     Entry,
-    HarvestReport,
 )
 from dataportal_se.models import wrap_entry
 from dataportal_se.namespaces import DCAT, DCTERMS
@@ -159,16 +158,6 @@ def test_agent_reads_name_identifiers_and_homepage(recursive_dataset):
     assert agent.agent_type
 
 
-def test_harvest_report_exposes_counters_and_tags():
-    hit = load_fixture("harvest_report.json")["resource"]["children"][0]
-    report = wrap_entry(hit, default=HarvestReport)
-    assert "latest" in report.tags
-    assert report.is_latest
-    assert isinstance(report.all_succeeded, bool)
-    assert report.main_resource_count is not None
-    assert isinstance(report.entity_counts, dict)
-
-
 def test_catalog_statistics_maps_contexts_to_counts():
     hit = load_fixture("catalog_statistics.json")["resource"]["children"][0]
     stats = wrap_entry(hit, default=CatalogStatistics)
@@ -196,12 +185,12 @@ def test_following_references_without_a_client_is_a_clear_error(dataset_hit):
         entry.as_(Dataset).publisher()
 
 
-def test_to_json_round_trips_a_search_hit(dataset_hit):
-    assert wrap_entry(dataset_hit).to_json() == dataset_hit
+def test_raw_json_round_trips_a_search_hit(dataset_hit):
+    assert wrap_entry(dataset_hit).raw_json() == dataset_hit
 
 
-def test_to_json_reconstructs_when_there_was_no_raw_payload(recursive_dataset):
-    payload = recursive_dataset.to_json()
+def test_raw_json_reconstructs_when_there_was_no_raw_payload(recursive_dataset):
+    payload = recursive_dataset.raw_json()
     assert payload["contextId"] == "547"
     assert payload["metadata"]
     assert payload["info"]

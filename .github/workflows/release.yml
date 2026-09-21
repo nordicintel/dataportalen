@@ -1,0 +1,145 @@
+# Publishes to PyPI. Read this before cutting a release.
+#
+# WHAT TRIGGERS A RELEASE
+#   Publishing a GitHub Release. Nothing else.
+#
+#   Pushing to main does NOT publish. Merging a PR does NOT publish.
+#   Pushing a tag on its own does NOT publish. Only the moment a GitHub
+#   Release moves from draft to published does this workflow run.
+#
+# HOW TO CUT A RELEASE
+#   1. Bump `version` in pyproject.toml and `__version__` in
+#      src/dataportal_se/__init__.py. They must match, and the release tag
+#      must match them too, or the workflow stops before uploading.
+#   2. Merge that to main.
+#   3. GitHub -> Releases -> "Draft a new release".
+#      Tag: v<version>, e.g. v0.2.0 (the leading "v" is expected).
+#      Target: main. Write the notes.
+#   4. "Publish release". This workflow runs: it verifies the versions
+#      agree, runs the tests, builds, and uploads to PyPI.
+#
+# DRY RUN
+#   Actions -> Release -> "Run workflow" builds and validates everything but
+#   skips the upload. Use it to check a version bump before committing to a
+#   real release.
+#
+# REQUIRED SECRET
+#   PYPI_TOKEN — a PyPI API token (starts with "pypi-"). Settings ->
+#   Secrets and variables -> Actions.
+#
+# IF IT FAILS AFTER UPLOADING
+#   PyPI does not allow re-uploading a version. Bump to the next patch
+#   version and release again; do not try to force the same one.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and verify without uploading to PyPI"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m pip install -e ".[dev]"
+
+      # A mismatched version is the one mistake that cannot be undone once
+      # uploaded, so it is checked before anything is built.
+      - name: Verify the version is consistent
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(python -c "import dataportal_se; print(dataportal_se.__version__)")
+          TOML_VERSION=$(python -c "
+          import sys
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+          with open('pyproject.toml','rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          echo "pyproject.toml : $TOML_VERSION"
+          echo "__version__    : $PKG_VERSION"
+
+          if [ "$PKG_VERSION" != "$TOML_VERSION" ]; then
+            echo "::error::pyproject.toml ($TOML_VERSION) and __version__ ($PKG_VERSION) disagree."
+            exit 1
+          fi
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            echo "release tag    : $TAG"
+            if [ "$TAG" != "v$PKG_VERSION" ] && [ "$TAG" != "$PKG_VERSION" ]; then
+              echo "::error::Release tag $TAG does not match version $PKG_VERSION. Expected v$PKG_VERSION."
+              exit 1
+            fi
+          fi
+
+      - name: Test
+        run: python -m pytest tests -q
+
+      - name: Build
+        run: python -m build
+
+      - name: Check metadata
+        run: python -m twine check dist/*
+
+      - name: Confirm the wheel imports cleanly
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/python -m pip install --quiet dist/*.whl
+          /tmp/check/bin/python -c "import dataportal_se; print('wheel ok', dataportal_se.__version__)"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Artifacts"
+            echo '```'
+            ls -1 dist/
+            echo '```'
+            if [ "${{ github.event_name }}" != "release" ]; then
+              echo "Dry run (\`${{ inputs.dry_run }}\`) — nothing was uploaded."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      # Runs only for a genuinely published GitHub Release, or for a manual
+      # run where dry_run was explicitly unticked.
+      - name: Publish to PyPI
+        if: github.event_name == 'release' || inputs.dry_run == false
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          if [ -z "${TWINE_PASSWORD}" ]; then
+            echo "::error::PYPI_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          python -m twine upload --non-interactive dist/*

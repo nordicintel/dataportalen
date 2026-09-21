@@ -266,32 +266,11 @@ def test_organisation_summary_reports_registry_totals(transport, org_data):
     assert summary["publishers"] == org_data["publisherCount"]
 
 
-def test_harvest_reports_use_the_documented_filters(client, transport):
-    transport.push(load_fixture("harvest_report.json"))
-    client.harvest_reports(public_sector_only=True, limit=1)
-    query = query_of(transport.requests[-1])
-    assert "tag.literal:latest" in query
-    assert "tag.literal:psi" in query
-    # The docs' merge filter: md5("...pipelineresult#merge")[:8] == b1ddd1d5
-    assert "metadata.predicate.literal.b1ddd1d5:true" in query
-
-
 def test_catalog_statistics_sorts_newest_first(client, transport):
     transport.push(load_fixture("catalog_statistics.json"))
     stats = client.catalog_statistics(limit=1)
     assert stats and stats[0].dataset_count
     assert params_of(transport.requests[-1])["sort"] == "modified desc"
-
-
-def test_datasets_per_organisation_joins_counts_with_names(client, transport):
-    transport.push(load_fixture("catalog_statistics.json"))
-    transport.push(load_fixture("harvest_report.json"))
-    transport.push(_page([], 1, 1, 100))  # end of the harvest-report paging
-    rows = client.datasets_per_organisation()
-    assert rows
-    assert rows == sorted(rows, key=lambda row: row[2], reverse=True)
-    named = [row for row in rows if row[1]]
-    assert named, "at least one context should resolve to an organisation name"
 
 
 # -- the dump ----------------------------------------------------------------

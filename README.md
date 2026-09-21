@@ -1,28 +1,69 @@
-# dataportal
+# dataportal-se
 
-A complete Python wrapper for the **Sveriges dataportal registry API** —
-[`admin.dataportal.se`](https://docs.dataportal.se/registry/api/), the
-EntryScape Registry / EntryStore instance behind
-[dataportal.se](https://www.dataportal.se).
+Python access to [dataportal.se](https://www.dataportal.se) that gives you
+**plain dicts, not RDF**.
 
-Everything the registry exposes is covered: the Solr-backed search index,
-single-entry lookup by registry id *or* by the publisher's own URI, harvest
-reports, the nightly statistics series, the organisation chart and the nightly
-RDF dump — with DCAT-AP-SE 2.0.0 metadata parsed into typed objects.
+Sweden's open-data registry publishes everything as DCAT-AP-SE: RDF graphs,
+blank nodes, PURLs, and controlled vocabularies expressed as bare URIs. The
+[registry documentation](https://docs.dataportal.se/registry/api/) is explicit
+that turning `http://publications.europa.eu/resource/authority/data-theme/TRAN`
+into the word "Transport" is *your* problem.
 
-- **No required dependencies.** Works on the standard library alone; uses
-  `httpx` or `requests` automatically when either is installed.
-- **Sync and async** clients with the same API surface.
-- **Typed models** for datasets, distributions, data services, catalogs,
-  agents, contact points, harvest reports and statistics — plus raw RDF access
-  whenever the typed view is not enough.
-- **A query builder** that handles Solr's escaping rules and EntryStore's
-  MD5-hashed predicate fields for you.
-- **A CLI** for searching, inspecting and monitoring from the terminal.
+This package makes it not your problem.
+
+```python
+from dataportal_se import Dataportal
+
+with Dataportal() as dp:
+    dataset = dp.dataset(uri="https://example.org/data/roads")
+    print(dataset.to_dict())
+```
+
+```json
+{
+  "uri": "https://example.org/data/roads",
+  "title": "Vägtrafiknät",
+  "keywords": ["vägnät", "trafik"],
+  "themes": [
+    {"uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
+     "label": "Transport"}
+  ],
+  "license": {"uri": "http://creativecommons.org/licenses/by/4.0/",
+              "label": "Creative Commons Erkännande 4.0"},
+  "accrual_periodicity": {"uri": ".../frequency/ANNUAL", "label": "Årligen"},
+  "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
+                "name": "Trafikverket", "identifiers": ["2021006297"]},
+  "issued": "2020-03-04",
+  "distributions": [
+    {"title": "Vägnät CSV", "download_url": "https://...csv",
+     "format": {"uri": ".../file-type/CSV", "label": "CSV"}, "byte_size": 184320}
+  ],
+  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}]
+}
+```
+
+Every value above is `json.dumps`-able. No RDF terms, no graph traversal, no
+URIs left unexplained.
+
+## What it does for you
+
+- **Resolves vocabulary URIs to labels.** Themes, file types, frequencies,
+  languages, licences, access rights, HVD categories — Swedish and English,
+  shipped in the package, no network call.
+- **Flattens the graph.** Blank nodes, nested `PeriodOfTime`, `vcard` contact
+  points and `spdx` checksums come out as ordinary keys.
+- **Resolves references.** A search hit names its publisher and distributions
+  by URI only; one recursive fetch pulls the whole closure into the dict.
+- **Leaves the escape hatches open.** `to_rdf()` gives the raw graph,
+  `raw_json()` the registry's own payload, and typed accessors sit underneath
+  everything if you want them.
+
+No required dependencies — the standard library is enough. `httpx` or
+`requests` are used automatically if installed.
 
 ## Install
 
-Not on PyPI yet. Install from this repository:
+Not on PyPI yet.
 
 ```bash
 pip install git+https://github.com/nordicintel/dataportal.git
@@ -34,213 +75,171 @@ Or from a checkout:
 pip install -e .
 ```
 
-Optional extras (`pip install ".[httpx]"` from a checkout, or append
-`#egg=dataportal-se[httpx]` to the git URL):
+Optional extras: `httpx` (pooled HTTP/2 transport), `async` (the asyncio
+client), `requests`, `dev` (pytest plus both transports).
 
-- `httpx` — pooled, HTTP/2-capable transport
-- `async` — the asyncio client (also httpx)
-- `requests` — the requests transport
-- `dev` — pytest plus both optional transports
-
-The distribution is named **`dataportal-se`** and imports as **`dataportal_se`**.
-The name `dataportal` on PyPI is an unrelated Korean public-data client, and it
-installs a top-level `dataportal` module — so don't install it expecting this.
-
-## Quick start
-
-```python
-from dataportal_se import Dataportal
-
-with Dataportal() as dp:
-    page = dp.datasets(title="bidrag", title_lang="sv", limit=10)
-    print(page.total, "matching datasets")
-
-    for dataset in page:
-        print(dataset.title, "—", dataset.publisher_uri)
-```
-
-Fetch one dataset with everything attached (distributions, publisher, contact
-points) in a single recursive request:
-
-```python
-dataset = dp.dataset(uri="https://example.org/data/roads")
-
-print(dataset.title, dataset.license, dataset.keywords)
-for distribution in dataset.distributions():
-    print(distribution.format, distribution.download_url, distribution.byte_size)
-
-publisher = dataset.publisher()
-print(publisher.name, publisher.identifiers)
-```
-
-Iterate across pages without thinking about offsets:
-
-```python
-for dataset in dp.iter_datasets(theme="http://publications.europa.eu/resource/authority/data-theme/TRAN"):
-    print(dataset.title)
-```
-
-## How the registry is shaped
-
-Worth knowing, because it explains the API:
-
-- Datasets are identified by **the publisher's own URI**, not by anything the
-  registry mints. The registry additionally has a `contextId`/`entryId` pair
-  that is stable in practice but can change if a dataset is removed and
-  re-added.
-- A **search hit carries only that entry's own metadata**. Referenced managed
-  entities — distributions, publishers, contact points, data services — appear
-  as bare URIs and need a separate lookup. `lookup_many()` batches those, and
-  `recursive=True` on a single-entry fetch avoids them entirely.
-- The Solr index is **rebuilt nightly**, so counts are estimates and content is
-  at most 24 hours old.
+> The distribution is **`dataportal-se`** and imports as **`dataportal_se`**.
+> The name `dataportal` on PyPI is an unrelated Korean public-data client.
 
 ## Searching
 
-`Q` builds Solr queries, escaping colons, slashes and the rest for you:
-
 ```python
-from dataportal_se import Q
-from dataportal_se.namespaces import DCAT
-
-dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
-dp.search(Q.publisher("http://dataportal.se/organisation/SE2021005521"))
-dp.search(Q.modified("2024-01-01T00:00:00Z") & Q.tag("geodata"))
+page = dp.datasets(text="cykel", limit=10)
+print(page.total)
+page.to_dict()            # the whole page, ready for json.dumps
 ```
 
-Combine with `&` (AND), `|` (OR) and `~` (NOT). Anything the builder does not
-cover goes through `Q.raw("...")` verbatim.
-
-Negation is handled carefully: Lucene returns nothing for a purely negative
-query and silently drops everything for `a AND (NOT b)`, so `Q` anchors
-negative fragments to `*:*` wherever a positive clause is required. `~` does
-what it looks like it does.
-
-The keyword form is equivalent and usually shorter:
+Keyword filters cover the common cases:
 
 ```python
 dp.datasets(
-    text="cykel",
+    title="bidrag", title_lang="sv",
     keyword=["geodata", "trafik"],
     publisher="http://dataportal.se/organisation/SE2021005521",
+    theme="http://publications.europa.eu/resource/authority/data-theme/TRAN",
     modified_after="2024-01-01T00:00:00Z",
-    limit=50,
 )
 ```
 
-Supported filters: `text`, `title` (+ `title_lang`), `description`, `keyword`
+Available: `text`, `title` (+ `title_lang`), `description`, `keyword`
 (+ `keyword_lang`), `publisher`, `theme`, `format`, `license`, `hvd_category`,
-`language`, `context`, `resource`, `modified_after`/`modified_before`,
-`created_after`/`created_before`, and `query` for a raw fragment.
+`language`, `context`, `resource`, `modified_after` / `modified_before`,
+`created_after` / `created_before`, and `query` for a raw fragment.
 
-### Predicate queries and facets
+Iterate across pages without touching offsets:
 
-EntryStore indexes predicate/object pairs under a field whose name embeds an
-MD5 of the predicate URI. `Q.predicate` and `predicate_field` compute it:
+```python
+for dataset in dp.iter_datasets(theme="...TRAN"):
+    print(dataset.to_dict()["title"])
+```
+
+### When you need the query language
+
+`Q` builds Solr queries and handles the escaping — colons and slashes inside
+URIs, and the MD5-hashed predicate fields EntryStore uses:
 
 ```python
 from dataportal_se import Q, predicate_field
+from dataportal_se.namespaces import DCAT
 
-predicate_field("dcterms:subject")            # metadata.predicate.literal.256bd150
-Q.predicate("dcterms:accessRights", "http://.../PUBLIC", kind="uri")
-Q.predicate_range("dcterms:issued", "2023-01-01T00:00:00Z", kind="date")
+dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
+dp.search(Q.predicate("dcterms:accessRights", "http://.../PUBLIC", kind="uri"))
+
+predicate_field("dcterms:subject")    # metadata.predicate.literal.256bd150
 ```
 
-Facets count distinct values of any indexed field:
+Combine with `&`, `|`, `~`; drop to `Q.raw("...")` for anything else.
+Negation is handled properly — Lucene returns nothing for a purely negative
+query and silently drops everything for `a AND (NOT b)`, so `Q` anchors
+negative fragments to `*:*` where a positive clause is required.
+
+## Vocabulary labels
+
+The label table is available on its own:
 
 ```python
-counts = dp.facet("rdfType", limit=20).as_dict()
+from dataportal_se import label, term, VOCABULARY
+
+label("http://publications.europa.eu/resource/authority/data-theme/TRAN")
+# 'Transport'
+label(".../data-theme/TRAN", ["sv"])
+term(".../file-type/CSV")     # {"uri": "...", "label": "CSV"}
+len(VOCABULARY)
 ```
 
-## Typed entities
+An unknown URI gives `None` rather than a guess derived from the URI — a
+missing label is a fact about coverage, not something to paper over.
+
+### Coverage
+
+Measured over 300 live datasets, weighted by how often values actually occur:
+
+| Field | Labelled |
+| --- | --- |
+| `themes` | 100% |
+| `access_rights` | 100% |
+| `accrual_periodicity` | 100% |
+| `languages` | 100% |
+| `hvd_categories` | 100% |
+| `spatial` | 90% |
+| `license` | 25% |
+| `subjects` | 0% |
+| **total** | **82%** |
+
+The two gaps are known and not guessable:
+
+- **`license`** — almost entirely
+  `https://dataportal.se/concepts/licensecategories/{nolicense,otherlicense}`,
+  two URIs covering ~9,000 datasets. They do not dereference (the host
+  answers `426`), and they appear in neither DIGG's templates nor the
+  dataportal.se frontend translations. Actual licence URLs (Creative Commons
+  and friends) resolve fine.
+- **`subjects`** — GEMET concept URIs, whose host is not reachable over
+  plain HTTP from here.
+
+Everything else — themes, file types, media types, frequencies, languages,
+access rights, HVD categories, publisher types, INSPIRE themes, and ~600
+GeoNames places — resolves.
+
+### Regenerating
+
+The table is built from DIGG's own
+[DCAT-AP-SE templates](https://github.com/diggsweden/DCAT-AP-SE), the
+authority tables the remaining URIs dereference to, and the GeoNames CC BY
+bulk exports for place names:
+
+```bash
+python tools/build_vocabulary.py
+```
+
+The script measures coverage against the URIs publishers are *actually* using
+in the live registry and prints what it could not resolve, so gaps stay
+visible rather than assumed.
+
+## Entities
 
 | Method | Returns |
 | --- | --- |
 | `dp.datasets(...)` / `dp.iter_datasets(...)` | `Dataset` |
+| `dp.dataset(uri=...)` / `dp.dataset(context_id=, entry_id=)` | `Dataset` |
 | `dp.distributions(...)` | `Distribution` |
 | `dp.data_services(...)` | `DataService` |
 | `dp.dataset_series(...)` | `DatasetSeries` |
 | `dp.catalogs(...)` | `Catalog` |
 | `dp.agents(...)` / `dp.agent(uri)` | `Agent` |
 | `dp.standards(...)` | `Standard` |
-| `dp.harvest_reports()` | `HarvestReport` |
-| `dp.link_check_reports()` | `LinkCheckReport` |
-| `dp.metadata_quality()` | `MetadataQuality` |
-| `dp.catalog_statistics()` | `CatalogStatistics` |
-| `dp.lookup(uri)` / `dp.lookup_many(uris)` | whichever model fits the hit |
+| `dp.lookup(uri)` / `dp.lookup_many(uris)` | whichever model fits |
 
-Localized values follow a language preference (`sv`, then `en`, by default):
+All of them have `.to_dict()` and `.to_json()`.
+
+### Organisations
+
+```python
+dp.organisations()          # every publisher with its dataset count
+dp.organisation_summary()   # registry totals
+dp.context_names()          # contextId -> catalog title
+dp.context_publishers()     # contextId -> publisher URI
+dataset.publisher()         # the Agent behind a dataset
+```
+
+### Language
+
+Localized values follow a preference, `sv` then `en` by default:
 
 ```python
 dp = Dataportal(languages=["en", "sv"])
-dataset.title              # the English title when there is one
-dataset.titles             # {"sv": "...", "en": "..."}
-dataset.value("dcterms:title", ["de"])
+dataset.to_dict()["title"]       # English when there is one
+dataset.to_dict()["titles"]      # {"sv": ..., "en": ...}
 ```
 
 ### Dropping to RDF
 
-Every entry keeps its graph, so nothing is hidden:
-
 ```python
-dataset.resource.uris("dcat:theme")
-dataset.resource.value("http://purl.org/dc/terms/provenance")
-dataset.resource.to_dict()          # everything, with CURIE keys
-dataset.metadata.to_json()          # the original RDF/JSON
-
-for subject, predicate, obj in dataset.metadata.triples():
-    ...
-```
-
-Other serializations come straight from the server:
-
-```python
-turtle = dp.entry_raw(547, 28672, recursive=True, format="text/turtle").text
-jsonld = dp.entry_raw(547, 28672, recursive=True, format="application/ld+json").json()
-```
-
-## Registry operations
-
-```python
-dp.organisations()              # dataset counts per publisher (the org chart)
-dp.organisation_summary()       # registry totals
-dp.harvest_reports()            # newest harvest run per source
-dp.catalog_statistics(limit=30) # the nightly series, newest first
-dp.context_names()              # contextId -> organisation name
-dp.datasets_per_organisation()  # (contextId, name, count) for one day
-dp.link_check_reports()         # nightly link check per catalog
-dp.metadata_quality()           # DCAT-AP MQA scores per catalog
-```
-
-Harvest reports are how you see whether a source is actually being ingested:
-
-```python
-for report in dp.harvest_reports():
-    if not report.all_succeeded:
-        print(report.title, report.validation_errors, "errors")
-```
-
-Link checks tell you whether the distributions still resolve, and the MQA
-scores how well a catalog follows DCAT-AP:
-
-```python
-for report in dp.link_check_reports(failing_only=True):
-    print(report.context_id, report.failed, "of", report.checked, "links dead")
-
-for score in dp.metadata_quality():
-    print(score.title, score.percentage, score.rating)
-```
-
-## The nightly dump
-
-`all.rdf` is the only place where datasets arrive together with their related
-entities in one document. It is large, so it is always streamed:
-
-```python
-dp.download_dump("all.rdf", progress=lambda n: print(n, "bytes"))
-
-for chunk in dp.iter_dump():     # or handle it yourself
-    ...
+dataset.to_rdf()                       # the metadata graph as RDF/JSON
+dataset.to_rdf_dict()                  # every predicate, CURIE-keyed
+dataset.raw_json()                     # the registry's own payload
+dataset.resource.uris("dcat:theme")    # typed graph access
+dp.entry_raw(547, 28672, recursive=True, format="text/turtle").text
 ```
 
 ## Async
@@ -253,76 +252,88 @@ async def main():
     async with AsyncDataportal() as dp:
         page = await dp.datasets(title="bidrag", limit=10)
         async for dataset in dp.iter_datasets(limit=100):
-            print(dataset.title)
+            print(dataset.to_dict()["title"])
 
 asyncio.run(main())
 ```
 
-Same names and arguments as the sync client; requests are coroutines and the
-iterators are async generators. `entry()` and `lookup_many()` fan out
-concurrently, bounded by `max_concurrency`. Entries returned by the async
-client carry no client reference, so use `dp.lookup(...)` instead of
-`dataset.publisher()`.
+Same names and arguments; requests are coroutines and the iterators are async
+generators. `entry()` and `lookup_many()` fan out concurrently.
 
-## Command line
+## Other registry data
 
-```bash
-dataportal search "cykel" --limit 5
-dataportal search --publisher http://dataportal.se/organisation/SE2021005521
-dataportal dataset --id 547/28672
-dataportal dataset https://example.org/data/roads --json
-dataportal organisations --top 10
-dataportal harvest --failed
-dataportal stats --days 7
-dataportal contexts --top 20
-dataportal links --failed
-dataportal quality
-dataportal facet rdfType
-dataportal raw 'title.sv:cykel AND public:true'
-dataportal dump ./all.rdf
+```python
+dp.catalog_statistics(limit=30)  # nightly dataset counts, newest first
+dp.link_check_reports()          # which distribution URLs still resolve
+dp.metadata_quality()            # DCAT-AP MQA scores per catalog
+dp.download_dump("all.rdf")      # the full nightly RDF dump, streamed
 ```
-
-Every subcommand accepts `--json` for the raw response.
 
 ## Configuration
 
 ```python
 Dataportal(
     base_url="https://admin.dataportal.se",
-    languages=["sv", "en"],   # preference for localized values
+    languages=["sv", "en"],
     timeout=30.0,
     max_retries=3,            # on 429/5xx and connection errors, with backoff
-    public_only=True,         # add public:true to every search
+    public_only=True,
     default_sort="modified desc",
-    cache_size=512,           # memoized URI lookups
+    cache_size=512,
     transport=None,           # httpx / requests / urllib, auto-selected
 )
 ```
 
 Set `DATAPORTAL_USER_AGENT` to identify your client to the registry.
 
-## Errors
+Errors all derive from `DataportalError`: `TransportError` / `TimeoutError`
+for connection failures, `HTTPError` with `NotFoundError`, `RateLimitError`
+and `ServerError` subclasses for non-2xx, `ParseError` for malformed bodies,
+`QueryError` for bad queries.
 
-All exceptions derive from `DataportalError`:
-
-`TransportError` (and `TimeoutError`) for connection failures; `HTTPError` with
-the `NotFoundError`, `RateLimitError` and `ServerError` subclasses for non-2xx
-responses; `ParseError` for malformed bodies; `QueryError` for bad query
-construction.
-
-## Testing
+## Development
 
 ```bash
-pytest                                  # offline, against recorded responses
+pip install -e ".[dev]"
+pytest                                  # offline, against recorded fixtures
 DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
 ```
 
+### Releasing
+
+**Pushing to `main` never publishes anything.** CI runs tests and builds the
+distributions on every push and PR; that is all it does.
+
+A release happens only when a **GitHub Release is published**:
+
+1. Bump `version` in `pyproject.toml` and `__version__` in
+   `src/dataportal_se/__init__.py`. They must match each other, and the
+   release tag must match them, or the workflow stops before uploading.
+2. Merge to `main`.
+3. **Releases → Draft a new release.** Tag `v<version>` (e.g. `v0.2.0`),
+   target `main`, write the notes.
+4. **Publish release.** The `Release` workflow verifies the versions agree,
+   runs the tests, builds, and uploads to PyPI.
+
+To rehearse without publishing: **Actions → Release → Run workflow** builds
+and validates everything with the upload skipped (`dry_run` defaults to on).
+
+Requires a `PYPI_TOKEN` repository secret. PyPI does not allow re-uploading a
+version — if a release fails after upload, bump the patch version and cut a
+new one.
+
+| Workflow | Trigger | Publishes |
+| --- | --- | --- |
+| `ci.yml` | every push and PR | no |
+| `live.yml` | weekly schedule, manual | no |
+| `release.yml` | published GitHub Release, manual | **yes** |
+
 ## Caveats from upstream
 
-- Solr result counts are estimates and may exceed the number of entries you can
-  actually read; `SearchPage.has_more` is a hint, not a guarantee.
-- The index lags the triple store, so it should not be a source of truth for
-  anything critical.
+- Solr result counts are estimates and may exceed what you can actually read;
+  `has_more` is a hint, not a guarantee.
+- The index is rebuilt nightly, so data can be up to 24 hours old and should
+  not be a source of truth for anything critical.
 - `limit` is capped at 100 per request.
 - Deep paging over a changing index can skip or repeat entries; sort by
   something stable (e.g. `created asc`) when exactness matters.

@@ -47,7 +47,6 @@ from .models import (
     Distribution,
     Entry,
     Facet,
-    HarvestReport,
     LinkCheckReport,
     MetadataQuality,
     OrganisationStats,
@@ -55,7 +54,7 @@ from .models import (
     Standard,
     wrap_entry,
 )
-from .namespaces import DCAT, DCTERMS, FOAF, PIPELINE, Types
+from .namespaces import DCAT, DCTERMS, FOAF, Types
 from .query import Q, SORT_MODIFIED_DESC
 from .rdf import DEFAULT_LANGUAGES, Graph
 from .transport import (
@@ -831,33 +830,6 @@ class Dataportal:
             "publishers": int(data.get("publisherCount", 0) or 0),
         }
 
-    def harvest_reports(
-        self,
-        *,
-        latest_only: bool = True,
-        public_sector_only: bool = False,
-        limit: int = MAX_LIMIT,
-        merged_only: bool = True,
-    ) -> List[HarvestReport]:
-        """The most recent harvest report per organisation.
-
-        ``merged_only`` keeps the documented ``pipelineresult#merge`` filter,
-        which excludes runs that never reached the merge step.
-        """
-        parts: List[Q] = []
-        if latest_only:
-            parts.append(Q.tag("latest"))
-        if public_sector_only:
-            parts.append(Q.tag("psi"))
-        if merged_only:
-            parts.append(Q.predicate(PIPELINE.merge, True))
-        if not parts:
-            parts.append(Q.rdf_type(Types.PIPELINE_RESULT))
-        entries = self.iter_search(
-            Q.join(parts, "AND"), model=HarvestReport, limit=limit, sort=None
-        )
-        return list(entries)  # type: ignore[arg-type]
-
     def link_check_reports(
         self,
         *,
@@ -913,16 +885,28 @@ class Dataportal:
         )
         return list(page.entries)  # type: ignore[arg-type]
 
-    def context_names(self, *, public_sector_only: bool = False) -> Dict[str, str]:
-        """Map ``contextId`` to the organisation's title.
+    def context_names(self, *, limit: Optional[int] = None) -> Dict[str, str]:
+        """Map ``contextId`` to the catalog's title.
 
-        This is what turns ``stats:datasets_in_context_170`` in
-        :class:`~dataportal_se.models.CatalogStatistics` into a readable name.
+        Each harvested organisation gets one context, so this is how a
+        ``contextId`` -- on any entry, or in
+        :attr:`~dataportal_se.models.CatalogStatistics.datasets_per_context` --
+        becomes a readable name. For the publishing organisation itself,
+        follow a catalog's ``publisher_uri`` to an
+        :class:`~dataportal_se.models.Agent`.
         """
         out: Dict[str, str] = {}
-        for report in self.harvest_reports(public_sector_only=public_sector_only):
-            if report.context_id and report.title:
-                out[str(report.context_id)] = report.title
+        for catalog in self.iter_catalogs(limit=limit):
+            if catalog.context_id and catalog.title:
+                out[str(catalog.context_id)] = catalog.title
+        return out
+
+    def context_publishers(self, *, limit: Optional[int] = None) -> Dict[str, str]:
+        """Map ``contextId`` to the publishing organisation's URI."""
+        out: Dict[str, str] = {}
+        for catalog in self.iter_catalogs(limit=limit):
+            if catalog.context_id and catalog.publisher_uri:
+                out[str(catalog.context_id)] = catalog.publisher_uri
         return out
 
     def datasets_per_organisation(self, *, day: int = 0) -> List[Tuple[str, str, int]]:
