@@ -29,6 +29,7 @@ from typing import (
     Union,
 )
 
+from ._log import enable_logging, logger
 from .exceptions import (
     HTTPError,
     NotFoundError,
@@ -124,7 +125,16 @@ class Dataportal:
     :param public_only: add ``public:true`` to every search (the default, and
         what the public API effectively serves).
     :param transport: an explicit :class:`~dataportalen.transport.BaseTransport`;
-        by default the best of httpx / requests / urllib is chosen.
+        ``requests`` by default. Pass ``HttpxTransport()`` for HTTP/2.
+    :param log_level: convenience -- ``"INFO"`` or ``"DEBUG"`` starts printing
+        this package's log records to stderr. Leave it ``None`` and configure
+        the ``dataportalen`` logger yourself if your application already has
+        logging set up.
+
+    Every request is logged at ``DEBUG``, retries and rate limits at
+    ``WARNING``, so a slow or failing run explains itself::
+
+        dp = Dataportal(log_level="DEBUG")
     """
 
     def __init__(
@@ -140,6 +150,7 @@ class Dataportal:
         cache_size: int = 512,
         public_only: bool = True,
         default_sort: Optional[str] = SORT_MODIFIED_DESC,
+        log_level: Optional[Any] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -152,6 +163,10 @@ class Dataportal:
         self._transport = transport if transport is not None else default_transport()
         self._owns_transport = transport is None
         self._cache = _LRU(cache_size)
+        if log_level is not None:
+            enable_logging(log_level)
+        logger.debug("client ready: %s (transport=%s)",
+                     self.base_url, type(self._transport).__name__)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -229,6 +244,7 @@ class Dataportal:
         url = absolute_url or build_url(self.base_url, path, params)
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
+            started = time.time()
             try:
                 response = self._transport.request(
                     method, url, headers=self._headers(accept), timeout=self.timeout
@@ -236,15 +252,25 @@ class Dataportal:
             except TransportError as exc:
                 last_exc = exc
                 if attempt >= self.max_retries:
+                    logger.error("%s %s failed after %d attempts: %s",
+                                 method, url, attempt + 1, exc)
                     raise
+                logger.warning("%s %s failed (%s); retrying (%d/%d)",
+                               method, url, exc, attempt + 1, self.max_retries)
                 self._sleep_for(attempt, None)
                 continue
+            elapsed = time.time() - started
+            logger.debug("%s %s -> %d  %.2fs  %d bytes",
+                         method, url, response.status, elapsed, len(response.content))
             if response.status in _RETRY_STATUSES and attempt < self.max_retries:
                 retry_after = response.headers.get("retry-after")
                 try:
                     parsed = float(retry_after) if retry_after else None
                 except ValueError:
                     parsed = None
+                logger.warning("%s returned %d; retrying (%d/%d)%s",
+                               url, response.status, attempt + 1, self.max_retries,
+                               " after %ss" % parsed if parsed else "")
                 self._sleep_for(attempt, parsed)
                 continue
             self._raise_for_status(response)
@@ -932,7 +958,7 @@ class Dataportal:
         *,
         workers: int = 8,
         limit: Optional[int] = None,
-        progress: Optional[Callable[[int, int], None]] = None,
+        progress: Any = "auto",
     ) -> Any:
         """Download every dataset to ``path`` as JSONL; returns a summary.
 

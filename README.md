@@ -21,43 +21,43 @@ with Dataportal() as dp:
 
 ```json
 {
-    "uri": "https://example.org/data/roads",
-    "title": "Vägtrafiknät",
-    "keywords": ["vägnät", "trafik"],
-    "themes": [
-        {
-            "uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
-            "label": "Transport"
-        }
-    ],
-    "license": {
-        "uri": "http://creativecommons.org/licenses/by/4.0/",
-        "label": "Creative Commons Erkännande 4.0"
-    },
-    "accrual_periodicity": {
-        "uri": ".../frequency/ANNUAL",
-        "label": "Årligen"
-    },
-    "publisher": {
-        "uri": "http://dataportal.se/organisation/SE2021006297",
-        "name": "Trafikverket",
-        "identifiers": ["2021006297"]
-    },
-    "issued": "2020-03-04",
-    "distributions": [
-        {
-            "title": "Vägnät CSV",
-            "download_url": "https://...csv",
-            "format": { "uri": ".../file-type/CSV", "label": "CSV" },
-            "byte_size": 184320
-        }
-    ],
-    "contact_points": [{ "name": "Datasupport", "email": "data@example.org" }]
+  "uri": "https://example.org/data/roads",
+  "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
+  "description": {"sv": "..."},
+  "keywords": {"sv": ["vägnät", "trafik"]},
+  "themes": [
+    {"uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
+     "label": "Transport"}
+  ],
+  "license": {"uri": "http://creativecommons.org/licenses/by/4.0/",
+              "label": "CC BY 4.0 (Attribution)"},
+  "accrual_periodicity": {"uri": ".../frequency/ANNUAL", "label": "annual"},
+  "access_rights": {"uri": ".../access-right/PUBLIC", "label": "Public"},
+  "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
+                "name": {"sv": "Trafikverket"}, "identifiers": ["2021006297"]},
+  "issued": "2020-03-04",
+  "distributions": [
+    {"title": {"sv": "Vägnät CSV"},
+     "download_url": ["https://...csv"],
+     "format": {"uri": ".../file-type/CSV", "label": "CSV"}}
+  ],
+  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}]
 }
 ```
 
 Every value above is `json.dumps`-able. No RDF terms, no graph traversal, no
 URIs left unexplained.
+
+**One key per concept.** `title`, `description`, `keywords` and
+`publisher.name` are language maps; `access_url` and `download_url` are lists.
+There is no scalar-plus-plural pair to keep straight, and nothing in the output
+is derivable from something else in it.
+
+**Vocabulary labels are English.** Access rights, frequencies, file types,
+publisher types and the rest are standardised terms — "annual" and "Public"
+are more useful to build on than *årligen* and *Publik*. Publisher-authored
+text (title, description, keywords) keeps every language the publisher
+supplied, so you pick.
 
 ## What it does for you
 
@@ -72,8 +72,8 @@ URIs left unexplained.
   `raw_json()` the registry's own payload, and typed accessors sit underneath
   everything if you want them.
 
-No required dependencies — the standard library is enough. `httpx` or
-`requests` are used automatically if installed.
+Depends on `requests` and `httpx`. No extras, nothing to opt into — the sync
+client, the async client and all three transports work out of the box.
 
 ## Install
 
@@ -89,8 +89,7 @@ Or from a checkout:
 pip install -e .
 ```
 
-Optional extras: `httpx` (pooled HTTP/2 transport), `async` (the asyncio
-client), `requests`, `dev` (pytest plus both transports).
+No optional extras. `pip install -e ".[dev]"` adds pytest for development.
 
 > Distribution and import name are both **`dataportalen`**. The unrelated
 > `dataportal` package on PyPI is a Korean public-data client — not this.
@@ -166,7 +165,8 @@ up afterwards.
 ```python
 download_catalog("catalog.jsonl.gz")                 # gzip from the suffix
 download_catalog("sample.jsonl", limit=500)          # a quick smoke test
-download_catalog("catalog.jsonl", progress=print)    # progress(done, total)
+download_catalog("catalog.jsonl", progress=None)     # silence
+download_catalog("catalog.jsonl", progress=print)    # your own callback
 summary = download_catalog("catalog.jsonl")
 summary.datasets, summary.distributions, summary.elapsed
 ```
@@ -305,7 +305,7 @@ dp.entry_raw(547, 28672, recursive=True, format="text/turtle").text
 
 ```python
 import asyncio
-from dataportalen.aio import AsyncDataportal
+from dataportalen import AsyncDataportal
 
 async def main():
     async with AsyncDataportal() as dp:
@@ -328,6 +328,36 @@ dp.metadata_quality()            # DCAT-AP MQA scores per catalog
 dp.download_dump("all.rdf")      # the full nightly RDF dump, streamed
 ```
 
+## Logging and progress
+
+Long operations tell you what they are doing. `download_catalog` draws a live
+progress line when stderr is a terminal, and logs periodically when it is not:
+
+```
+datasets   47.3%  11,140/23,548  81/s  eta 2m33s
+```
+
+For everything else, the package logs to the standard `dataportalen` logger
+and never touches your root logger:
+
+```python
+from dataportalen import Dataportal, enable_logging
+
+enable_logging("INFO")               # or configure the logger yourself
+dp = Dataportal(log_level="DEBUG")   # same thing, as a shortcut
+```
+
+`DEBUG` logs every request with its status, duration and size; retries and
+rate limits are logged at `WARNING`, so a slow run explains itself.
+
+```python
+import logging
+logging.getLogger("dataportalen").setLevel(logging.DEBUG)   # your app's way
+```
+
+Progress is separate from logging: `progress="auto"` (default), `None` for
+silence, or your own `progress(done, total)` callback.
+
 ## Configuration
 
 ```python
@@ -339,7 +369,7 @@ Dataportal(
     public_only=True,
     default_sort="modified desc",
     cache_size=512,
-    transport=None,           # httpx / requests / urllib, auto-selected
+    transport=None,           # requests by default; pass HttpxTransport() for HTTP/2
 )
 ```
 

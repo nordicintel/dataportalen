@@ -29,6 +29,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
+from ._log import logger, progress_reporter
 from .models import Agent, ContactPoint, Dataset, Distribution, Entry
 from .namespaces import DCAT, FOAF, VCARD
 from .query import Q
@@ -174,13 +175,30 @@ def _bulk_indexes(client, workers, counter):
     contact_total = client.count(contact_query)
     counter.add(3)
 
+    logger.info("indexing %s distributions, %s agents, %s contact points "
+                "(%d requests, this is the slow part)",
+                f"{distribution_total:,}", f"{agent_total:,}", f"{contact_total:,}",
+                sum(len(_pages(n)) for n in
+                    (distribution_total, agent_total, contact_total)))
+
+    started = time.time()
     distributions = _index_by_uri(_crawl(
         client, Q.rdf_type(DCAT.Distribution), Distribution,
         distribution_total, workers, counter))
+    logger.info("  distributions indexed: %s (%.0fs)",
+                f"{len(distributions):,}", time.time() - started)
+
+    started = time.time()
     agents = _index_by_uri(_crawl(
         client, Q.rdf_type(FOAF.Agent), Agent, agent_total, workers, counter))
+    logger.info("  agents indexed: %s (%.0fs)",
+                f"{len(agents):,}", time.time() - started)
+
+    started = time.time()
     contacts = _index_by_uri(_crawl(
         client, contact_query, ContactPoint, contact_total, workers, counter))
+    logger.info("  contact points indexed: %s (%.0fs)",
+                f"{len(contacts):,}", time.time() - started)
     return distributions, agents, contacts
 
 
@@ -219,7 +237,7 @@ def download_catalog(
     languages: Sequence[str] = DEFAULT_LANGUAGES,
     workers: int = 8,
     limit: Optional[int] = None,
-    progress: Optional[Callable[[int, int], None]] = None,
+    progress: Any = "auto",
     client: Any = None,
     base_url: Optional[str] = None,
 ) -> CatalogSummary:
@@ -234,7 +252,10 @@ def download_catalog(
     :param languages: preferred language order for localized values.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
     :param limit: stop after this many datasets, for smoke tests.
-    :param progress: called as ``progress(done, total)`` as datasets are written.
+    :param progress: ``"auto"`` (the default) draws a live progress line on
+        stderr when it is a terminal, and otherwise logs progress periodically
+        -- a five-minute run should never look like a hang. ``None`` is
+        silent; a callable is invoked as ``progress(done, total)``.
     :param client: an existing :class:`~dataportalen.Dataportal` to reuse.
     :param base_url: registry root, when not passing ``client``.
     """
@@ -247,7 +268,8 @@ def download_catalog(
             kwargs["base_url"] = base_url
         client = Dataportal(**kwargs)
 
-    started = time.time()
+    started_all = time.time()
+    report = progress_reporter(progress, "datasets")
     counter = _Counter()
     written = 0
     bytes_written = 0
@@ -258,6 +280,7 @@ def download_catalog(
         counter.add()
         if limit is not None:
             dataset_total = min(dataset_total, limit)
+        logger.info("exporting %s datasets to %s", f"{dataset_total:,}", path)
 
         datasets = _crawl(
             client, Q.rdf_type(DCAT.Dataset), Dataset, dataset_total, workers, counter
@@ -287,8 +310,8 @@ def download_catalog(
                 written += 1
                 bytes_written += len(line.encode("utf-8"))
                 distributions_written += used
-                if progress is not None:
-                    progress(written, dataset_total)
+                if report is not None:
+                    report(written, dataset_total)
 
         if missing:
             # Anything the crawl did not cover -- a distribution in a
@@ -300,12 +323,16 @@ def download_catalog(
         if owned:
             client.close()
 
+    logger.info("wrote %s: %s datasets, %s distributions, %.1f MiB in %.0fs "
+                "(%d requests)",
+                path, f"{written:,}", f"{distributions_written:,}",
+                bytes_written / (1 << 20), time.time() - started_all, counter.value)
     return CatalogSummary(
         path=path,
         datasets=written,
         distributions=distributions_written,
         bytes_written=bytes_written,
-        elapsed=time.time() - started,
+        elapsed=time.time() - started_all,
         requests=counter.value,
     )
 
@@ -337,7 +364,7 @@ def _assemble(
         if found is not None:
             record["publisher"] = found
         elif record.get("publisher") is None:
-            record["publisher"] = {"uri": publisher_uri, "name": None}
+            record["publisher"] = {"uri": publisher_uri, "name": {}}
 
     if not record.get("contact_points"):
         resolved = [contacts[u] for u in dataset.contact_point_uris if u in contacts]

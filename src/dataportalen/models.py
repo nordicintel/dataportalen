@@ -77,6 +77,13 @@ E = TypeVar("E", bound="Entry")
 _MISSING = object()
 
 
+#: Controlled-vocabulary labels are always English. These are standardised
+#: terms -- access rights, frequencies, file types, publisher types -- and a
+#: Swedish rendering of "annual" or "Public" helps nobody building on this.
+#: Publisher-authored text (title, description, keywords) still honours the
+#: client's language preference, because that genuinely differs per reader.
+VOCABULARY_LANGUAGES = ("en",)
+
 #: BCP-47 for "undetermined". Literals with no language tag would otherwise
 #: key a JSON object under `null`, which json.dumps renders as the string
 #: "null" -- a value indistinguishable from a real language code.
@@ -434,9 +441,8 @@ class Entry:
         plus whatever title and description are present.
         """
         return dict(self._envelope_dict(), **{
-            "title": self.title,
-            "titles": _langmap(self.titles),
-            "description": self.description,
+            "title": _langmap(self.titles),
+            "description": _langmap(self.descriptions),
             "types": self.types,
         })
 
@@ -448,11 +454,16 @@ class Entry:
         }
 
     def _term(self, uri: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
-        """One controlled-vocabulary value as ``{"uri", "label"}``."""
-        return _vocab.term(uri, self.languages)
+        """One controlled-vocabulary value as ``{"uri", "label"}``.
+
+        Always English -- see :data:`VOCABULARY_LANGUAGES`. The lookup falls
+        back to any label it has, so a term with no English rendering still
+        shows something rather than nothing.
+        """
+        return _vocab.term(uri, VOCABULARY_LANGUAGES)
 
     def _terms(self, uris: Sequence[str]) -> List[Dict[str, Optional[str]]]:
-        return _vocab.terms(uris, self.languages)
+        return _vocab.terms(uris, VOCABULARY_LANGUAGES)
 
     def _publisher_dict(self) -> Optional[Dict[str, Any]]:
         """The publishing organisation, named when the graph describes it.
@@ -466,7 +477,7 @@ class Entry:
             return None
         for ref in self.resource.refs(DCTERMS.publisher):
             return Agent.from_resource(ref, client=self._client).to_dict()
-        return {"uri": uri, "name": None}
+        return {"uri": uri, "name": {}}
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """:meth:`to_dict` rendered as a JSON string."""
@@ -651,8 +662,6 @@ class ContactPoint(Entry):
             "uri": None if self.resource.is_bnode else self.resource.uri,
             "name": self.name,
             "email": self.email,
-            "telephone": self.telephone,
-            "url": self.url,
         }
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
@@ -720,8 +729,7 @@ class Agent(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "name": self.name,
-            "names": _langmap(self.names),
+            "name": _langmap(self.names),
             "type": self._term(self.agent_type),
             "homepage": self.homepage,
             "email": self.mbox,
@@ -829,25 +837,17 @@ class Distribution(Entry):
         return [e.as_(DataService) for e in self.fetch_many(uris)]
 
     def to_dict(self):
-        checksum = self.checksum
         return dict(self._envelope_dict(), **{
-            "title": self.title,
-            "titles": _langmap(self.titles),
-            "description": self.description,
-            "access_url": self.access_url,
-            "access_urls": self.access_urls,
-            "download_url": self.download_url,
-            "download_urls": self.download_urls,
+            "title": _langmap(self.titles),
+            "description": _langmap(self.descriptions),
+            "access_url": self.access_urls,
+            "download_url": self.download_urls,
             "format": self._term(self.format),
-            "media_type": self._term(self.media_type),
-            "byte_size": self.byte_size,
             "license": self._term(self.license),
-            "rights": self.rights_statements,
             "status": self._term(self.status),
             "availability": self._term(self.availability),
             "languages": self._terms(self.language_uris),
             "conforms_to": self.conforms_to,
-            "checksum": checksum.to_dict() if checksum else None,
             "issued": _iso(self.issued),
             "modified": _iso(self.modified_date),
             "access_service_uris": self.access_service_uris,
@@ -928,9 +928,8 @@ class DataService(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": self.title,
-            "titles": _langmap(self.titles),
-            "description": self.description,
+            "title": _langmap(self.titles),
+            "description": _langmap(self.descriptions),
             "endpoint_url": self.endpoint_url,
             "endpoint_urls": self.endpoint_urls,
             "endpoint_descriptions": self.endpoint_description_uris,
@@ -1163,9 +1162,16 @@ class Dataset(Entry):
     def to_dict(self, distributions=True):
         """This dataset as a plain, JSON-serializable dict.
 
-        Vocabulary URIs come back as ``{"uri", "label"}``, dates as ISO
-        strings, and the publisher and any inline distributions as nested
-        dicts.
+        One key per concept: ``title``, ``description`` and ``keywords`` are
+        language maps, never a scalar plus a plural. Vocabulary URIs come back
+        as ``{"uri", "label"}`` with **English** labels, dates as ISO strings,
+        and the publisher and any inline distributions as nested dicts.
+
+        Fields that are empty for ~97%+ of the registry are left out to keep
+        the output workable -- ``version``, ``provenance``, ``subjects``,
+        ``hvd_categories``, ``source_uris`` and similar. They remain available
+        as typed properties on the model (``dataset.version``) and in
+        :meth:`to_rdf_dict`, which holds everything the publisher supplied.
 
         ``distributions`` includes the distributions present in this entry's
         graph -- all of them after a ``recursive=True`` fetch, none of them
@@ -1174,39 +1180,26 @@ class Dataset(Entry):
         """
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
-            "title": self.title,
-            "titles": _langmap(self.titles),
-            "description": self.description,
-            "descriptions": _langmap(self.descriptions),
-            "keywords": self.keywords,
-            "keywords_by_language": _langmap(self.keywords_by_language),
+            "title": _langmap(self.titles),
+            "description": _langmap(self.descriptions),
+            "keywords": _langmap(self.keywords_by_language),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
             "creator_uris": self.creator_uris,
             "themes": self._terms(self.theme_uris),
-            "subjects": self._terms(self.subject_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
             "accrual_periodicity": self._term(self.accrual_periodicity),
             "languages": self._terms(self.language_uris),
             "spatial": self._terms(self.spatial_uris),
             "temporal": temporal.to_dict() if temporal else None,
-            "temporal_resolution": self.temporal_resolution,
-            "spatial_resolution_in_meters": self.spatial_resolution_in_meters,
-            "hvd_categories": self._terms(self.hvd_categories),
             "applicable_legislation": self._terms(self.applicable_legislation),
             "issued": _iso(self.issued),
             "modified": _iso(self.modified_date),
-            "version": self.version,
-            "provenance": self.provenance,
             "conforms_to": self.conforms_to,
             "documentation": self.documentation_uris,
-            "source_uris": self.source_uris,
-            "in_series_uris": self.in_series_uris,
-            "is_part_of_uris": self.is_part_of_uris,
             "contact_points": [c.to_dict() for c in self.contact_points],
-            "distribution_uris": self.distribution_uris,
         })
         if distributions:
             out["distributions"] = [
@@ -1288,9 +1281,8 @@ class Catalog(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": self.title,
-            "titles": _langmap(self.titles),
-            "description": self.description,
+            "title": _langmap(self.titles),
+            "description": _langmap(self.descriptions),
             "publisher": self._publisher_dict(),
             "homepage": self.homepage,
             "languages": self._terms(self.language_uris),
@@ -1414,7 +1406,7 @@ class MetadataQuality(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": self.title,
+            "title": _langmap(self.titles),
             "score": self.score,
             "percentage": self.percentage,
             "rating": self.rating,

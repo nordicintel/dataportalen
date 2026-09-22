@@ -110,15 +110,28 @@ LANG_ALIASES = {"swe": "sv", "eng": "en", "sv": "sv", "en": "en"}
 
 
 def fetch(url: str, accept: Optional[str] = None, timeout: int = 30) -> Optional[bytes]:
-    request = urllib.request.Request(url, headers={"User-Agent": "dataportal-se-vocab-builder"})
+    body, _ = fetch_with_url(url, accept, timeout)
+    return body
+
+
+def fetch_with_url(url, accept=None, timeout=30):
+    """Fetch, returning ``(body, final_url)`` after any redirects.
+
+    The final URL matters: several vocabularies redirect to their authority
+    table (``r5r/availability/stable`` -> ``planned-availability/STABLE``) and
+    the RDF then describes the target, so matching only the requested URI
+    finds no labels at all.
+    """
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "dataportalen-vocab-builder"})
     if accept:
         request.add_header("Accept", accept)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read()
+            return response.read(), response.geturl()
     except (urllib.error.URLError, OSError) as exc:
         print("    ! %s -> %s" % (url, exc))
-        return None
+        return None, url
 
 
 # --- 1. DIGG's DCAT-AP-SE templates -----------------------------------------
@@ -178,7 +191,7 @@ def uris_in_use() -> Set[str]:
 # --- 3. dereference whatever is still unlabelled ----------------------------
 
 
-def labels_from_rdf(body: bytes, subject: str) -> Dict[str, str]:
+def labels_from_rdf(body: bytes, subject: str, also=None) -> Dict[str, str]:
     """Pull sv/en labels for ``subject`` out of an RDF/XML document.
 
     Descriptions are not always direct children of the root -- INSPIRE nests
@@ -194,6 +207,9 @@ def labels_from_rdf(body: bytes, subject: str) -> Dict[str, str]:
     swapped = bare.replace("https://", "http://", 1) if bare.startswith("https://") \
         else bare.replace("http://", "https://", 1)
     wanted = {bare, bare + "/", swapped, swapped + "/"}
+    for extra in (also or ()):
+        extra = extra.rstrip("/")
+        wanted.update({extra, extra + "/"})
 
     out: Dict[str, str] = {}
     for description in root.iter():
@@ -241,8 +257,8 @@ def geonames_gazetteer() -> Dict[str, str]:
 
 
 def _resolve_one(uri: str) -> Dict[str, str]:
-    body = fetch(uri, accept="application/rdf+xml", timeout=15)
-    return labels_from_rdf(body, uri) if body else {}
+    body, final = fetch_with_url(uri, accept="application/rdf+xml", timeout=15)
+    return labels_from_rdf(body, uri, also=[final]) if body else {}
 
 
 def dereference(uris: Iterable[str]) -> Dict[str, Dict[str, str]]:

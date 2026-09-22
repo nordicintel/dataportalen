@@ -14,7 +14,6 @@ __all__ = [
     "ServerError",
     "ParseError",
     "QueryError",
-    "MissingDependencyError",
 ]
 
 
@@ -76,7 +75,3 @@ class ParseError(DataportalError):
 
 class QueryError(DataportalError):
     """A Solr query could not be built from the given arguments."""
-
-
-class MissingDependencyError(DataportalError):
-    """An optional dependency is required for the requested feature."""

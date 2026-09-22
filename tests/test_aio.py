@@ -1,7 +1,6 @@
 """The async client.
 
-The httpx-backed transport is required, so these are skipped when it is
-missing. Network tests additionally need ``DATAPORTAL_LIVE=1``.
+Network tests need ``DATAPORTAL_LIVE=1``; the rest run offline.
 """
 
 from __future__ import annotations
@@ -15,11 +14,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from conftest import load_fixture
 
-httpx = pytest.importorskip("httpx", reason="the async client needs httpx")
-
-from dataportalen import Dataset  # noqa: E402
-from dataportalen.aio import AsyncDataportal  # noqa: E402
-from dataportalen.transport import Response  # noqa: E402
+from dataportalen import Dataset
+from dataportalen.aio import AsyncDataportal
+from dataportalen.transport import Response
 
 
 class FakeAsyncTransport:
