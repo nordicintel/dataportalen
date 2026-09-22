@@ -20,13 +20,11 @@ classifiers = [
   "Topic :: Internet :: WWW/HTTP",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = ["httpx>=0.24", "requests>=2.25"]
 
 [project.optional-dependencies]
-httpx = ["httpx>=0.24"]
-requests = ["requests>=2.25"]
-async = ["httpx>=0.24"]
-dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
+# Only tooling. Everything a user needs is a hard dependency.
+dev = ["pytest>=7"]
 
 [project.urls]
 Homepage = "https://github.com/nordicintel/dataportal"

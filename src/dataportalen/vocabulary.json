@@ -544,6 +544,22 @@
    "en": "High-value dataset",
    "sv": "Värdefull datamängd"
   },
+  "http://data.europa.eu/r5r/availability/available": {
+   "en": "available",
+   "sv": "tillgänglig"
+  },
+  "http://data.europa.eu/r5r/availability/experimental": {
+   "en": "experimental",
+   "sv": "experimentell"
+  },
+  "http://data.europa.eu/r5r/availability/stable": {
+   "sv": "stabil",
+   "en": "stable"
+  },
+  "http://data.europa.eu/r5r/availability/temporary": {
+   "en": "temporary",
+   "sv": "temporär"
+  },
   "http://inspire.ec.europa.eu/metadata-codelist/DegreeOfConformity/conformant": {
    "en": "Conformant"
   },

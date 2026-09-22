@@ -8,4 +8,4 @@ import from `__init__`, since `__init__` imports `transport`.
 To release a new version, edit this line and nothing else. See RELEASING.md.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

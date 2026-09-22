@@ -13,7 +13,7 @@ serves every dataset visible on dataportal.se, described with DCAT-AP-SE
 
 Quick start::
 
-    from dataportalen import Dataportal
+    from dataportalen import Dataportal, AsyncDataportal
 
     with Dataportal() as dp:
         page = dp.datasets(title="bidrag", limit=10)
@@ -26,12 +26,13 @@ See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 
 from __future__ import annotations
 
+from ._log import enable_logging, logger
 from .catalog import CatalogSummary, download_catalog
 from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, Dataportal
+from .aio import AsyncDataportal
 from .exceptions import (
     DataportalError,
     HTTPError,
-    MissingDependencyError,
     NotFoundError,
     ParseError,
     QueryError,
@@ -85,6 +86,7 @@ from .query import Q, escape, escape_uri, predicate_field
 from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
 from .transport import (
+    AsyncHttpxTransport,
     BaseTransport,
     HttpxTransport,
     RequestsTransport,
@@ -97,14 +99,18 @@ __version__ = _version
 
 __all__ = [
     "__version__",
-    # client
+    # clients
     "Dataportal",
+    "AsyncDataportal",
     "DEFAULT_BASE_URL",
     "DUMP_URL",
     "MAX_LIMIT",
     # whole-catalogue export
     "download_catalog",
     "CatalogSummary",
+    # logging
+    "enable_logging",
+    "logger",
     # query
     "Q",
     "escape",
@@ -167,6 +173,7 @@ __all__ = [
     "UrllibTransport",
     "RequestsTransport",
     "HttpxTransport",
+    "AsyncHttpxTransport",
     "Response",
     # exceptions
     "DataportalError",
@@ -178,14 +185,4 @@ __all__ = [
     "ServerError",
     "ParseError",
     "QueryError",
-    "MissingDependencyError",
 ]
-
-
-def __getattr__(name: str):
-    """Expose the async client lazily so httpx stays optional."""
-    if name in ("AsyncDataportal", "AsyncHttpxTransport"):
-        from . import aio
-
-        return getattr(aio, name)
-    raise AttributeError("module %r has no attribute %r" % (__name__, name))

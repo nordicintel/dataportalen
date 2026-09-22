@@ -143,7 +143,7 @@ def test_unknown_entry_ids_raise_not_found(dp):
 
 @pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
 def test_every_transport_reaches_the_registry(transport_name):
-    from dataportalen.exceptions import MissingDependencyError
+    """All three work, with nothing optional to install."""
     from dataportalen.transport import HttpxTransport, RequestsTransport, UrllibTransport
 
     factories = {
@@ -151,10 +151,7 @@ def test_every_transport_reaches_the_registry(transport_name):
         "requests": RequestsTransport,
         "httpx": HttpxTransport,
     }
-    try:
-        transport = factories[transport_name]()
-    except MissingDependencyError:
-        pytest.skip("%s is not installed" % transport_name)
+    transport = factories[transport_name]()
     with Dataportal(transport=transport) as client:
         assert client.count(Q.rdf_type(DCAT.Dataset)) > 1000
     transport.close()
@@ -212,11 +209,19 @@ def test_catalog_export_round_trips(dp, tmp_path):
     records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 200
     assert all(r["uri"] for r in records)
-    # Every referenced distribution resolved, so a line needs no follow-up call.
-    for record in records:
-        assert len(record["distributions"]) == len(record["distribution_uris"])
     # Untagged literals must not key an object under the string "null".
-    assert all("null" not in r["titles"] for r in records)
+    assert all("null" not in r["title"] for r in records)
+    assert all(isinstance(r["title"], dict) for r in records)
+    # Vocabulary labels read in English, whatever the client preference.
+    # GOVE is "Regeringen och den offentliga sektorn" in Swedish, so seeing
+    # the English rendering proves the preference did not leak through.
+    seen = {t["uri"]: t["label"] for r in records for t in r["themes"]}
+    gove = "http://publications.europa.eu/resource/authority/data-theme/GOVE"
+    if gove in seen:
+        assert seen[gove] == "Government and public sector", seen[gove]
+    assert not any(
+        (label or "").startswith("Regeringen") for label in seen.values()
+    )
 
 
 def test_catalog_export_gzips(dp, tmp_path):
@@ -237,11 +242,16 @@ def test_vocabulary_labels_resolve_on_live_data(dp):
     total = labelled = 0
     for dataset in dp.iter_datasets(limit=200):
         doc = dataset.to_dict(distributions=False)
-        for field in ("themes", "languages", "hvd_categories"):
+        for field in ("themes", "languages"):
             for value in doc[field]:
                 total += 1
                 labelled += 1 if value["label"] else 0
+        for field in ("access_rights", "accrual_periodicity"):
+            value = doc[field]
+            if value:
+                total += 1
+                labelled += 1 if value["label"] else 0
     assert total > 100
-    # These three vocabularies are fully covered; a regression here means the
+    # These vocabularies are fully covered; a regression here means the
     # shipped table drifted from what the registry serves.
     assert labelled == total

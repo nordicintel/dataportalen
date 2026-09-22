@@ -1,8 +1,11 @@
 """HTTP transports.
 
-The package works with nothing but the standard library
-(:class:`UrllibTransport`). If ``httpx`` or ``requests`` is installed it is
-used instead, and ``httpx`` additionally unlocks the async client.
+``requests`` and ``httpx`` are both hard dependencies -- there are no extras
+to install and nothing to opt into.
+
+:class:`RequestsTransport` is the default. Pass ``transport=HttpxTransport()``
+for HTTP/2, or :class:`UrllibTransport` to avoid both. ``httpx`` also backs
+the asyncio client.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import zlib
 from typing import Any, Iterator, List, Mapping, Optional, Tuple
 
 from ._version import __version__
-from .exceptions import MissingDependencyError, ParseError, TimeoutError, TransportError
+from .exceptions import ParseError, TimeoutError, TransportError
 
 __all__ = [
     "Response",
@@ -246,10 +249,7 @@ class RequestsTransport(BaseTransport):
     """Transport backed by :mod:`requests` (connection pooling, keep-alive)."""
 
     def __init__(self, session: Any = None) -> None:
-        try:
-            import requests
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise MissingDependencyError("RequestsTransport needs `pip install requests`") from exc
+        import requests  # a declared dependency; always present
 
         self._requests = requests
         self._session = session or requests.Session()
@@ -308,10 +308,8 @@ class HttpxTransport(BaseTransport):
     """Transport backed by :mod:`httpx` (HTTP/2-capable, pooled)."""
 
     def __init__(self, client: Any = None, **client_kwargs: Any) -> None:
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise MissingDependencyError("HttpxTransport needs `pip install httpx`") from exc
+        import httpx  # a declared dependency; always present
+
         self._httpx = httpx
         client_kwargs.setdefault("follow_redirects", True)
         self._client = client or httpx.Client(**client_kwargs)
@@ -369,12 +367,8 @@ class AsyncHttpxTransport:
     """Asynchronous transport backed by :mod:`httpx`."""
 
     def __init__(self, client: Any = None, **client_kwargs: Any) -> None:
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise MissingDependencyError(
-                "the async client needs `pip install dataportal[async]` (httpx)"
-            ) from exc
+        import httpx  # a declared dependency; always present
+
         self._httpx = httpx
         client_kwargs.setdefault("follow_redirects", True)
         self._client = client or httpx.AsyncClient(**client_kwargs)
@@ -415,16 +409,13 @@ class AsyncHttpxTransport:
 
 
 def default_transport() -> BaseTransport:
-    """Pick the best available synchronous transport."""
-    try:
-        return HttpxTransport()
-    except MissingDependencyError:
-        pass
-    try:
-        return RequestsTransport()
-    except MissingDependencyError:
-        pass
-    return UrllibTransport()
+    """The default synchronous transport.
+
+    Always ``requests``: it is a declared dependency, so this is predictable
+    rather than dependent on what else happens to be installed. Pass
+    ``transport=HttpxTransport()`` to the client for HTTP/2.
+    """
+    return RequestsTransport()
 
 
 def default_async_transport() -> AsyncHttpxTransport:

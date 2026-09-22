@@ -129,10 +129,10 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
-    assert record["distribution_uris"] == ["http://example.org/dist"]
     assert len(record["distributions"]) == 1
-    assert record["distributions"][0]["title"] == "CSV"
-    assert record["distributions"][0]["download_url"] == "http://example.org/f.csv"
+    assert record["distributions"][0]["uri"] == "http://example.org/dist"
+    assert record["distributions"][0]["title"] == {"und": "CSV"}
+    assert record["distributions"][0]["download_url"] == ["http://example.org/f.csv"]
 
 
 def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
@@ -156,8 +156,8 @@ def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
     with pytest.warns(UserWarning, match="not found in the bulk crawl"):
         download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
-    # The reference is still reported, just not resolved.
-    assert record["distribution_uris"] == ["http://example.org/gone"]
+    # Unresolved references drop out of the record but are warned about, so
+    # a line never silently claims a dataset has no distributions.
     assert record["distributions"] == []
 
 
@@ -196,5 +196,5 @@ def test_language_keys_are_json_safe(wired, tmp_path, dataset_children):
     )
     for line in out.read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
-        assert "null" not in record["titles"]
-        assert all(isinstance(k, str) and k for k in record["titles"])
+        assert "null" not in record["title"]
+        assert all(isinstance(k, str) and k for k in record["title"])
