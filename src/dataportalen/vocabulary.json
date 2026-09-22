@@ -138,6 +138,9 @@
   "http://creativecommons.org/licenses/by-nc-sa/4.0/": {
    "en": "CC BY-NC-SA 4.0 (Attribution, Non-Commercial, Share Alike)"
   },
+  "http://creativecommons.org/licenses/by-nc/3.0/": {
+   "en": "Attribution-NonCommercial 3.0 Unported"
+  },
   "http://creativecommons.org/licenses/by-nc/4.0/": {
    "en": "CC BY-NC 4.0 (Attribution, Non-Commercial)"
   },
@@ -547,6 +550,33 @@
   "http://inspire.ec.europa.eu/metadata-codelist/DegreeOfConformity/notEvaluated": {
    "en": "Not evaluated"
   },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/BathingWaterSites-dir-2006-7": {
+   "en": "Bathing water sites (Bathing Water Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/Directive-2002-49": {
+   "en": "Directive 2002/49/EC"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/Lakes-dir-2000-60": {
+   "en": "Lakes (Water Framework Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/MSFDReportingUnits-dir-2008-56": {
+   "en": "Marine reporting units (Marine Strategy Framework Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/MajorAirportsNoiseExposureDelineation-dir-2002-49": {
+   "en": "Major airports noise exposure delineation (Noise Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/MajorRailwaysNoiseExposureDelineation-dir-2002-49": {
+   "en": "Major railways noise exposure delineation (Noise Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/MajorRoadsNoiseExposureDelineation-dir-2002-49": {
+   "en": "Major roads noise exposure delineation (Noise Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/MarineRegions-dir-2008-56": {
+   "en": "Marine regions (Marine Strategy Framework Directive)"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/PriorityDataset/Rivers-dir-2000-60": {
+   "en": "Rivers (Water Framework Directive)"
+  },
   "http://inspire.ec.europa.eu/metadata-codelist/ResourceType/dataset": {
    "en": "Spatial data set"
   },
@@ -588,6 +618,30 @@
    "en": "User",
    "sv": "Användare"
   },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/comTransferService": {
+   "en": "802-Transfer service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/humanGeographicViewer": {
+   "en": "102-Geographic viewer"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/humanWorkflowEnactmentManager": {
+   "en": "106-Workflow enactment manager"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/infoCatalogueService": {
+   "en": "207-Catalogue service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/infoMapAccessService": {
+   "en": "202-Map access service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/infoOrderHandlingService": {
+   "en": "210-Order handling service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/infoProductAccessService": {
+   "en": "205-Product access service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceCategory/thematicGoparameterCalculationService": {
+   "en": "501-Geoparameter calculation service"
+  },
   "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceType/discovery": {
    "en": "Discovery Service"
   },
@@ -599,6 +653,57 @@
   },
   "http://inspire.ec.europa.eu/metadata-codelist/SpatialDataServiceType/view": {
    "en": "View Service"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/biota": {
+   "en": "Biota"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/boundaries": {
+   "en": "Boundaries"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/climatologyMeteorologyAtmosphere": {
+   "en": "Climatology / Meteorology / Atmosphere"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/elevation": {
+   "en": "Elevation"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/environment": {
+   "en": "Environment"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/farming": {
+   "en": "Farming"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/geoscientificInformation": {
+   "en": "Geoscientific Information"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/health": {
+   "en": "Health"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/imageryBaseMapsEarthCover": {
+   "en": "Imagery / Base Maps / Earth Cover"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/inlandWaters": {
+   "en": "Inland Waters"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/location": {
+   "en": "Location"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/oceans": {
+   "en": "Oceans"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/planningCadastre": {
+   "en": "Planning / Cadastre"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/society": {
+   "en": "Society"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/structure": {
+   "en": "Structure"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/transportation": {
+   "en": "Transportation"
+  },
+  "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/utilitiesCommunication": {
+   "en": "Utilities / Communication"
   },
   "http://inspire.ec.europa.eu/theme/am": {
    "en": "Area management/restriction/regulation zones and reporting units"
@@ -3544,9 +3649,6 @@
   },
   "https://creativecommons.org/licenses/by/2.5/se/": {
    "sv": "Erkännande 2.5"
-  },
-  "https://creativecommons.org/publicdomain/mark/1.0/": {
-   "en": "Public Domain Mark 1.0 Universal"
   },
   "https://dataportal.se/concepts/orgAspects/feeFinanzing": {
    "en": "Regulated to take out fees on some service and data",

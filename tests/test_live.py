@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from dataportal_se import (
+from dataportalen import (
     Agent,
     Catalog,
     DataService,
@@ -25,7 +25,7 @@ from dataportal_se import (
     Distribution,
     Q,
 )
-from dataportal_se.namespaces import DCAT
+from dataportalen.namespaces import DCAT
 
 pytestmark = pytest.mark.network
 
@@ -135,7 +135,7 @@ def test_entry_raw_serves_turtle(dp):
 
 
 def test_unknown_entry_ids_raise_not_found(dp):
-    from dataportal_se import HTTPError
+    from dataportalen import HTTPError
 
     with pytest.raises(HTTPError):
         dp.entry_raw(999999, 999999, part="metadata")
@@ -143,8 +143,8 @@ def test_unknown_entry_ids_raise_not_found(dp):
 
 @pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
 def test_every_transport_reaches_the_registry(transport_name):
-    from dataportal_se.exceptions import MissingDependencyError
-    from dataportal_se.transport import HttpxTransport, RequestsTransport, UrllibTransport
+    from dataportalen.exceptions import MissingDependencyError
+    from dataportalen.transport import HttpxTransport, RequestsTransport, UrllibTransport
 
     factories = {
         "urllib": UrllibTransport,
@@ -196,3 +196,52 @@ def test_metadata_quality_scores_are_in_range(dp):
     assert scores
     assert all(0 <= s.percentage <= 100 for s in scores)
     assert any(s.is_total for s in dp.metadata_quality(limit=100))
+
+
+def test_catalog_export_round_trips(dp, tmp_path):
+    """A small real export: every line self-contained and correct."""
+    import json
+
+    from dataportalen import download_catalog
+
+    out = tmp_path / "catalog.jsonl"
+    summary = download_catalog(str(out), limit=200, client=dp)
+    assert summary.datasets == 200
+    assert summary.bytes_written == out.stat().st_size
+
+    records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 200
+    assert all(r["uri"] for r in records)
+    # Every referenced distribution resolved, so a line needs no follow-up call.
+    for record in records:
+        assert len(record["distributions"]) == len(record["distribution_uris"])
+    # Untagged literals must not key an object under the string "null".
+    assert all("null" not in r["titles"] for r in records)
+
+
+def test_catalog_export_gzips(dp, tmp_path):
+    import gzip
+    import json
+
+    from dataportalen import download_catalog
+
+    out = tmp_path / "catalog.jsonl.gz"
+    download_catalog(str(out), limit=25, client=dp)
+    assert out.read_bytes()[:2] == b"\x1f\x8b"
+    with gzip.open(out, "rt", encoding="utf-8") as handle:
+        assert len([json.loads(l) for l in handle]) == 25
+
+
+def test_vocabulary_labels_resolve_on_live_data(dp):
+    """The label table must actually hit what publishers use."""
+    total = labelled = 0
+    for dataset in dp.iter_datasets(limit=200):
+        doc = dataset.to_dict(distributions=False)
+        for field in ("themes", "languages", "hvd_categories"):
+            for value in doc[field]:
+                total += 1
+                labelled += 1 if value["label"] else 0
+    assert total > 100
+    # These three vocabularies are fully covered; a regression here means the
+    # shipped table drifted from what the registry serves.
+    assert labelled == total

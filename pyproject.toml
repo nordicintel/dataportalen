@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dataportal-se"
-version = "0.1.0"
+name = "dataportalen"
+dynamic = ["version"]
 description = "dataportal.se as plain Python dicts: DCAT-AP-SE metadata with vocabulary URIs resolved to labels"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -32,8 +32,12 @@ dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
 Homepage = "https://github.com/nordicintel/dataportal"
 Documentation = "https://docs.dataportal.se/registry/api/"
 
+# Single source of truth: src/dataportalen/_version.py
+[tool.hatch.version]
+path = "src/dataportalen/_version.py"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/dataportal_se"]
+packages = ["src/dataportalen"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

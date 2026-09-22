@@ -11,7 +11,7 @@ readable is the client's problem. This module is the answer: it ships a
 lookup table built from DIGG's own DCAT-AP-SE templates and the authority
 tables those URIs dereference to, so no network call is needed at runtime.
 
-    >>> from dataportal_se.vocab import label
+    >>> from dataportalen.vocab import label
     >>> label("http://publications.europa.eu/resource/authority/data-theme/TRAN")
     'Transport'
 

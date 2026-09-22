@@ -9,7 +9,7 @@
 #
 # HOW TO CUT A RELEASE
 #   1. Bump `version` in pyproject.toml and `__version__` in
-#      src/dataportal_se/__init__.py. They must match, and the release tag
+#      src/dataportalen/__init__.py. They must match, and the release tag
 #      must match them too, or the workflow stops before uploading.
 #   2. Merge that to main.
 #   3. GitHub -> Releases -> "Draft a new release".
@@ -68,32 +68,19 @@ jobs:
 
       # A mismatched version is the one mistake that cannot be undone once
       # uploaded, so it is checked before anything is built.
-      - name: Verify the version is consistent
+      # A wrong version on PyPI cannot be undone, so the tag is checked
+      # before anything is built. There is only one version to check:
+      # src/dataportalen/_version.py, which pyproject.toml also reads.
+      - name: Verify the release tag matches the package version
         run: |
           set -euo pipefail
-          PKG_VERSION=$(python -c "import dataportal_se; print(dataportal_se.__version__)")
-          TOML_VERSION=$(python -c "
-          import sys
-          try:
-              import tomllib
-          except ModuleNotFoundError:
-              import tomli as tomllib
-          with open('pyproject.toml','rb') as f:
-              print(tomllib.load(f)['project']['version'])
-          ")
-          echo "pyproject.toml : $TOML_VERSION"
-          echo "__version__    : $PKG_VERSION"
-
-          if [ "$PKG_VERSION" != "$TOML_VERSION" ]; then
-            echo "::error::pyproject.toml ($TOML_VERSION) and __version__ ($PKG_VERSION) disagree."
-            exit 1
-          fi
-
+          VERSION=$(python -c "import dataportalen; print(dataportalen.__version__)")
+          echo "package version : $VERSION"
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${{ github.event.release.tag_name }}"
-            echo "release tag    : $TAG"
-            if [ "$TAG" != "v$PKG_VERSION" ] && [ "$TAG" != "$PKG_VERSION" ]; then
-              echo "::error::Release tag $TAG does not match version $PKG_VERSION. Expected v$PKG_VERSION."
+            echo "release tag     : $TAG"
+            if [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
+              echo "::error::Release tag $TAG does not match version $VERSION (expected v$VERSION). Fix src/dataportalen/_version.py or re-tag."
               exit 1
             fi
           fi
@@ -111,7 +98,7 @@ jobs:
         run: |
           python -m venv /tmp/check
           /tmp/check/bin/python -m pip install --quiet dist/*.whl
-          /tmp/check/bin/python -c "import dataportal_se; print('wheel ok', dataportal_se.__version__)"
+          /tmp/check/bin/python -c "import dataportalen; print('wheel ok', dataportalen.__version__)"
 
       - name: Summary
         run: |

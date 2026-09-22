@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from dataportal_se.vocab import VOCABULARY, Vocabulary
+from dataportalen.vocab import VOCABULARY, Vocabulary
 
 THEME_TRAN = "http://publications.europa.eu/resource/authority/data-theme/TRAN"
 

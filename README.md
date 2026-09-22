@@ -1,4 +1,4 @@
-# dataportal-se
+# dataportalen
 
 Python access to [dataportal.se](https://www.dataportal.se) that gives you
 **plain dicts, not RDF**.
@@ -12,7 +12,7 @@ into the word "Transport" is *your* problem.
 This package makes it not your problem.
 
 ```python
-from dataportal_se import Dataportal
+from dataportalen import Dataportal
 
 with Dataportal() as dp:
     dataset = dp.dataset(uri="https://example.org/data/roads")
@@ -78,8 +78,8 @@ pip install -e .
 Optional extras: `httpx` (pooled HTTP/2 transport), `async` (the asyncio
 client), `requests`, `dev` (pytest plus both transports).
 
-> The distribution is **`dataportal-se`** and imports as **`dataportal_se`**.
-> The name `dataportal` on PyPI is an unrelated Korean public-data client.
+> Distribution and import name are both **`dataportalen`**. The unrelated
+> `dataportal` package on PyPI is a Korean public-data client — not this.
 
 ## Searching
 
@@ -119,8 +119,8 @@ for dataset in dp.iter_datasets(theme="...TRAN"):
 URIs, and the MD5-hashed predicate fields EntryStore uses:
 
 ```python
-from dataportal_se import Q, predicate_field
-from dataportal_se.namespaces import DCAT
+from dataportalen import Q, predicate_field
+from dataportalen.namespaces import DCAT
 
 dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
 dp.search(Q.predicate("dcterms:accessRights", "http://.../PUBLIC", kind="uri"))
@@ -133,12 +133,52 @@ Negation is handled properly — Lucene returns nothing for a purely negative
 query and silently drops everything for `a AND (NOT b)`, so `Q` anchors
 negative fragments to `*:*` where a positive clause is required.
 
+## The whole catalogue in one file
+
+```python
+from dataportalen import download_catalog
+
+download_catalog("catalog.jsonl")
+```
+
+One dataset per line, each line a self-contained JSON object with its
+distributions, publisher and contact points already nested — nothing to look
+up afterwards.
+
+```
+23,548 datasets · 35,102 distributions · 117 MiB · 665 requests · ~5 minutes
+```
+
+```python
+download_catalog("catalog.jsonl.gz")                 # gzip from the suffix
+download_catalog("sample.jsonl", limit=500)          # a quick smoke test
+download_catalog("catalog.jsonl", progress=print)    # progress(done, total)
+summary = download_catalog("catalog.jsonl")
+summary.datasets, summary.distributions, summary.elapsed
+```
+
+Reading it back is one line:
+
+```python
+import json
+records = [json.loads(line) for line in open("catalog.jsonl", encoding="utf-8")]
+```
+
+The naive way to build this would be one recursive fetch per dataset — 23,000+
+requests. Instead each referenced type is bulk-crawled once and joined locally,
+which is 665 requests. With `limit` set it skips the bulk crawl entirely and
+resolves only what that batch references, so `limit=500` takes seconds rather
+than minutes.
+
+The nightly `all.rdf` dump would be a single request, but it has been seen
+lagging the registry by a week, so this reads the live search index instead.
+
 ## Vocabulary labels
 
 The label table is available on its own:
 
 ```python
-from dataportal_se import label, term, VOCABULARY
+from dataportalen import label, term, VOCABULARY
 
 label("http://publications.europa.eu/resource/authority/data-theme/TRAN")
 # 'Transport'
@@ -152,34 +192,39 @@ missing label is a fact about coverage, not something to paper over.
 
 ### Coverage
 
-Measured over 300 live datasets, weighted by how often values actually occur:
+Measured over a seeded random sample of **5,000 datasets** drawn from 225
+random positions across the corpus (25,109 vocabulary values):
 
 | Field | Labelled |
 | --- | --- |
 | `themes` | 100% |
 | `access_rights` | 100% |
 | `accrual_periodicity` | 100% |
-| `languages` | 100% |
 | `hvd_categories` | 100% |
-| `spatial` | 90% |
-| `license` | 25% |
-| `subjects` | 0% |
-| **total** | **82%** |
+| `languages` | 100% |
+| `spatial` | 99% |
+| `license` | 57% |
+| `subjects` | 44% |
+| **total** | **91%** |
 
-The two gaps are known and not guessable:
+**94% of everything still unlabelled is two URIs**:
+`https://dataportal.se/concepts/licensecategories/{nolicense,otherlicense}`,
+which between them account for ~9,000 datasets. They do not dereference (the
+host answers `426`) and appear in neither DIGG's templates nor the
+dataportal.se frontend translations. Real licence URLs — Creative Commons and
+friends — resolve fine. The rest is GEMET concepts, whose host is unreachable
+over plain HTTP.
 
-- **`license`** — almost entirely
-  `https://dataportal.se/concepts/licensecategories/{nolicense,otherlicense}`,
-  two URIs covering ~9,000 datasets. They do not dereference (the host
-  answers `426`), and they appear in neither DIGG's templates nor the
-  dataportal.se frontend translations. Actual licence URLs (Creative Commons
-  and friends) resolve fine.
-- **`subjects`** — GEMET concept URIs, whose host is not reachable over
-  plain HTTP from here.
+Reproduce or re-measure:
 
-Everything else — themes, file types, media types, frequencies, languages,
-access rights, HVD categories, publisher types, INSPIRE themes, and ~600
-GeoNames places — resolves.
+```bash
+python tools/build_vocabulary.py --skip-build --sample 5000
+python tools/build_vocabulary.py --skip-build --sample all   # exact, slower
+```
+
+Sampling is offset-based because the index has no random sort, so it is
+mildly clustered — a good estimate rather than a census. `--sample all`
+removes the sampling error when it matters.
 
 ### Regenerating
 
@@ -246,7 +291,7 @@ dp.entry_raw(547, 28672, recursive=True, format="text/turtle").text
 
 ```python
 import asyncio
-from dataportal_se.aio import AsyncDataportal
+from dataportalen.aio import AsyncDataportal
 
 async def main():
     async with AsyncDataportal() as dp:
@@ -304,23 +349,15 @@ DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
 **Pushing to `main` never publishes anything.** CI runs tests and builds the
 distributions on every push and PR; that is all it does.
 
-A release happens only when a **GitHub Release is published**:
+Publishing takes one file edit and one GitHub Release:
 
-1. Bump `version` in `pyproject.toml` and `__version__` in
-   `src/dataportal_se/__init__.py`. They must match each other, and the
-   release tag must match them, or the workflow stops before uploading.
+1. Bump `__version__` in `src/dataportalen/_version.py` — the single source of
+   truth, which `pyproject.toml` and the client's User-Agent both read.
 2. Merge to `main`.
-3. **Releases → Draft a new release.** Tag `v<version>` (e.g. `v0.2.0`),
-   target `main`, write the notes.
-4. **Publish release.** The `Release` workflow verifies the versions agree,
-   runs the tests, builds, and uploads to PyPI.
+3. `gh release create v0.2.0 --title "v0.2.0" --notes "..."`
 
-To rehearse without publishing: **Actions → Release → Run workflow** builds
-and validates everything with the upload skipped (`dry_run` defaults to on).
-
-Requires a `PYPI_TOKEN` repository secret. PyPI does not allow re-uploading a
-version — if a release fails after upload, bump the patch version and cut a
-new one.
+Full instructions, including how to rehearse without uploading and what to do
+when a release fails: **[RELEASING.md](RELEASING.md)**.
 
 | Workflow | Trigger | Publishes |
 | --- | --- | --- |
