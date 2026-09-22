@@ -1168,8 +1168,10 @@ class Dataset(Entry):
         and the publisher and any inline distributions as nested dicts.
 
         Fields that are empty for ~97%+ of the registry are left out to keep
-        the output workable -- ``version``, ``provenance``, ``subjects``,
-        ``hvd_categories``, ``source_uris`` and similar. They remain available
+        the output workable -- ``version``, ``provenance``,
+        ``hvd_categories``, ``source_uris`` and similar. ``subjects`` is an
+        exception: only 2% of datasets carry one, but where they do it is
+        real INSPIRE/GEMET classification with no other source. They remain available
         as typed properties on the model (``dataset.version``) and in
         :meth:`to_rdf_dict`, which holds everything the publisher supplied.
 
@@ -1188,6 +1190,7 @@ class Dataset(Entry):
             "publisher": self._publisher_dict(),
             "creator_uris": self.creator_uris,
             "themes": self._terms(self.theme_uris),
+            "subjects": self._terms(self.subject_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
             "accrual_periodicity": self._term(self.accrual_periodicity),
