@@ -17,9 +17,9 @@ from conftest import load_fixture
 
 httpx = pytest.importorskip("httpx", reason="the async client needs httpx")
 
-from dataportal_se import Dataset  # noqa: E402
-from dataportal_se.aio import AsyncDataportal  # noqa: E402
-from dataportal_se.transport import Response  # noqa: E402
+from dataportalen import Dataset  # noqa: E402
+from dataportalen.aio import AsyncDataportal  # noqa: E402
+from dataportalen.transport import Response  # noqa: E402
 
 
 class FakeAsyncTransport:

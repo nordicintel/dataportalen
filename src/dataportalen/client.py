@@ -1,6 +1,6 @@
 """The synchronous client for the Sveriges dataportal registry API.
 
-    >>> from dataportal_se import Dataportal
+    >>> from dataportalen import Dataportal
     >>> dp = Dataportal()
     >>> page = dp.datasets(title="bidrag", limit=5)
     >>> page.total                                    # doctest: +SKIP
@@ -123,7 +123,7 @@ class Dataportal:
     :param languages: preferred language order for localized values.
     :param public_only: add ``public:true`` to every search (the default, and
         what the public API effectively serves).
-    :param transport: an explicit :class:`~dataportal_se.transport.BaseTransport`;
+    :param transport: an explicit :class:`~dataportalen.transport.BaseTransport`;
         by default the best of httpx / requests / urllib is chosen.
     """
 
@@ -223,7 +223,7 @@ class Dataportal:
     ) -> Response:
         """Issue one request against the registry, with retries.
 
-        Returns the raw :class:`~dataportal_se.transport.Response`; use this for
+        Returns the raw :class:`~dataportalen.transport.Response`; use this for
         endpoints the typed helpers do not cover.
         """
         url = absolute_url or build_url(self.base_url, path, params)
@@ -336,7 +336,7 @@ class Dataportal:
         sort: Optional[str] = ...,  # type: ignore[assignment]
         **kwargs: Any,
     ) -> SearchPage:
-        """Run a Solr search and return a :class:`~dataportal_se.models.SearchPage`.
+        """Run a Solr search and return a :class:`~dataportalen.models.SearchPage`.
 
         ``model`` forces every hit into one class; by default each hit is typed
         from its own ``rdf:type``.
@@ -890,10 +890,10 @@ class Dataportal:
 
         Each harvested organisation gets one context, so this is how a
         ``contextId`` -- on any entry, or in
-        :attr:`~dataportal_se.models.CatalogStatistics.datasets_per_context` --
+        :attr:`~dataportalen.models.CatalogStatistics.datasets_per_context` --
         becomes a readable name. For the publishing organisation itself,
         follow a catalog's ``publisher_uri`` to an
-        :class:`~dataportal_se.models.Agent`.
+        :class:`~dataportalen.models.Agent`.
         """
         out: Dict[str, str] = {}
         for catalog in self.iter_catalogs(limit=limit):
@@ -923,6 +923,27 @@ class Dataportal:
         rows = [(ctx, names.get(ctx, ""), count) for ctx, count in counts.items()]
         rows.sort(key=lambda row: row[2], reverse=True)
         return rows
+
+    # -- the whole catalogue -----------------------------------------------
+
+    def download_catalog(
+        self,
+        path: str,
+        *,
+        workers: int = 8,
+        limit: Optional[int] = None,
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> Any:
+        """Download every dataset to ``path`` as JSONL; returns a summary.
+
+        One self-contained JSON object per line, distributions, publisher and
+        contact points nested. See :func:`dataportalen.download_catalog`.
+        """
+        from .catalog import download_catalog as _download
+
+        return _download(
+            path, workers=workers, limit=limit, progress=progress, client=self
+        )
 
     # -- the nightly dump --------------------------------------------------
 

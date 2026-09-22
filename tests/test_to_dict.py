@@ -12,8 +12,8 @@ import json
 import pytest
 from conftest import load_fixture
 
-from dataportal_se import Dataset, Distribution
-from dataportal_se.models import wrap_entry
+from dataportalen import Dataset, Distribution
+from dataportalen.models import wrap_entry
 
 
 @pytest.fixture

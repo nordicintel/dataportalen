@@ -1,0 +1,59 @@
+dataportalen
+Copyright (c) 2026 Nordic Intel
+
+This product includes software developed for the dataportalen project,
+licensed under the MIT License (see LICENSE).
+
+================================================================================
+THIRD-PARTY DATA
+================================================================================
+
+The file `src/dataportalen/vocabulary.json` is generated data, not source code.
+It is compiled by `tools/build_vocabulary.py` from the sources below and is
+redistributed here under their respective terms. The MIT License covers this
+package's code; it does not override the terms of the data.
+
+--------------------------------------------------------------------------------
+DCAT-AP-SE — Myndigheten för digital förvaltning (DIGG)
+--------------------------------------------------------------------------------
+Swedish and English labels for the controlled vocabularies used by the Swedish
+DCAT application profile.
+
+Source:   https://github.com/diggsweden/DCAT-AP-SE
+License:  Creative Commons Attribution 4.0 International (CC BY 4.0)
+          https://creativecommons.org/licenses/by/4.0/
+
+--------------------------------------------------------------------------------
+GeoNames geographical database
+--------------------------------------------------------------------------------
+Place names for the `dcterms:spatial` URIs, taken from the GeoNames bulk
+exports (SE.zip and countryInfo.txt).
+
+Source:   https://www.geonames.org/
+License:  Creative Commons Attribution 4.0 International (CC BY 4.0)
+          https://creativecommons.org/licenses/by/4.0/
+
+--------------------------------------------------------------------------------
+EU Vocabularies — Publications Office of the European Union
+--------------------------------------------------------------------------------
+Labels for the EU authority tables: data themes, file types, frequencies,
+languages, access rights, distribution status and planned availability.
+
+Source:   https://op.europa.eu/en/web/eu-vocabularies
+Reuse:    Commission Decision 2011/833/EU on the reuse of Commission documents
+          https://eur-lex.europa.eu/eli/dec/2011/833/oj
+
+--------------------------------------------------------------------------------
+INSPIRE registry — European Commission
+--------------------------------------------------------------------------------
+Labels for INSPIRE themes, topic categories and related code lists.
+
+Source:   https://inspire.ec.europa.eu/registry
+Reuse:    Commission Decision 2011/833/EU on the reuse of Commission documents
+          https://eur-lex.europa.eu/eli/dec/2011/833/oj
+
+================================================================================
+
+No third-party data is fetched at runtime. Metadata retrieved from
+dataportal.se through this package is published by its respective publishers,
+each under its own licence — see the `license` field on every dataset.

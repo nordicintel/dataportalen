@@ -3,7 +3,7 @@
 Every namespace is a :class:`Namespace` instance: attribute or item access
 expands a local name into a full URI.
 
-    >>> from dataportal_se.namespaces import DCAT
+    >>> from dataportalen.namespaces import DCAT
     >>> DCAT.Dataset
     'http://www.w3.org/ns/dcat#Dataset'
     >>> DCAT["keyword"]

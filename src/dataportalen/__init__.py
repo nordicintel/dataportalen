@@ -13,7 +13,7 @@ serves every dataset visible on dataportal.se, described with DCAT-AP-SE
 
 Quick start::
 
-    from dataportal_se import Dataportal
+    from dataportalen import Dataportal
 
     with Dataportal() as dp:
         page = dp.datasets(title="bidrag", limit=10)
@@ -26,6 +26,7 @@ See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 
 from __future__ import annotations
 
+from .catalog import CatalogSummary, download_catalog
 from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, Dataportal
 from .exceptions import (
     DataportalError,
@@ -79,6 +80,7 @@ from .namespaces import (
     expand,
     shorten,
 )
+from ._version import __version__ as _version
 from .query import Q, escape, escape_uri, predicate_field
 from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
@@ -90,7 +92,8 @@ from .transport import (
     UrllibTransport,
 )
 
-__version__ = "0.1.0"
+#: Defined in _version.py so packaging and the User-Agent cannot drift.
+__version__ = _version
 
 __all__ = [
     "__version__",
@@ -99,6 +102,9 @@ __all__ = [
     "DEFAULT_BASE_URL",
     "DUMP_URL",
     "MAX_LIMIT",
+    # whole-catalogue export
+    "download_catalog",
+    "CatalogSummary",
     # query
     "Q",
     "escape",

@@ -77,6 +77,17 @@ E = TypeVar("E", bound="Entry")
 _MISSING = object()
 
 
+#: BCP-47 for "undetermined". Literals with no language tag would otherwise
+#: key a JSON object under `null`, which json.dumps renders as the string
+#: "null" -- a value indistinguishable from a real language code.
+UNDETERMINED = "und"
+
+
+def _langmap(values: Dict[Optional[str], Any]) -> Dict[str, Any]:
+    """A localized map with JSON-safe keys."""
+    return {(lang or UNDETERMINED): value for lang, value in values.items()}
+
+
 def _iso(value: Any) -> Optional[str]:
     """A date/datetime as an ISO-8601 string; anything else passed through."""
     if value is None:
@@ -424,7 +435,7 @@ class Entry:
         """
         return dict(self._envelope_dict(), **{
             "title": self.title,
-            "titles": self.titles,
+            "titles": _langmap(self.titles),
             "description": self.description,
             "types": self.types,
         })
@@ -710,7 +721,7 @@ class Agent(Entry):
     def to_dict(self):
         return dict(self._envelope_dict(), **{
             "name": self.name,
-            "names": self.names,
+            "names": _langmap(self.names),
             "type": self._term(self.agent_type),
             "homepage": self.homepage,
             "email": self.mbox,
@@ -821,7 +832,7 @@ class Distribution(Entry):
         checksum = self.checksum
         return dict(self._envelope_dict(), **{
             "title": self.title,
-            "titles": self.titles,
+            "titles": _langmap(self.titles),
             "description": self.description,
             "access_url": self.access_url,
             "access_urls": self.access_urls,
@@ -918,7 +929,7 @@ class DataService(Entry):
     def to_dict(self):
         return dict(self._envelope_dict(), **{
             "title": self.title,
-            "titles": self.titles,
+            "titles": _langmap(self.titles),
             "description": self.description,
             "endpoint_url": self.endpoint_url,
             "endpoint_urls": self.endpoint_urls,
@@ -1164,11 +1175,11 @@ class Dataset(Entry):
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
             "title": self.title,
-            "titles": self.titles,
+            "titles": _langmap(self.titles),
             "description": self.description,
-            "descriptions": self.descriptions,
+            "descriptions": _langmap(self.descriptions),
             "keywords": self.keywords,
-            "keywords_by_language": self.keywords_by_language,
+            "keywords_by_language": _langmap(self.keywords_by_language),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
@@ -1278,7 +1289,7 @@ class Catalog(Entry):
     def to_dict(self):
         return dict(self._envelope_dict(), **{
             "title": self.title,
-            "titles": self.titles,
+            "titles": _langmap(self.titles),
             "description": self.description,
             "publisher": self._publisher_dict(),
             "homepage": self.homepage,

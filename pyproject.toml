@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dataportal-se"
-version = "0.1.0"
+name = "dataportalen"
+dynamic = ["version"]
 description = "dataportal.se as plain Python dicts: DCAT-AP-SE metadata with vocabulary URIs resolved to labels"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "ruben selander" }]
+authors = [{ name = "Nordic Intel" }]
 keywords = ["dataportal", "dcat", "dcat-ap-se", "rdf", "entrystore", "open-data", "sweden"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -32,8 +32,17 @@ dev = ["pytest>=7", "httpx>=0.24", "requests>=2.25"]
 Homepage = "https://github.com/nordicintel/dataportal"
 Documentation = "https://docs.dataportal.se/registry/api/"
 
+# Single source of truth: src/dataportalen/_version.py
+[tool.hatch.version]
+path = "src/dataportalen/_version.py"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/dataportal_se"]
+packages = ["src/dataportalen"]
+# vocabulary.json bundles CC BY data; the notices travel with it.
+force-include = { "NOTICE" = "dataportalen/NOTICE" }
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "tools", "README.md", "RELEASING.md", "LICENSE", "NOTICE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

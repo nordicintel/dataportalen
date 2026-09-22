@@ -1,4 +1,4 @@
-"""Regenerate ``src/dataportal_se/vocabulary.json``.
+"""Regenerate ``src/dataportalen/vocabulary.json``.
 
 DCAT-AP-SE describes datasets with controlled-vocabulary URIs -- themes,
 file types, frequencies, languages, licences -- and the registry serves those
@@ -30,11 +30,13 @@ runtime hits the network.
 
 from __future__ import annotations
 
+import argparse
 import collections
 import concurrent.futures
 import io
 import json
 import os
+import random
 import re
 import sys
 import urllib.error
@@ -46,10 +48,13 @@ from typing import Dict, Iterable, Optional, Set
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from dataportal_se import Dataportal, predicate_field  # noqa: E402
+from dataportalen import Dataportal, Q, predicate_field  # noqa: E402
+from dataportalen.namespaces import DCAT as _DCAT  # noqa: E402
+
+DCAT_DATASET = _DCAT.Dataset
 
 OUTPUT = os.path.join(
-    os.path.dirname(__file__), "..", "src", "dataportal_se", "vocabulary.json"
+    os.path.dirname(__file__), "..", "src", "dataportalen", "vocabulary.json"
 )
 
 DIGG_TREE = "https://api.github.com/repos/diggsweden/DCAT-AP-SE/git/trees/HEAD?recursive=1"
@@ -73,6 +78,7 @@ VOCABULARY_PREDICATES = [
     "dcterms:accrualPeriodicity",
     "dcterms:language",
     "dcterms:type",
+    "dcterms:subject",
     "dcterms:spatial",
     "dcterms:conformsTo",
     "adms:status",
@@ -261,41 +267,117 @@ COVERAGE_FIELDS = ("themes", "languages", "spatial", "subjects", "hvd_categories
 COVERAGE_SINGLE = ("license", "access_rights", "accrual_periodicity")
 
 
-def report_usage_coverage(sample: int = 300) -> None:
+def sample_datasets(client, sample: int, seed: int) -> list:
+    """A reproducible random sample of datasets from across the corpus.
+
+    The index has no random sort (``sort=random_N asc`` is rejected), so this
+    draws random offsets against a stable ``created asc`` sort and reads a
+    small page at each. Many small windows rather than one contiguous block,
+    because datasets harvested together share a publisher and would otherwise
+    bias the result.
+    """
+    total = client.count(Q.rdf_type(DCAT_DATASET))
+    if sample >= total:
+        print("      sampling all %d datasets" % total, flush=True)
+        return list(client.iter_datasets(sort="created asc"))
+
+    rng = random.Random(seed)
+    window = 25
+    seen = {}
+    attempts = 0
+    max_attempts = (sample // window) * 6 + 50
+    while len(seen) < sample and attempts < max_attempts:
+        offsets = [rng.randrange(0, max(total - window, 1))
+                   for _ in range(min(WORKERS, 1 + (sample - len(seen)) // window))]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            pages = list(pool.map(
+                lambda off: client.datasets(
+                    limit=window, offset=off, sort="created asc"),
+                offsets))
+        attempts += len(offsets)
+        for page in pages:
+            for entry in page:
+                if entry.entry_uri and entry.entry_uri not in seen:
+                    seen[entry.entry_uri] = entry
+        print("      %d/%d sampled" % (min(len(seen), sample), sample), flush=True)
+    out = list(seen.values())[:sample]
+    print("      %d datasets from %d random positions (seed %d)"
+          % (len(out), attempts, seed), flush=True)
+    return out
+
+
+def report_usage_coverage(sample: int = 5000, seed: int = 20260922) -> None:
     """Print label coverage weighted by how often values really occur."""
-    print()
-    print("[5/5] coverage over %d live datasets" % sample)
     import importlib
 
-    from dataportal_se import vocab as vocab_module
+    from dataportalen import vocab as vocab_module
 
     importlib.reload(vocab_module)  # pick up the file just written
 
-    total: Dict[str, int] = collections.Counter()
-    labelled: Dict[str, int] = collections.Counter()
+    print()
+    print("[5/5] coverage over a random sample of %s datasets"
+          % ("all" if sample >= 10 ** 9 else sample), flush=True)
+
+    total = collections.Counter()
+    labelled = collections.Counter()
+    unresolved = collections.Counter()
     with Dataportal() as client:
-        for entry in client.iter_datasets(limit=sample):
+        datasets = sample_datasets(client, sample, seed)
+        for entry in datasets:
             doc = entry.to_dict(distributions=False)
             for field in COVERAGE_FIELDS:
                 for value in doc.get(field) or []:
                     total[field] += 1
-                    labelled[field] += 1 if value["label"] else 0
+                    if value["label"]:
+                        labelled[field] += 1
+                    else:
+                        unresolved[value["uri"].rsplit("/", 1)[0]] += 1
             for field in COVERAGE_SINGLE:
                 value = doc.get(field)
                 if value:
                     total[field] += 1
-                    labelled[field] += 1 if value["label"] else 0
+                    if value["label"]:
+                        labelled[field] += 1
+                    else:
+                        unresolved[value["uri"].rsplit("/", 1)[0]] += 1
+
     grand = sum(total.values())
     good = sum(labelled.values())
+    print()
     for field in sorted(total, key=lambda f: -total[f]):
-        print("      %-22s %5d/%-5d %3.0f%%" % (
+        print("      %-22s %6d/%-6d %3.0f%%" % (
             field, labelled[field], total[field],
             100.0 * labelled[field] / max(total[field], 1)))
-    print("      %-22s %5d/%-5d %3.0f%%" % (
+    print("      %-22s %6d/%-6d %3.0f%%" % (
         "TOTAL", good, grand, 100.0 * good / max(grand, 1)))
+    print()
+    print("      n = %d datasets, %d vocabulary values" % (len(datasets), grand))
+    if unresolved:
+        print("      unlabelled, by vocabulary:")
+        for group, count in unresolved.most_common(8):
+            print("        %6d  %s" % (count, group))
 
 
-def main() -> int:
+def main(argv: Optional[list] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Regenerate src/dataportalen/vocabulary.json.")
+    parser.add_argument(
+        "--sample", default="5000",
+        help="datasets to measure coverage over: a number, or 'all' for the "
+             "whole corpus (exact, but a full crawl). Default 5000.")
+    parser.add_argument(
+        "--seed", type=int, default=20260922,
+        help="seed for the random sample, so a run is reproducible.")
+    parser.add_argument(
+        "--skip-build", action="store_true",
+        help="only re-measure coverage; do not rebuild the table.")
+    args = parser.parse_args(argv)
+    sample = 10 ** 9 if args.sample == "all" else int(args.sample)
+
+    if args.skip_build:
+        report_usage_coverage(sample=sample, seed=args.seed)
+        return 0
+
     vocabulary = from_digg_templates()
     used = uris_in_use()
 
@@ -323,9 +405,12 @@ def main() -> int:
     print("[4/4] writing %s" % os.path.normpath(OUTPUT))
     payload = {
         "_comment": (
-            "Generated by tools/build_vocabulary.py from DIGG's DCAT-AP-SE "
-            "templates and the authority tables the URIs dereference to. "
-            "Do not edit by hand; re-run the script instead."
+            'Generated by tools/build_vocabulary.py. This is third-party data, no'
+            "t code: labels come from DIGG's DCAT-AP-SE (CC BY 4.0), the GeoNames"
+            ' bulk exports (CC BY 4.0), the EU Publications Office authority tabl'
+            'es and the INSPIRE registry (both reusable under Commission Decision'
+            ' 2011/833/EU). See the NOTICE file. Do not edit by hand; re-run the '
+            'script instead.'
         ),
         "labels": {uri: vocabulary[uri] for uri in sorted(vocabulary)},
     }
@@ -351,7 +436,7 @@ def main() -> int:
         for host, count in by_host.most_common(12):
             print("    %-42s %d" % (host, count))
 
-    report_usage_coverage()
+    report_usage_coverage(sample=sample, seed=args.seed)
     return 0
 
 

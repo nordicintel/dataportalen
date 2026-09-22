@@ -1,4 +1,4 @@
-"""The asyncio client, mirroring :class:`dataportal_se.Dataportal`.
+"""The asyncio client, mirroring :class:`dataportalen.Dataportal`.
 
 Requires ``httpx``::
 
@@ -7,7 +7,7 @@ Requires ``httpx``::
 Usage::
 
     import asyncio
-    from dataportal_se.aio import AsyncDataportal
+    from dataportalen.aio import AsyncDataportal
 
     async def main():
         async with AsyncDataportal() as dp:
@@ -76,7 +76,7 @@ class AsyncDataportal:
     """Asynchronous client for ``admin.dataportal.se``.
 
     The method names, arguments and return types match
-    :class:`dataportal_se.Dataportal`; every request-issuing method is a
+    :class:`dataportalen.Dataportal`; every request-issuing method is a
     coroutine, and the iterators are async generators.
     """
 

@@ -6,7 +6,7 @@ import doctest
 
 import pytest
 
-from dataportal_se import namespaces, query, rdf
+from dataportalen import namespaces, query, rdf
 
 
 @pytest.mark.parametrize("module", [query, namespaces, rdf], ids=lambda m: m.__name__)
