@@ -7,7 +7,7 @@ Sweden's open-data registry publishes everything as DCAT-AP-SE: RDF graphs,
 blank nodes, PURLs, and controlled vocabularies expressed as bare URIs. The
 [registry documentation](https://docs.dataportal.se/registry/api/) is explicit
 that turning `http://publications.europa.eu/resource/authority/data-theme/TRAN`
-into the word "Transport" is *your* problem.
+into the word "Transport" is _your_ problem.
 
 This package makes it not your problem.
 
@@ -21,24 +21,38 @@ with Dataportal() as dp:
 
 ```json
 {
-  "uri": "https://example.org/data/roads",
-  "title": "Vägtrafiknät",
-  "keywords": ["vägnät", "trafik"],
-  "themes": [
-    {"uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
-     "label": "Transport"}
-  ],
-  "license": {"uri": "http://creativecommons.org/licenses/by/4.0/",
-              "label": "Creative Commons Erkännande 4.0"},
-  "accrual_periodicity": {"uri": ".../frequency/ANNUAL", "label": "Årligen"},
-  "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                "name": "Trafikverket", "identifiers": ["2021006297"]},
-  "issued": "2020-03-04",
-  "distributions": [
-    {"title": "Vägnät CSV", "download_url": "https://...csv",
-     "format": {"uri": ".../file-type/CSV", "label": "CSV"}, "byte_size": 184320}
-  ],
-  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}]
+    "uri": "https://example.org/data/roads",
+    "title": "Vägtrafiknät",
+    "keywords": ["vägnät", "trafik"],
+    "themes": [
+        {
+            "uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
+            "label": "Transport"
+        }
+    ],
+    "license": {
+        "uri": "http://creativecommons.org/licenses/by/4.0/",
+        "label": "Creative Commons Erkännande 4.0"
+    },
+    "accrual_periodicity": {
+        "uri": ".../frequency/ANNUAL",
+        "label": "Årligen"
+    },
+    "publisher": {
+        "uri": "http://dataportal.se/organisation/SE2021006297",
+        "name": "Trafikverket",
+        "identifiers": ["2021006297"]
+    },
+    "issued": "2020-03-04",
+    "distributions": [
+        {
+            "title": "Vägnät CSV",
+            "download_url": "https://...csv",
+            "format": { "uri": ".../file-type/CSV", "label": "CSV" },
+            "byte_size": 184320
+        }
+    ],
+    "contact_points": [{ "name": "Datasupport", "email": "data@example.org" }]
 }
 ```
 
@@ -145,7 +159,7 @@ One dataset per line, each line a self-contained JSON object with its
 distributions, publisher and contact points already nested — nothing to look
 up afterwards.
 
-```
+```text
 23,548 datasets · 35,102 distributions · 117 MiB · 665 requests · ~5 minutes
 ```
 
@@ -195,17 +209,17 @@ missing label is a fact about coverage, not something to paper over.
 Measured over a seeded random sample of **5,000 datasets** drawn from 225
 random positions across the corpus (25,109 vocabulary values):
 
-| Field | Labelled |
-| --- | --- |
-| `themes` | 100% |
-| `access_rights` | 100% |
-| `accrual_periodicity` | 100% |
-| `hvd_categories` | 100% |
-| `languages` | 100% |
-| `spatial` | 99% |
-| `license` | 57% |
-| `subjects` | 44% |
-| **total** | **91%** |
+| Field                 | Labelled |
+| --------------------- | -------- |
+| `themes`              | 100%     |
+| `access_rights`       | 100%     |
+| `accrual_periodicity` | 100%     |
+| `hvd_categories`      | 100%     |
+| `languages`           | 100%     |
+| `spatial`             | 99%      |
+| `license`             | 57%      |
+| `subjects`            | 44%      |
+| **total**             | **91%**  |
 
 **94% of everything still unlabelled is two URIs**:
 `https://dataportal.se/concepts/licensecategories/{nolicense,otherlicense}`,
@@ -237,23 +251,23 @@ bulk exports for place names:
 python tools/build_vocabulary.py
 ```
 
-The script measures coverage against the URIs publishers are *actually* using
+The script measures coverage against the URIs publishers are _actually_ using
 in the live registry and prints what it could not resolve, so gaps stay
 visible rather than assumed.
 
 ## Entities
 
-| Method | Returns |
-| --- | --- |
-| `dp.datasets(...)` / `dp.iter_datasets(...)` | `Dataset` |
-| `dp.dataset(uri=...)` / `dp.dataset(context_id=, entry_id=)` | `Dataset` |
-| `dp.distributions(...)` | `Distribution` |
-| `dp.data_services(...)` | `DataService` |
-| `dp.dataset_series(...)` | `DatasetSeries` |
-| `dp.catalogs(...)` | `Catalog` |
-| `dp.agents(...)` / `dp.agent(uri)` | `Agent` |
-| `dp.standards(...)` | `Standard` |
-| `dp.lookup(uri)` / `dp.lookup_many(uris)` | whichever model fits |
+| Method                                                       | Returns              |
+| ------------------------------------------------------------ | -------------------- |
+| `dp.datasets(...)` / `dp.iter_datasets(...)`                 | `Dataset`            |
+| `dp.dataset(uri=...)` / `dp.dataset(context_id=, entry_id=)` | `Dataset`            |
+| `dp.distributions(...)`                                      | `Distribution`       |
+| `dp.data_services(...)`                                      | `DataService`        |
+| `dp.dataset_series(...)`                                     | `DatasetSeries`      |
+| `dp.catalogs(...)`                                           | `Catalog`            |
+| `dp.agents(...)` / `dp.agent(uri)`                           | `Agent`              |
+| `dp.standards(...)`                                          | `Standard`           |
+| `dp.lookup(uri)` / `dp.lookup_many(uris)`                    | whichever model fits |
 
 All of them have `.to_dict()` and `.to_json()`.
 
@@ -359,11 +373,11 @@ Publishing takes one file edit and one GitHub Release:
 Full instructions, including how to rehearse without uploading and what to do
 when a release fails: **[RELEASING.md](RELEASING.md)**.
 
-| Workflow | Trigger | Publishes |
-| --- | --- | --- |
-| `ci.yml` | every push and PR | no |
-| `live.yml` | weekly schedule, manual | no |
-| `release.yml` | published GitHub Release, manual | **yes** |
+| Workflow      | Trigger                          | Publishes |
+| ------------- | -------------------------------- | --------- |
+| `ci.yml`      | every push and PR                | no        |
+| `live.yml`    | weekly schedule, manual          | no        |
+| `release.yml` | published GitHub Release, manual | **yes**   |
 
 ## Caveats from upstream
 
@@ -375,6 +389,22 @@ when a release fails: **[RELEASING.md](RELEASING.md)**.
 - Deep paging over a changing index can skip or repeat entries; sort by
   something stable (e.g. `created asc`) when exactness matters.
 
-## License
+## License and attribution
 
-MIT — see [LICENSE](LICENSE).
+The code is MIT — see [LICENSE](LICENSE).
+
+The bundled label table (`vocabulary.json`) is **data, not code**, compiled
+from third-party sources and redistributed under their terms:
+
+| Source | Used for | Licence |
+| --- | --- | --- |
+| [DIGG DCAT-AP-SE](https://github.com/diggsweden/DCAT-AP-SE) | Swedish/English vocabulary labels | CC BY 4.0 |
+| [GeoNames](https://www.geonames.org/) | place names for `spatial` | CC BY 4.0 |
+| [EU Vocabularies](https://op.europa.eu/en/web/eu-vocabularies) | themes, file types, frequencies, languages | Decision 2011/833/EU |
+| [INSPIRE registry](https://inspire.ec.europa.eu/registry) | INSPIRE themes and code lists | Decision 2011/833/EU |
+
+Full notices: [NOTICE](NOTICE).
+
+Metadata you retrieve from dataportal.se is published by its respective
+publishers, each under its own licence — check the `license` field on the
+dataset.
