@@ -191,13 +191,12 @@ def test_one_key_per_concept(dataset):
 def test_near_empty_fields_are_dropped(dataset):
     """Fields empty for ~97%+ of the registry do not bloat every record."""
     out = dataset.to_dict()
-    for gone in ("version", "provenance", "hvd_categories",
+    for gone in ("version", "provenance", "subjects", "hvd_categories",
                  "source_uris", "in_series_uris", "is_part_of_uris",
                  "temporal_resolution", "spatial_resolution_in_meters"):
         assert gone not in out, gone
-    # Kept despite being sparse: no other source supplies these.
-    for kept in ("applicable_legislation", "documentation", "conforms_to",
-                 "subjects"):
+    # The ones worth keeping are still there.
+    for kept in ("applicable_legislation", "documentation", "conforms_to"):
         assert kept in out, kept
 
 
