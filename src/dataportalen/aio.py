@@ -44,7 +44,15 @@ from typing import (
 )
 
 from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT
-from .exceptions import HTTPError, ParseError, TransportError
+from .core import (
+    DEFAULT_USER_AGENT,
+    AsyncHttpxTransport,
+    HTTPError,
+    ParseError,
+    Response,
+    TransportError,
+    build_url,
+)
 from .models import (
     Agent,
     Catalog,
@@ -62,10 +70,8 @@ from .models import (
     Standard,
     wrap_entry,
 )
-from .namespaces import DCAT, DCTERMS, FOAF, Types
 from .query import SORT_MODIFIED_DESC, Q
-from .rdf import DEFAULT_LANGUAGES, Graph
-from .transport import DEFAULT_USER_AGENT, AsyncHttpxTransport, Response, build_url
+from .rdf import DCAT, DCTERMS, DEFAULT_LANGUAGES, FOAF, Graph, Types
 
 __all__ = ["AsyncDataportal"]
 

@@ -32,7 +32,7 @@ Documentation = "https://docs.dataportal.se/registry/api/"
 
 # Single source of truth: src/dataportalen/_version.py
 [tool.hatch.version]
-path = "src/dataportalen/_version.py"
+path = "src/dataportalen/core.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dataportalen"]

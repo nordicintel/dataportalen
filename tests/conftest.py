@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dataportalen.transport import BaseTransport, Response  # noqa: E402
+from dataportalen.core import BaseTransport, Response  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

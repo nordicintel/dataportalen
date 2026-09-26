@@ -240,7 +240,7 @@ dp.entry_raw(547, 28672, recursive=True, format="text/turtle").text
 
 ```python
 from dataportalen import Q
-from dataportalen.namespaces import DCAT
+from dataportalen.rdf import DCAT
 
 dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
 ```
@@ -258,6 +258,20 @@ fragments to `*:*` where a positive clause is required.
 - `limit` is capped at 100 per request.
 - Deep paging over a changing index can skip or repeat entries; sort by
   something stable (`sort="created asc"`) when exactness matters.
+
+## Layout
+
+Seven modules, imported from the package root in normal use:
+
+| Module | Holds |
+| --- | --- |
+| `core.py` | version, exceptions, logging and progress, the three HTTP transports |
+| `rdf.py` | namespaces and CURIEs, the RDF/JSON graph parser, label table, short names |
+| `models.py` | `Dataset`, `Distribution`, `Agent` and friends, and `to_dict()` |
+| `query.py` | the `Q` Solr query builder |
+| `client.py` | `Dataportal` and the catalogue export |
+| `aio.py` | `AsyncDataportal` |
+| `__init__.py` | the public surface |
 
 ## Development
 

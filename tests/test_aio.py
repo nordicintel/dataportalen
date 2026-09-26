@@ -16,7 +16,7 @@ import pytest
 from conftest import load_fixture
 from dataportalen import Dataset
 from dataportalen.aio import AsyncDataportal
-from dataportalen.transport import Response
+from dataportalen.core import Response
 
 
 class FakeAsyncTransport:

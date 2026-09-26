@@ -5,7 +5,7 @@ some awkward escaping rules (every colon inside a URI must be backslashed).
 :class:`Q` hides that:
 
     >>> from dataportalen import Q
-    >>> from dataportalen.namespaces import DCAT
+    >>> from dataportalen.rdf import DCAT
     >>> str(Q.rdf_type(DCAT.Dataset) & Q.public())
     'rdfType:http\\\\:\\\\/\\\\/www.w3.org\\\\/ns\\\\/dcat#Dataset AND public:true'
 
@@ -25,8 +25,8 @@ import datetime as _dt
 import hashlib
 from typing import Any, Iterable, List, Optional, Sequence, Union
 
-from .exceptions import QueryError
-from .namespaces import expand
+from .core import QueryError
+from .rdf import expand
 
 __all__ = ["Q", "escape", "escape_uri", "predicate_field", "SORT_MODIFIED_DESC"]
 

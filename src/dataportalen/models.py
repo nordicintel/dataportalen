@@ -27,11 +27,12 @@ from typing import (
     Union,
 )
 
-from .namespaces import (
+from .rdf import (
     ADMS,
     DCAT,
     DCATAP,
     DCTERMS,
+    DEFAULT_LANGUAGES,
     ES,
     ESCAPE,
     FOAF,
@@ -43,10 +44,11 @@ from .namespaces import (
     SPDX,
     STATS,
     VCARD,
+    Graph,
+    Resource,
     expand,
+    slug_for,
 )
-from .rdf import DEFAULT_LANGUAGES, Graph, Resource
-from .terms import slug_for
 
 __all__ = [
     "Entry",
@@ -449,7 +451,7 @@ class Entry:
     def _term(self, uri: Optional[str]) -> Optional[str]:
         """One controlled value as a short name: ``"local_authority"``.
 
-        Not a URI and not an object -- see :mod:`dataportalen.terms`.
+        Not a URI and not an object -- see :mod:`dataportalen.rdf`.
         """
         return slug_for(uri)
 

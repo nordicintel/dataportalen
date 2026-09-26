@@ -9,7 +9,7 @@ import pytest
 
 from conftest import load_fixture
 from dataportalen import Dataportal, download_catalog
-from dataportalen.catalog import CatalogSummary
+from dataportalen.client import CatalogSummary
 
 
 def _page(children, total, offset=0, limit=100):

@@ -17,7 +17,7 @@ from dataportalen import (
     ServerError,
     TransportError,
 )
-from dataportalen.namespaces import DCAT
+from dataportalen.rdf import DCAT
 
 
 def query_of(url: str) -> str:
@@ -103,7 +103,7 @@ def test_short_values_resolve_to_uris(client, transport, search_response):
 
 
 def test_an_unknown_short_value_is_rejected_with_suggestions(client):
-    from dataportalen.exceptions import QueryError
+    from dataportalen.core import QueryError
 
     with pytest.raises(QueryError) as info:
         client.datasets(theme="transprot")
@@ -114,7 +114,7 @@ def test_an_unknown_short_value_is_rejected_with_suggestions(client):
 
 def test_a_uri_is_not_accepted_as_a_value(client):
     """One spelling per concept: the short name. URIs are not a second form."""
-    from dataportalen.exceptions import QueryError
+    from dataportalen.core import QueryError
 
     with pytest.raises(QueryError):
         client.datasets(
@@ -378,7 +378,7 @@ def test_transport_failures_are_retried(transport, search_response):
 
 
 def test_closing_the_client_closes_a_transport_it_owns():
-    from dataportalen.transport import UrllibTransport
+    from dataportalen.core import UrllibTransport
 
     owned = UrllibTransport()
     dp = Dataportal(transport=owned)

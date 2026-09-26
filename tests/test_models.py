@@ -16,7 +16,7 @@ from dataportalen import (
     Entry,
 )
 from dataportalen.models import wrap_entry
-from dataportalen.namespaces import DCAT, DCTERMS
+from dataportalen.rdf import DCAT, DCTERMS
 
 
 @pytest.fixture

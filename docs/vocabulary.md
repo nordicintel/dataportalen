@@ -21,7 +21,7 @@ The table ships in the package as `vocabulary.json` — 1,017 terms, no network
 call. It is looked up directly if you need it:
 
 ```python
-from dataportalen.terms import slug_for, resolve
+from dataportalen.rdf import slug_for, resolve
 from dataportalen import known_values, known_publishers
 
 slug_for("http://publications.europa.eu/resource/authority/data-theme/TRAN")

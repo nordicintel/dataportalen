@@ -49,7 +49,7 @@ from typing import Dict, Iterable, Optional, Set
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dataportalen import Dataportal, Q, predicate_field  # noqa: E402
-from dataportalen.namespaces import DCAT as _DCAT  # noqa: E402
+from dataportalen.rdf import DCAT as _DCAT  # noqa: E402
 
 DCAT_DATASET = _DCAT.Dataset
 

@@ -25,7 +25,7 @@ from dataportalen import (
     Distribution,
     Q,
 )
-from dataportalen.namespaces import DCAT
+from dataportalen.rdf import DCAT
 
 pytestmark = pytest.mark.network
 
@@ -144,7 +144,7 @@ def test_unknown_entry_ids_raise_not_found(dp):
 @pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
 def test_every_transport_reaches_the_registry(transport_name):
     """All three work, with nothing optional to install."""
-    from dataportalen.transport import HttpxTransport, RequestsTransport, UrllibTransport
+    from dataportalen.core import HttpxTransport, RequestsTransport, UrllibTransport
 
     factories = {
         "urllib": UrllibTransport,
