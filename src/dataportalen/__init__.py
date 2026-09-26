@@ -8,8 +8,8 @@ serves every dataset visible on dataportal.se, described with DCAT-AP-SE
   :meth:`Dataportal.datasets`, ...).
 * **Single entries** -- by registry id or by the publisher's own URI
   (:meth:`Dataportal.entry`, :meth:`Dataportal.lookup`).
-* **Operational data** -- harvest reports, nightly statistics and the full
-  RDF dump.
+* **Operational data** -- nightly statistics, link checks, metadata quality
+  scores and the full RDF dump.
 
 Quick start::
 
@@ -19,28 +19,42 @@ Quick start::
         page = dp.datasets(title="bidrag", limit=10)
         print(page.total)
         for dataset in page:
-            print(dataset.title, dataset.publisher_uri)
+            print(dataset.to_dict())
 
 See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 """
 
 from __future__ import annotations
 
-from ._log import enable_logging, logger
-from .catalog import CatalogSummary, download_catalog
-from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, Dataportal
 from .aio import AsyncDataportal
-from .exceptions import (
+from .client import (
+    DEFAULT_BASE_URL,
+    DUMP_URL,
+    MAX_LIMIT,
+    CatalogSummary,
+    Dataportal,
+    download_catalog,
+)
+from .core import (
+    AsyncHttpxTransport,
+    BaseTransport,
     DataportalError,
     HTTPError,
+    HttpxTransport,
     NotFoundError,
     ParseError,
     QueryError,
     RateLimitError,
+    RequestsTransport,
+    Response,
     ServerError,
     TimeoutError,
     TransportError,
+    UrllibTransport,
+    enable_logging,
+    logger,
 )
+from .core import __version__ as _version
 from .models import (
     Agent,
     Catalog,
@@ -58,13 +72,16 @@ from .models import (
     MetadataQuality,
     OrganisationStats,
     PeriodOfTime,
-    PeriodOfTime as Temporal,
     SearchPage,
     Standard,
     register_model,
     wrap_entry,
 )
-from .namespaces import (
+from .models import (
+    PeriodOfTime as Temporal,
+)
+from .query import Q, escape, escape_uri, predicate_field
+from .rdf import (
     ADMS,
     DCAT,
     DCATAP,
@@ -76,22 +93,26 @@ from .namespaces import (
     PROV,
     RDF,
     SKOS,
-    Types,
     VCARD,
+    VOCABULARY,
+    BNode,
+    Graph,
+    Literal,
+    Node,
+    Resource,
+    Types,
+    URIRef,
+    Vocabulary,
     expand,
+    known_publishers,
+    known_values,
+    label,
+    labels,
     shorten,
-)
-from ._version import __version__ as _version
-from .query import Q, escape, escape_uri, predicate_field
-from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
-from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
-from .transport import (
-    AsyncHttpxTransport,
-    BaseTransport,
-    HttpxTransport,
-    RequestsTransport,
-    Response,
-    UrllibTransport,
+    slug_for,
+    slugify,
+    term,
+    terms,
 )
 
 #: Defined in _version.py so packaging and the User-Agent cannot drift.
@@ -123,6 +144,11 @@ __all__ = [
     "terms",
     "escape_uri",
     "predicate_field",
+    # short values
+    "known_values",
+    "known_publishers",
+    "slug_for",
+    "slugify",
     # models
     "Entry",
     "Dataset",

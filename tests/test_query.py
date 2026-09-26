@@ -7,8 +7,8 @@ import datetime as dt
 import pytest
 
 from dataportalen import Q, escape, escape_uri, predicate_field
-from dataportalen.exceptions import QueryError
-from dataportalen.namespaces import DCAT, DCTERMS
+from dataportalen.core import QueryError
+from dataportalen.rdf import DCAT, DCTERMS
 
 
 def test_escape_covers_every_solr_metacharacter():
@@ -126,3 +126,43 @@ def test_join_anchors_a_leading_negation():
 
 def test_title_can_be_language_scoped():
     assert str(Q.title("bidrag", "sv")) == "title.sv:bidrag"
+
+
+# -- forms the registry actually accepts -------------------------------------
+
+
+def test_bare_dates_are_filled_out_for_the_index():
+    """`created:[2020-01-01 TO *]` is an HTTP 400; the index wants a timestamp."""
+    assert str(Q.created("2020-01-01")) == "created:[2020-01-01T00:00:00Z TO *]"
+    assert str(Q.modified("2020-01")) == "modified:[2020-01-01T00:00:00Z TO *]"
+    assert str(Q.created("2020", "2021")) == (
+        "created:[2020-01-01T00:00:00Z TO 2021-01-01T00:00:00Z]"
+    )
+    assert "2024-03-04T00:00:00Z" in str(
+        Q.predicate_range("http://purl.org/dc/terms/modified", "2024-03-04"))
+
+
+def test_a_full_timestamp_is_left_alone():
+    assert str(Q.created("2020-01-01T12:30:00Z")) == "created:[2020-01-01T12:30:00Z TO *]"
+    assert str(Q.created("NOW-7DAYS")) == "created:[NOW-7DAYS TO *]"
+
+
+def test_envelope_values_are_matched_in_the_index_casing():
+    """The index stores `Local`, not `local`, and matches exactly."""
+    assert str(Q.entry_type("local")) == "entryType:Local"
+    assert str(Q.entry_type("LINK")) == "entryType:Link"
+    assert str(Q.graph_type("none")) == "graphType:None"
+    assert str(Q.resource_type("informationresource")) == "resourceType:InformationResource"
+    # An unknown value passes through rather than being silently mangled.
+    assert str(Q.entry_type("Whatever")) == "entryType:Whatever"
+
+
+def test_format_checks_both_indexes():
+    """Publishers state a format as a URI or as a media-type literal."""
+    uri = str(Q.format("http://publications.europa.eu/resource/authority/file-type/CSV"))
+    literal = str(Q.format("text/csv"))
+    assert ".uri." in uri and "CSV" in uri
+    assert ".literal_s." in literal
+    both = str(Q.format(
+        "http://publications.europa.eu/resource/authority/file-type/CSV", "text/csv"))
+    assert " OR " in both and ".uri." in both and ".literal_s." in both

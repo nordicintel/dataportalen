@@ -5,8 +5,8 @@ from __future__ import annotations
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from conftest import FakeTransport, load_fixture
 
+from conftest import FakeTransport, load_fixture
 from dataportalen import (
     Dataportal,
     Dataset,
@@ -17,7 +17,7 @@ from dataportalen import (
     ServerError,
     TransportError,
 )
-from dataportalen.namespaces import DCAT
+from dataportalen.rdf import DCAT
 
 
 def query_of(url: str) -> str:
@@ -85,17 +85,45 @@ def test_facet_parameters_are_passed_through(client, transport, search_response)
 
 def test_datasets_filters_compose_into_one_query(client, transport, search_response):
     transport.push(search_response)
-    client.datasets(title="bidrag", title_lang="sv", keyword="cykel", language="swe")
+    client.datasets(title="bidrag", keyword="cykel", theme="transport")
     query = query_of(transport.requests[-1])
-    assert "title.sv:bidrag" in query
+    assert "title:bidrag" in query
     assert "tag.literal:cykel" in query
-    assert "lang:swe" in query
     assert "rdfType" in query
+    # theme="transport" became the EU data-theme URI, not a literal.
+    # ('-' is escaped for Solr, hence data\-theme.)
+    assert r"data\-theme" in query and "TRAN" in query
 
 
-def test_context_filter_uses_the_context_resource_uri(client, transport, search_response):
+def test_short_values_resolve_to_uris(client, transport, search_response):
+    """A caller never types a URI; the query still contains one."""
     transport.push(search_response)
-    client.datasets(context=50)
+    client.datasets(publisher="trafikverket")
+    assert "SE2021006297" in query_of(transport.requests[-1])
+
+
+def test_an_unknown_short_value_is_rejected_with_suggestions(client):
+    from dataportalen.core import QueryError
+
+    with pytest.raises(QueryError) as info:
+        client.datasets(theme="transprot")
+    message = str(info.value)
+    assert "transprot" in message
+    assert "transport" in message          # the near miss is offered
+
+
+def test_a_uri_is_not_accepted_as_a_value(client):
+    """One spelling per concept: the short name. URIs are not a second form."""
+    from dataportalen.core import QueryError
+
+    with pytest.raises(QueryError):
+        client.datasets(
+            theme="http://publications.europa.eu/resource/authority/data-theme/TRAN")
+
+
+def test_catalog_filter_uses_the_context_resource_uri(client, transport, search_response):
+    transport.push(search_response)
+    client.datasets(catalog=50)
     assert r"store\/50" in query_of(transport.requests[-1])
 
 
@@ -258,6 +286,28 @@ def test_organisations_zips_labels_values_and_series(transport, org_data):
     assert orgs[0].to_dict()["uri"] == org_data["values"][0]
 
 
+def test_organisations_carry_the_value_you_filter_with(transport, org_data, search_response):
+    """A listing is only useful if it leads into a search."""
+    transport.routes["/charts/orgData.json"] = org_data
+    with Dataportal(transport=transport) as dp:
+        orgs = dp.organisations()
+        assert orgs[0].publisher == "radet_for_framjande_av_kommunala_analyser_kolada"
+        assert orgs[0].to_dict()["publisher"] == orgs[0].publisher
+
+        transport.push(search_response)
+        dp.datasets(publisher=orgs[0].publisher)
+    assert "SE2220000315" in query_of(transport.requests[-1])
+
+
+def test_an_unknown_organisation_has_no_filter_value(transport, org_data):
+    """Better None than a value that would raise when used."""
+    payload = dict(org_data, labels=["Nowhere At All"],
+                   values=["https://example.org/organization/xyz"], series=[[1]])
+    transport.routes["/charts/orgData.json"] = payload
+    with Dataportal(transport=transport) as dp:
+        assert dp.organisations()[0].publisher is None
+
+
 def test_organisation_summary_reports_registry_totals(transport, org_data):
     transport.routes["/charts/orgData.json"] = org_data
     with Dataportal(transport=transport) as dp:
@@ -350,7 +400,7 @@ def test_transport_failures_are_retried(transport, search_response):
 
 
 def test_closing_the_client_closes_a_transport_it_owns():
-    from dataportalen.transport import UrllibTransport
+    from dataportalen.core import UrllibTransport
 
     owned = UrllibTransport()
     dp = Dataportal(transport=owned)
@@ -421,3 +471,55 @@ def test_metadata_quality_can_exclude_the_total(client, transport):
     query = query_of(transport.requests[0])
     assert "MQATotal" not in query
     assert "MQA" in query
+
+
+# -- dates -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("given,expected", [
+    ("2024-01-01", "2024-01-01T00:00:00Z"),
+    ("2024-01", "2024-01-01T00:00:00Z"),
+    ("2024", "2024-01-01T00:00:00Z"),
+    ("2024-01-01T12:30:00Z", "2024-01-01T12:30:00Z"),
+])
+def test_plain_dates_are_expanded_for_solr(client, transport, search_response, given, expected):
+    """A bare date used to produce HTTP 400. The obvious input must work."""
+    transport.push(search_response)
+    client.datasets(updated_after=given)
+    assert expected in query_of(transport.requests[-1])
+
+
+def test_date_objects_are_accepted(client, transport, search_response):
+    import datetime as dt
+
+    transport.push(search_response)
+    client.datasets(updated_after=dt.date(2024, 3, 4))
+    assert "2024-03-04T00:00:00Z" in query_of(transport.requests[-1])
+    transport.push(search_response)
+    client.datasets(updated_after=dt.datetime(2024, 3, 4, 15, 0))
+    assert "2024-03-04T15:00:00Z" in query_of(transport.requests[-1])
+
+
+def test_updated_filters_the_publishers_date_not_the_harvest(client, transport, search_response):
+    """`modified_after` used to filter the nightly harvest, matching ~97% of
+    everything. `updated_after` filters dcterms:modified, which is the date a
+    caller means."""
+    from dataportalen.query import predicate_field
+
+    transport.push(search_response)
+    client.datasets(updated_after="2024-01-01")
+    assert predicate_field("dcterms:modified", "date") in query_of(transport.requests[-1])
+
+
+def test_the_harvest_timestamp_is_not_a_filter(client):
+    """It matched ~97% of the corpus, so it only ever misled. Gone."""
+    with pytest.raises(TypeError):
+        client.datasets(harvested_after="2024-01-01")
+
+
+def test_published_filters_dcterms_issued(client, transport, search_response):
+    from dataportalen.query import predicate_field
+
+    transport.push(search_response)
+    client.datasets(published_after="2020-01-01")
+    assert predicate_field("dcterms:issued", "date") in query_of(transport.requests[-1])

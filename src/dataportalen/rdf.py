@@ -1,18 +1,18 @@
-"""A small, dependency-free RDF/JSON model.
+"""RDF in, plain values out.
 
-The registry returns metadata as `RDF/JSON <https://www.w3.org/TR/rdf-json/>`_::
-
-    {"<subject>": {"<predicate>": [{"type": "literal", "value": "...",
-                                    "lang": "sv", "datatype": "..."}]}}
-
-:class:`Graph` wraps that structure and :class:`Resource` gives ergonomic,
-language-aware access to a single subject within it.
+Everything that knows about RDF lives here: the namespaces and CURIE handling,
+the RDF/JSON graph parser, the bundled label table, and the short-name layer
+that turns a vocabulary URI into ``"transport"`` and back.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import difflib
+import json
+import os
 import re
+import unicodedata
 from typing import (
     Any,
     Dict,
@@ -25,20 +25,167 @@ from typing import (
     Union,
 )
 
-from .exceptions import ParseError
-from .namespaces import RDF, XSD, expand, shorten
+from .core import ParseError, QueryError
 
-__all__ = [
-    "Node",
-    "Literal",
-    "URIRef",
-    "BNode",
-    "Graph",
-    "Resource",
-    "DEFAULT_LANGUAGES",
-    "parse_xsd",
-    "node_from_json",
-]
+# ==========================================================================
+# namespaces: RDF vocabularies used by DCAT-AP-SE and EntryStore.
+# ==========================================================================
+
+
+
+
+class Namespace(str):
+    """A namespace URI that expands local names on attribute/item access.
+
+    It is a :class:`str`, so it can be passed anywhere a URI is expected, but
+    *every* non-underscore attribute expands into a term rather than doing
+    what :class:`str` would do -- ``DCTERMS.title`` is the title predicate,
+    not ``str.title``. Call :func:`str` on a namespace to get a plain string
+    with the usual string methods back.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, uri: str) -> "Namespace":
+        return super().__new__(cls, uri)
+
+    def __getattribute__(self, name: str) -> Any:
+        # Local names like `title`, `format`, `index` and `type` collide with
+        # str's methods; term expansion must win, or DCTERMS.title silently
+        # becomes a bound method.
+        if name.startswith("_"):
+            return str.__getattribute__(self, name)
+        return str.__str__(self) + name
+
+    def __getitem__(self, name: Any) -> Any:  # type: ignore[override]
+        if isinstance(name, slice):
+            return str.__getitem__(self, name)
+        return str.__str__(self) + name
+
+    def __call__(self, name: str) -> str:
+        return str.__str__(self) + name
+
+    def __repr__(self) -> str:  # pragma: no cover - trivial
+        return "Namespace(%s)" % (str.__repr__(self),)
+
+
+RDF = Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+RDFS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
+OWL = Namespace("http://www.w3.org/2002/07/owl#")
+XSD = Namespace("http://www.w3.org/2001/XMLSchema#")
+
+DCTERMS = Namespace("http://purl.org/dc/terms/")
+DC = Namespace("http://purl.org/dc/elements/1.1/")
+DCAT = Namespace("http://www.w3.org/ns/dcat#")
+DCATAP = Namespace("http://data.europa.eu/r5r/")
+DQV = Namespace("http://www.w3.org/ns/dqv#")
+ADMS = Namespace("http://www.w3.org/ns/adms#")
+FOAF = Namespace("http://xmlns.com/foaf/0.1/")
+VCARD = Namespace("http://www.w3.org/2006/vcard/ns#")
+SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
+SCHEMA = Namespace("http://schema.org/")
+PROV = Namespace("http://www.w3.org/ns/prov#")
+SPDX = Namespace("http://spdx.org/rdf/terms#")
+TIME = Namespace("http://www.w3.org/2006/time#")
+LOCN = Namespace("http://www.w3.org/ns/locn#")
+ODRS = Namespace("http://schema.theodi.org/odrs#")
+PROF = Namespace("http://www.w3.org/ns/dx/prof/")
+
+#: EntryStore core terms (entry graph: metadata, resource, relation, ...).
+ES = Namespace("http://entrystore.org/terms/")
+#: Alias kept for readability at call sites.
+ESTERMS = ES
+#: EntryScape-specific terms (ServiceDistribution, MQA, LinkCheckReport, ...).
+ESCAPE = Namespace("http://entryscape.com/terms/")
+#: Nightly catalog statistics properties.
+STATS = Namespace("http://entrystore.org/terms/statistics#")
+
+NAMESPACES: Dict[str, Namespace] = {
+    "rdf": RDF,
+    "rdfs": RDFS,
+    "owl": OWL,
+    "xsd": XSD,
+    "dcterms": DCTERMS,
+    "dct": DCTERMS,
+    "dc": DC,
+    "dcat": DCAT,
+    "dcatap": DCATAP,
+    "dqv": DQV,
+    "adms": ADMS,
+    "foaf": FOAF,
+    "vcard": VCARD,
+    "skos": SKOS,
+    "schema": SCHEMA,
+    "prov": PROV,
+    "spdx": SPDX,
+    "time": TIME,
+    "locn": LOCN,
+    "odrs": ODRS,
+    "prof": PROF,
+    "es": ES,
+    "escape": ESCAPE,
+    "stats": STATS,
+}
+
+
+def expand(term: str) -> str:
+    """Expand ``prefix:local`` into a full URI; pass full URIs through unchanged.
+
+    >>> expand("dcat:Dataset")
+    'http://www.w3.org/ns/dcat#Dataset'
+    >>> expand("http://example.com/x")
+    'http://example.com/x'
+    """
+    if "://" in term:
+        return term
+    prefix, sep, local = term.partition(":")
+    if not sep:
+        return term
+    ns = NAMESPACES.get(prefix)
+    return ns + local if ns is not None else term
+
+
+def shorten(uri: str) -> str:
+    """Return ``prefix:local`` for a known namespace, otherwise the URI itself."""
+    best: Optional[Tuple[str, Namespace]] = None
+    for prefix, ns in NAMESPACES.items():
+        if uri.startswith(ns) and (best is None or len(ns) > len(best[1])):
+            best = (prefix, ns)
+    if best is None:
+        return uri
+    return f"{best[0]}:{uri[len(best[1]):]}"
+
+
+# --- Well-known class URIs, handy for search filters -------------------------
+
+class Types:
+    """Frequently searched ``rdfType`` values."""
+
+    DATASET = DCAT.Dataset
+    DATASET_SERIES = DCAT.DatasetSeries
+    DISTRIBUTION = DCAT.Distribution
+    DATA_SERVICE = DCAT.DataService
+    CATALOG = DCAT.Catalog
+    AGENT = FOAF.Agent
+    ORGANIZATION = FOAF.Organization
+    VCARD_ORGANIZATION = VCARD.Organization
+    VCARD_INDIVIDUAL = VCARD.Individual
+    STANDARD = DCTERMS.Standard
+    CATALOG_STATISTICS = STATS.CatalogStatistics
+    LINK_CHECK_REPORT = ESCAPE.LinkCheckReport
+    MQA = ESCAPE.MQA
+    MQA_TOTAL = ESCAPE.MQATotal
+    INDEPENDENT_DATA_SERVICE = ESCAPE.IndependentDataService
+    CATALOG_CONTEXT = ESCAPE.CatalogContext
+    PROFILE = PROF.Profile
+
+
+# ==========================================================================
+# rdf_graph: A small, dependency-free RDF/JSON model.
+# ==========================================================================
+
+
+
 
 #: Language codes tried, in order, when picking a single localized value.
 DEFAULT_LANGUAGES: Tuple[str, ...] = ("sv", "en")
@@ -565,3 +712,410 @@ class Resource:
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Resource %s>" % (self.subject,)
+
+
+# ==========================================================================
+# vocab: Human labels for the controlled-vocabulary URIs in DCAT-AP-SE.
+# ==========================================================================
+
+
+
+
+_DATA_FILE = os.path.join(os.path.dirname(__file__), "vocabulary.json")
+
+#: Creative Commons URLs appear with a translated deed or the legal code
+#: appended. Those all name the same licence, so they are stripped before
+#: lookup -- a normalisation, not a guess.
+_CC_SUFFIX_RE = re.compile(r"/(?:deed|legalcode)(?:\.[A-Za-z-]+)?/?$")
+#: A fragment identifier is never part of the licence's identity.
+_FRAGMENT_RE = re.compile(r"#.*$")
+
+
+def _variants(uri: str) -> List[str]:
+    """The spellings a single vocabulary URI turns up as, most exact first."""
+    seen: List[str] = []
+
+    def add(candidate: str) -> None:
+        if candidate and candidate not in seen:
+            seen.append(candidate)
+
+    add(uri)
+    base = _FRAGMENT_RE.sub("", uri)
+    if "creativecommons.org" in base:
+        base = _CC_SUFFIX_RE.sub("/", base)
+    bare = base.rstrip("/")
+    for form in (base, bare, bare + "/"):
+        add(form)
+        if form.startswith("https://"):
+            other = "http://" + form[len("https://"):]
+        elif form.startswith("http://"):
+            other = "https://" + form[len("http://"):]
+        else:
+            continue
+        add(other)
+    return seen
+
+
+class Vocabulary:
+    """A URI -> ``{language: label}`` table."""
+
+    __slots__ = ("_labels",)
+
+    def __init__(self, labels: Optional[Mapping[str, Mapping[str, str]]] = None) -> None:
+        self._labels: Dict[str, Dict[str, str]] = {
+            uri: dict(values) for uri, values in (labels or {}).items()
+        }
+
+    @classmethod
+    def load(cls, path: str = _DATA_FILE) -> "Vocabulary":
+        """Read the shipped table; an absent file yields an empty vocabulary."""
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            return cls()
+        return cls(payload.get("labels") or {})
+
+    # -- lookup ------------------------------------------------------------
+
+    def labels(self, uri: str) -> Dict[str, str]:
+        """Every known label for ``uri``, keyed by language.
+
+        Tries the URI as given, then the variants publishers write it in --
+        ``http`` vs ``https``, with or without a trailing slash, and the
+        Creative Commons ``deed``/``legalcode`` suffixes.
+        """
+        for candidate in _variants(uri):
+            found = self._labels.get(candidate)
+            if found:
+                return dict(found)
+        return {}
+
+    def label(
+        self,
+        uri: Optional[str],
+        languages: Sequence[str] = DEFAULT_LANGUAGES,
+    ) -> Optional[str]:
+        """The best label for ``uri``, or ``None`` if the URI is unknown.
+
+        ``None`` is deliberate: a missing label is a fact about coverage, not
+        something to paper over with a guess derived from the URI.
+        """
+        if not uri:
+            return None
+        found = self.labels(uri)
+        if not found:
+            return None
+        for lang in languages:
+            if lang in found:
+                return found[lang]
+        for lang in DEFAULT_LANGUAGES:
+            if lang in found:
+                return found[lang]
+        return next(iter(found.values()), None)
+
+    def term(
+        self,
+        uri: Optional[str],
+        languages: Sequence[str] = DEFAULT_LANGUAGES,
+    ) -> Optional[Dict[str, Optional[str]]]:
+        """``{"uri": ..., "label": ...}``, or ``None`` when ``uri`` is empty.
+
+        This is the shape every vocabulary-valued field takes in the JSON
+        output: the URI is always there, the label is there when known.
+        """
+        if not uri:
+            return None
+        return {"uri": uri, "label": self.label(uri, languages)}
+
+    def terms(
+        self,
+        uris: Sequence[str],
+        languages: Sequence[str] = DEFAULT_LANGUAGES,
+    ) -> list:
+        """:meth:`term` over a list, dropping empties."""
+        out = []
+        for uri in uris:
+            entry = self.term(uri, languages)
+            if entry is not None:
+                out.append(entry)
+        return out
+
+    # -- introspection -----------------------------------------------------
+
+    def covers(self, uri: str) -> bool:
+        return bool(self.labels(uri))
+
+    def __contains__(self, uri: object) -> bool:
+        return isinstance(uri, str) and self.covers(uri)
+
+    def __len__(self) -> int:
+        return len(self._labels)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._labels)
+
+    def to_dict(self) -> Dict[str, Dict[str, str]]:
+        return {uri: dict(values) for uri, values in self._labels.items()}
+
+    def __repr__(self) -> str:  # pragma: no cover - trivial
+        return "<Vocabulary %d terms>" % len(self._labels)
+
+
+#: The table shipped with the package.
+VOCABULARY = Vocabulary.load()
+
+
+def label(uri: Optional[str], languages: Sequence[str] = DEFAULT_LANGUAGES) -> Optional[str]:
+    """Best label for a vocabulary URI, or ``None`` if unknown."""
+    return VOCABULARY.label(uri, languages)
+
+
+def labels(uri: str) -> Dict[str, str]:
+    """Every known label for a vocabulary URI, keyed by language."""
+    return VOCABULARY.labels(uri)
+
+
+def term(
+    uri: Optional[str], languages: Sequence[str] = DEFAULT_LANGUAGES
+) -> Optional[Dict[str, Optional[str]]]:
+    """``{"uri": ..., "label": ...}`` for one vocabulary URI."""
+    return VOCABULARY.term(uri, languages)
+
+
+def terms(uris: Sequence[str], languages: Sequence[str] = DEFAULT_LANGUAGES) -> list:
+    """``{"uri": ..., "label": ...}`` for each URI in a list."""
+    return VOCABULARY.terms(uris, languages)
+
+
+# ==========================================================================
+# terms: Short, readable values instead of URIs.
+# ==========================================================================
+
+
+
+
+_VOCABULARY_FILE = os.path.join(os.path.dirname(__file__), "vocabulary.json")
+_ORGANISATIONS_FILE = os.path.join(os.path.dirname(__file__), "organisations.json")
+
+_PARENTHETICAL = re.compile(r"\([^)]*\)")
+#: Labels for file and media types carry the extension in a parenthetical,
+#: e.g. "Microsoft Excel XML (.xlsx)". The extension is what a person types
+#: for a format, so it is indexed as an alias for the term.
+_EXTENSION = re.compile(r"\(\s*\.([A-Za-z0-9]{1,8})\s*\)")
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_UNDERSCORES = re.compile(r"_+")
+
+
+def slugify(text: str) -> str:
+    """A short lowercase name from a label.
+
+    >>> slugify("Local authority")
+    'local_authority'
+    >>> slugify("CC BY 4.0 (Attribution)")
+    'cc_by_4_0'
+    >>> slugify("Ekonomi och finans")
+    'ekonomi_och_finans'
+    """
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = _PARENTHETICAL.sub(" ", text.lower())
+    text = _NON_ALNUM.sub("_", text)
+    return _UNDERSCORES.sub("_", text).strip("_")
+
+
+def _load(path: str, key: str) -> Dict:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get(key) or {}
+    except (OSError, ValueError):  # pragma: no cover - shipped with the package
+        return {}
+
+
+def _build_terms() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+    """``(slug -> [uri], uri -> slug)`` for every labelled vocabulary term."""
+    labels = _load(_VOCABULARY_FILE, "labels")
+    by_slug: Dict[str, List[str]] = {}
+    by_uri: Dict[str, str] = {}
+    for uri, translations in labels.items():
+        label = translations.get("en") or translations.get("sv")
+        slug = slugify(label) if label else ""
+        if not slug:
+            continue
+        by_uri[uri] = slug
+        # Several vocabularies name the same concept -- file-type/PDF and
+        # application/pdf both slug to "pdf". Keep them all so a filter on
+        # "pdf" matches whichever one a publisher happened to use.
+        by_slug.setdefault(slug, []).append(uri)
+        # "Microsoft Excel XML (.xlsx)" is findable as xlsx, because that is
+        # what anyone filtering by format will actually type.
+        extension = _EXTENSION.search(label)
+        if extension:
+            alias = slugify(extension.group(1))
+            if alias and alias != slug:
+                by_slug.setdefault(alias, []).append(uri)
+    return by_slug, by_uri
+
+
+def _build_publishers() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+    """``(slug -> [uri], uri -> slug)`` for publishers.
+
+    A publisher is listed under its slugged name and, where it has one, its
+    organisation number. The reverse map prefers the name, because that is
+    what a caller wants printed back at them.
+    """
+    organisations = _load(_ORGANISATIONS_FILE, "organisations")
+    by_slug: Dict[str, List[str]] = {}
+    by_uri: Dict[str, str] = {}
+    for slug, record in organisations.items():
+        uri = record.get("uri")
+        if not uri:
+            continue
+        by_slug.setdefault(slug, []).append(uri)
+        if uri not in by_uri or slug.strip("se0123456789"):
+            by_uri[uri] = slug
+    return by_slug, by_uri
+
+
+_BY_SLUG, _BY_URI = _build_terms()
+_PUBLISHERS, _PUBLISHER_BY_URI = _build_publishers()
+
+
+def publisher_for(uri: Optional[str]) -> Optional[str]:
+    """The name to pass as ``publisher=`` for a publisher's URI.
+
+    >>> publisher_for("http://dataportal.se/organisation/SE2021006297")
+    'trafikverket'
+    """
+    if not uri:
+        return None
+    return _PUBLISHER_BY_URI.get(uri) or _PUBLISHER_BY_URI.get(uri.rstrip("/"))
+
+
+def slug_for(uri: Optional[str]) -> Optional[str]:
+    """The short name for a URI, for output.
+
+    Falls back to the URI's last path segment when the term is unlabelled
+    upstream, so the result is always a short string and never a URI.
+    """
+    if not uri:
+        return None
+    known = _BY_URI.get(uri) or _BY_URI.get(uri.rstrip("/"))
+    if known:
+        return known
+    tail = uri.rstrip("/").rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+    return slugify(tail) or None
+
+
+def _suggest(value: str, candidates: Sequence[str], what: str) -> QueryError:
+    """The error for an unknown value, naming the likeliest few alternatives.
+
+    The cutoff is deliberately strict: three plausible names help, whereas a
+    long tail of weak matches ("landskrona" for "transprot") is just noise.
+    """
+    close = difflib.get_close_matches(value, candidates, n=3, cutoff=0.7)
+    if not close:
+        close = sorted(c for c in candidates if value in c)[:3]
+    hint = (" Did you mean: %s?" % ", ".join(close)) if close else ""
+    return QueryError("unknown %s %r.%s" % (what, value, hint))
+
+
+def resolve(value: str, what: str = "value") -> List[str]:
+    """The URIs a short value stands for.
+
+    :raises QueryError: if the value is not a known term, listing near misses.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise QueryError("%s must be a non-empty string, got %r" % (what, value))
+    slug = slugify(value)
+    found = _BY_SLUG.get(slug)
+    if not found:
+        raise _suggest(slug, list(_BY_SLUG), what)
+    return list(found)
+
+
+def resolve_publisher(value: str) -> List[str]:
+    """The URIs for a publisher named by slug or organisation number.
+
+    >>> resolve_publisher("trafikverket")          # doctest: +SKIP
+    ['http://dataportal.se/organisation/SE2021006297']
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise QueryError("publisher must be a non-empty string, got %r" % (value,))
+    slug = slugify(value)
+    found = _PUBLISHERS.get(slug)
+    if not found:
+        raise _suggest(slug, list(_PUBLISHERS), "publisher")
+    return list(found)
+
+
+def known_values(prefix: str = "") -> List[str]:
+    """Every short value this package knows, optionally filtered by prefix.
+
+    Handy at a prompt when you cannot remember a spelling::
+
+        known_values("trans")   -> ['transport', 'transport_networks', ...]
+    """
+    slug = slugify(prefix) if prefix else ""
+    return sorted(s for s in _BY_SLUG if not slug or slug in s)
+
+
+def known_publishers(prefix: str = "") -> List[str]:
+    """Every publisher name this package can resolve, optionally filtered."""
+    slug = slugify(prefix) if prefix else ""
+    return sorted(s for s in _PUBLISHERS if not slug or slug in s)
+
+
+__all__ = [
+    "Namespace",
+    "RDF",
+    "RDFS",
+    "OWL",
+    "XSD",
+    "DCTERMS",
+    "DC",
+    "DCAT",
+    "DCATAP",
+    "DQV",
+    "ADMS",
+    "FOAF",
+    "VCARD",
+    "SKOS",
+    "SCHEMA",
+    "PROV",
+    "SPDX",
+    "TIME",
+    "LOCN",
+    "ODRS",
+    "ES",
+    "ESTERMS",
+    "ESCAPE",
+    "STATS",
+    "PROF",
+    "NAMESPACES",
+    "expand",
+    "shorten",
+    "Types",
+    "Node",
+    "Literal",
+    "URIRef",
+    "BNode",
+    "Graph",
+    "Resource",
+    "DEFAULT_LANGUAGES",
+    "parse_xsd",
+    "node_from_json",
+    "Vocabulary",
+    "VOCABULARY",
+    "label",
+    "labels",
+    "term",
+    "terms",
+    "slugify",
+    "slug_for",
+    "publisher_for",
+    "resolve",
+    "resolve_publisher",
+    "known_values",
+    "known_publishers",
+]

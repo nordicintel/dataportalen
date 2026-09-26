@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataset, Distribution
 from dataportalen.models import wrap_entry
 
@@ -37,7 +37,7 @@ def search_hit():
 
 def test_dataset_dict_is_json_serializable(dataset):
     encoded = json.dumps(dataset.to_dict(), ensure_ascii=False)
-    assert json.loads(encoded)["title"] == dataset.titles
+    assert json.loads(encoded)["title"] == dataset.title
 
 
 def test_to_json_returns_a_string(dataset):
@@ -50,20 +50,25 @@ def test_dataset_dict_carries_the_core_fields(dataset):
     assert out["context_id"] == "547"
     assert out["entry_id"] == "28672"
     assert out["title"]
-    assert isinstance(out["title"], dict)
+    assert isinstance(out["title"], str)
     assert out["description"]
     assert out["keywords"]
     assert out["landing_page"]
 
 
-def test_vocabulary_fields_are_uri_label_pairs(dataset):
+def test_controlled_values_are_short_names_not_uris(dataset):
+    """No URIs and no {uri,label} objects -- just the short name."""
     out = dataset.to_dict()
     for theme in out["themes"]:
-        assert set(theme) == {"uri", "label"}
-        assert theme["uri"].startswith("http")
+        assert isinstance(theme, str)
+        assert "://" not in theme
+        assert theme == theme.lower()
     for key in ("license", "access_rights", "accrual_periodicity"):
         if out[key] is not None:
-            assert set(out[key]) == {"uri", "label"}
+            assert isinstance(out[key], str), key
+            assert "://" not in out[key], key
+    for language in out["languages"]:
+        assert isinstance(language, str) and "://" not in language
 
 
 def test_dates_are_iso_strings_not_objects(dataset):
@@ -97,7 +102,9 @@ def test_distributions_are_nested_after_a_recursive_fetch(dataset):
     assert len(out["distributions"]) == len(dataset.distribution_uris)
     first = out["distributions"][0]
     assert first["download_url"] or first["access_url"]
-    assert set(first["format"]) == {"uri", "label"} if first["format"] else True
+    if first["format"]:
+        assert isinstance(first["format"], str)
+        assert "://" not in first["format"]
 
 
 def test_distributions_can_be_left_out(dataset):
@@ -169,7 +176,7 @@ def test_entry_base_dict_works_for_untyped_entries():
     }}})
     out = entry.to_dict()
     json.dumps(out)
-    assert out["title"] == {"und": "T"}
+    assert out["title"] == "T"
     assert out["uri"] == "http://x/1"
 
 
@@ -179,12 +186,12 @@ def test_one_key_per_concept(dataset):
     for gone in ("titles", "descriptions", "keywords_by_language",
                  "distribution_uris"):
         assert gone not in out, gone
-    for langmap in ("title", "description", "keywords"):
-        assert isinstance(out[langmap], dict), langmap
+    assert isinstance(out["title"], str)
+    assert isinstance(out["keywords"], list)
     for dist in out["distributions"]:
         for gone in ("titles", "access_urls", "download_urls"):
             assert gone not in dist, gone
-    assert isinstance(out["publisher"]["name"], dict)
+    assert isinstance(out["publisher"]["name"], str)
     assert "names" not in out["publisher"]
 
 
@@ -208,10 +215,39 @@ def test_the_dropped_fields_are_still_on_the_model(dataset):
     assert isinstance(dataset.distribution_uris, list)
 
 
-def test_vocabulary_labels_are_english(dataset):
-    """Standardised terms read in English regardless of language preference."""
-    swedish_first = dataset.with_languages(["sv", "en"]).to_dict()
-    assert swedish_first["access_rights"]["label"] == "Public"
-    assert swedish_first["accrual_periodicity"]["label"] == "annual"
-    # Publisher-authored text still follows the preference.
-    assert "sv" in swedish_first["title"]
+def test_short_names_ignore_the_language(dataset):
+    """Controlled values are one fixed name whatever language is asked for."""
+    for language in ("sv", "en", "all"):
+        out = dataset.with_language(language).to_dict()
+        assert out["access_rights"] == "public"
+        assert out["accrual_periodicity"] == "annual"
+
+
+def test_text_is_one_language_by_default(dataset):
+    """A caller asking for Swedish gets a string, not a map to unpack."""
+    out = dataset.to_dict()
+    assert out["title"] == dataset.titles["sv"]
+    assert isinstance(out["description"], str)
+    assert all(isinstance(k, str) for k in out["keywords"])
+    assert isinstance(out["publisher"]["name"], str)
+
+
+def test_language_all_keeps_every_language(dataset):
+    """The map is still there for anyone who wants it -- on request."""
+    out = dataset.with_language("all").to_dict()
+    assert out["title"] == {"sv": dataset.titles["sv"]}
+    assert isinstance(out["keywords"], dict)
+    assert isinstance(out["publisher"]["name"], dict)
+
+
+def test_a_missing_language_falls_back_rather_than_vanishing(dataset):
+    """A Swedish-only title beats None for someone who asked for English."""
+    out = dataset.with_language("en").to_dict()
+    assert out["title"] == dataset.titles["sv"]
+
+
+def test_an_unusable_language_is_rejected(dataset):
+    from dataportalen import QueryError
+
+    with pytest.raises(QueryError):
+        dataset.with_language("swedish")

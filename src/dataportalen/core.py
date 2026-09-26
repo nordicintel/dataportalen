@@ -1,40 +1,226 @@
-"""HTTP transports.
+"""Version, errors, logging and HTTP.
 
-``requests`` and ``httpx`` are both hard dependencies -- there are no extras
-to install and nothing to opt into.
-
-:class:`RequestsTransport` is the default. Pass ``transport=HttpxTransport()``
-for HTTP/2, or :class:`UrllibTransport` to avoid both. ``httpx`` also backs
-the asyncio client.
+The plumbing everything else sits on: the package version, the exception
+hierarchy, the ``dataportalen`` logger and progress reporting, and the three
+HTTP transports (requests, httpx, stdlib urllib).
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+import logging
 import socket
 import ssl
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from typing import Any, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 
-from ._version import __version__
-from .exceptions import ParseError, TimeoutError, TransportError
+# ==========================================================================
+# version: The package version, in one place.
+# ==========================================================================
 
-__all__ = [
-    "Response",
-    "BaseTransport",
-    "UrllibTransport",
-    "RequestsTransport",
-    "HttpxTransport",
-    "AsyncHttpxTransport",
-    "default_transport",
-    "default_async_transport",
-    "build_url",
-]
+__version__ = "0.3.0"
+
+
+# ==========================================================================
+# exceptions: Exception hierarchy for :mod:`dataportal`.
+# ==========================================================================
+
+
+
+
+class DataportalError(Exception):
+    """Base class for every error raised by this package."""
+
+
+class TransportError(DataportalError):
+    """The request never produced an HTTP response (DNS, TLS, socket, ...)."""
+
+
+class TimeoutError(TransportError):  # noqa: A001 - deliberate shadowing, scoped to package
+    """The request timed out."""
+
+
+class HTTPError(DataportalError):
+    """The server answered with a non-2xx status code."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        url: str,
+        body: str = "",
+        headers: Optional[Mapping[str, str]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.url = url
+        self.body = body
+        self.headers: Mapping[str, str] = dict(headers or {})
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        base = super().__str__()
+        snippet = self.body[:300].strip()
+        return f"{base} [{self.status}] {self.url}" + (f"\n{snippet}" if snippet else "")
+
+
+class NotFoundError(HTTPError):
+    """HTTP 404 - the entry, context or resource does not exist."""
+
+
+class RateLimitError(HTTPError):
+    """HTTP 429 - too many requests."""
+
+    def __init__(self, *args: Any, retry_after: Optional[float] = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.retry_after = retry_after
+
+
+class ServerError(HTTPError):
+    """HTTP 5xx."""
+
+
+class ParseError(DataportalError):
+    """The response body could not be decoded into the expected shape."""
+
+
+class QueryError(DataportalError):
+    """A Solr query could not be built from the given arguments."""
+
+
+# ==========================================================================
+# log: Logging and progress reporting.
+# ==========================================================================
+
+
+
+#: The package logger. Configure it as you would any other.
+logger = logging.getLogger("dataportalen")
+logger.addHandler(logging.NullHandler())
+
+
+def enable_logging(
+    level: Any = logging.INFO,
+    stream: Any = None,
+    fmt: str = "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+) -> logging.Logger:
+    """Send this package's log records to ``stream`` (default stderr).
+
+    A convenience for scripts and notebooks. Applications that already
+    configure logging should ignore this and handle the ``dataportalen``
+    logger themselves.
+
+    Calling it twice replaces the handler rather than doubling the output.
+    """
+    if isinstance(level, str):
+        level = logging.getLevelName(level.upper())
+    for existing in list(logger.handlers):
+        if getattr(existing, "_dataportalen", False):
+            logger.removeHandler(existing)
+    handler = logging.StreamHandler(stream or sys.stderr)
+    handler.setFormatter(logging.Formatter(fmt, datefmt="%H:%M:%S"))
+    handler._dataportalen = True  # type: ignore[attr-defined]
+    logger.addHandler(handler)
+    logger.setLevel(level)
+    return logger
+
+
+class _TerminalProgress:
+    """A single rewriting line on stderr, throttled to ~5 updates a second."""
+
+    def __init__(self, label: str, stream: Any = None, min_interval: float = 0.2) -> None:
+        self.label = label
+        self.stream = stream or sys.stderr
+        self.min_interval = min_interval
+        self.started = time.time()
+        self._last = 0.0
+        self._width = 0
+
+    def __call__(self, done: int, total: int) -> None:
+        now = time.time()
+        final = total and done >= total
+        if not final and now - self._last < self.min_interval:
+            return
+        self._last = now
+
+        elapsed = now - self.started
+        rate = done / elapsed if elapsed > 0 else 0.0
+        if total:
+            pct = 100.0 * done / total
+            remaining = (total - done) / rate if rate > 0 else 0
+            text = "%s %6.1f%%  %s/%s  %.0f/s  eta %s" % (
+                self.label, pct, f"{done:,}", f"{total:,}", rate, _duration(remaining))
+        else:
+            text = "%s %s  %.0f/s" % (self.label, f"{done:,}", rate)
+
+        padded = text.ljust(self._width)
+        self._width = max(self._width, len(text))
+        try:
+            self.stream.write("\r" + padded)
+            if final:
+                self.stream.write("\n")
+            self.stream.flush()
+        except Exception:  # pragma: no cover - a closed or odd stream
+            pass
+
+
+def _duration(seconds: float) -> str:
+    seconds = int(max(seconds, 0))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+def progress_reporter(
+    progress: Any,
+    label: str,
+    log_every: int = 2000,
+) -> Optional[Callable[[int, int], None]]:
+    """Turn the ``progress`` argument into a callback.
+
+    ``"auto"`` (the default for long operations) draws a live line when
+    stderr is a terminal, and otherwise logs a line every ``log_every`` items
+    so a redirected run still leaves a trail. ``None`` is silent, and a
+    callable is used as given.
+    """
+    if progress is None:
+        return None
+    if callable(progress):
+        return progress
+    if progress != "auto":
+        raise ValueError("progress must be 'auto', None, or a callable")
+
+    stream = sys.stderr
+    if getattr(stream, "isatty", lambda: False)():
+        return _TerminalProgress(label)
+
+    state = {"next": log_every}
+
+    def log_progress(done: int, total: int) -> None:
+        if done >= state["next"] or (total and done >= total):
+            state["next"] = done + log_every
+            if total:
+                logger.info("%s %d/%d (%.0f%%)", label, done, total, 100.0 * done / total)
+            else:
+                logger.info("%s %d", label, done)
+
+    return log_progress
+
+
+# ==========================================================================
+# transport: HTTP transports.
+# ==========================================================================
+
+
+
 
 DEFAULT_USER_AGENT = "dataportalen/%s (+https://github.com/nordicintel/dataportal)" % __version__
 
@@ -164,10 +350,18 @@ class UrllibTransport(BaseTransport):
 
     def __init__(self, ssl_context: Optional[ssl.SSLContext] = None) -> None:
         self._opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl_context) if ssl_context else urllib.request.HTTPSHandler()
+            urllib.request.HTTPSHandler(context=ssl_context)
+            if ssl_context
+            else urllib.request.HTTPSHandler()
         )
 
-    def _open(self, method: str, url: str, headers: Optional[Mapping[str, str]], timeout: Optional[float]):
+    def _open(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Mapping[str, str]],
+        timeout: Optional[float],
+    ):
         request = urllib.request.Request(url, method=method.upper())
         for key, value in (headers or {}).items():
             request.add_header(key, value)
@@ -264,7 +458,9 @@ class RequestsTransport(BaseTransport):
         timeout: Optional[float] = None,
     ) -> Response:
         try:
-            resp = self._session.request(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+            resp = self._session.request(
+                method.upper(), url, headers=dict(headers or {}), timeout=timeout
+            )
         except self._requests.Timeout as exc:
             raise TimeoutError("request to %s timed out" % url) from exc
         except self._requests.RequestException as exc:
@@ -324,7 +520,9 @@ class HttpxTransport(BaseTransport):
         timeout: Optional[float] = None,
     ) -> Response:
         try:
-            resp = self._client.request(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+            resp = self._client.request(
+                method.upper(), url, headers=dict(headers or {}), timeout=timeout
+            )
         except self._httpx.TimeoutException as exc:
             raise TimeoutError("request to %s timed out" % url) from exc
         except self._httpx.HTTPError as exc:
@@ -340,7 +538,9 @@ class HttpxTransport(BaseTransport):
         timeout: Optional[float] = None,
         chunk_size: int = 1 << 16,
     ) -> Tuple[int, Mapping[str, str], Iterator[bytes]]:
-        manager = self._client.stream(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+        manager = self._client.stream(
+            method.upper(), url, headers=dict(headers or {}), timeout=timeout
+        )
         try:
             resp = manager.__enter__()
         except self._httpx.TimeoutException as exc:
@@ -426,3 +626,28 @@ def default_async_transport() -> AsyncHttpxTransport:
 def sleep(seconds: float) -> None:
     """Indirection that keeps retry backoff easy to patch in tests."""
     time.sleep(seconds)
+
+
+__all__ = [
+    "DataportalError",
+    "TransportError",
+    "TimeoutError",
+    "HTTPError",
+    "NotFoundError",
+    "RateLimitError",
+    "ServerError",
+    "ParseError",
+    "QueryError",
+    "logger",
+    "enable_logging",
+    "progress_reporter",
+    "Response",
+    "BaseTransport",
+    "UrllibTransport",
+    "RequestsTransport",
+    "HttpxTransport",
+    "AsyncHttpxTransport",
+    "default_transport",
+    "default_async_transport",
+    "build_url",
+]

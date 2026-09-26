@@ -24,7 +24,7 @@ dependencies = ["httpx>=0.24", "requests>=2.25"]
 
 [project.optional-dependencies]
 # Only tooling. Everything a user needs is a hard dependency.
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "ruff>=0.16"]
 
 [project.urls]
 Homepage = "https://github.com/nordicintel/dataportal"
@@ -32,15 +32,21 @@ Documentation = "https://docs.dataportal.se/registry/api/"
 
 # Single source of truth: src/dataportalen/_version.py
 [tool.hatch.version]
-path = "src/dataportalen/_version.py"
+path = "src/dataportalen/core.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dataportalen"]
-# vocabulary.json bundles CC BY data; the notices travel with it.
-force-include = { "NOTICE" = "dataportalen/NOTICE" }
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "README.md", "RELEASING.md", "LICENSE", "NOTICE", "pyproject.toml"]
+include = ["src", "tests", "tools", "docs", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

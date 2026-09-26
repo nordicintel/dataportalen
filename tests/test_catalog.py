@@ -6,10 +6,10 @@ import gzip
 import json
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataportal, download_catalog
-from dataportalen.catalog import CatalogSummary
+from dataportalen.client import CatalogSummary
 
 
 def _page(children, total, offset=0, limit=100):
@@ -131,7 +131,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
-    assert record["distributions"][0]["title"] == {"und": "CSV"}
+    assert record["distributions"][0]["title"] == "CSV"
     assert record["distributions"][0]["download_url"] == ["http://example.org/f.csv"]
 
 

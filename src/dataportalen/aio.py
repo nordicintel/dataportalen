@@ -43,9 +43,18 @@ from typing import (
     Union,
 )
 
-from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, _LRU, _RETRY_STATUSES
-from .exceptions import HTTPError, ParseError, TransportError
+from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT
+from .core import (
+    DEFAULT_USER_AGENT,
+    AsyncHttpxTransport,
+    HTTPError,
+    ParseError,
+    Response,
+    TransportError,
+    build_url,
+)
 from .models import (
+    DEFAULT_LANGUAGE,
     Agent,
     Catalog,
     CatalogStatistics,
@@ -60,12 +69,11 @@ from .models import (
     OrganisationStats,
     SearchPage,
     Standard,
+    language_preference,
     wrap_entry,
 )
-from .namespaces import DCAT, DCTERMS, FOAF, Types
-from .query import Q, SORT_MODIFIED_DESC
-from .rdf import DEFAULT_LANGUAGES, Graph
-from .transport import DEFAULT_USER_AGENT, AsyncHttpxTransport, Response, build_url
+from .query import SORT_MODIFIED_DESC, Q
+from .rdf import DCAT, DCTERMS, FOAF, Graph, Types
 
 __all__ = ["AsyncDataportal"]
 
@@ -86,7 +94,7 @@ class AsyncDataportal:
         *,
         transport: Optional[AsyncHttpxTransport] = None,
         timeout: float = 30.0,
-        languages: Sequence[str] = DEFAULT_LANGUAGES,
+        language: str = DEFAULT_LANGUAGE,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
@@ -97,12 +105,15 @@ class AsyncDataportal:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.languages = tuple(languages)
+        self.language = language
+        self.languages = language_preference(language)
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
         self.public_only = public_only
         self.default_sort = default_sort
-        self.user_agent = user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        self.user_agent = (
+            user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        )
         self._transport = transport if transport is not None else AsyncHttpxTransport()
         self._owns_transport = transport is None
         self._cache = _LRU(cache_size)
@@ -529,19 +540,25 @@ class AsyncDataportal:
             context_id, entry_id, recursive=recursive, model=Dataset
         )
 
-    async def distributions(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def distributions(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.Distribution, **filters),
             model=Distribution, limit=limit, offset=offset,
         )
 
-    async def data_services(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def data_services(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.DataService, **filters),
             model=DataService, limit=limit, offset=offset,
         )
 
-    async def dataset_series(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def dataset_series(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.DatasetSeries, **filters),
             model=DatasetSeries, limit=limit, offset=offset,
@@ -575,7 +592,7 @@ class AsyncDataportal:
         limit: Optional[int] = None,
         page_size: int = MAX_LIMIT,
     ) -> AsyncIterator[Entry]:
-        return self.iter_datasets(context=context_id, limit=limit, page_size=page_size)
+        return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
 
     # -- registry-wide statistics -----------------------------------------
 

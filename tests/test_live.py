@@ -19,13 +19,13 @@ import pytest
 from dataportalen import (
     Agent,
     Catalog,
-    DataService,
     Dataportal,
+    DataService,
     Dataset,
     Distribution,
     Q,
 )
-from dataportalen.namespaces import DCAT
+from dataportalen.rdf import DCAT
 
 pytestmark = pytest.mark.network
 
@@ -144,7 +144,7 @@ def test_unknown_entry_ids_raise_not_found(dp):
 @pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
 def test_every_transport_reaches_the_registry(transport_name):
     """All three work, with nothing optional to install."""
-    from dataportalen.transport import HttpxTransport, RequestsTransport, UrllibTransport
+    from dataportalen.core import HttpxTransport, RequestsTransport, UrllibTransport
 
     factories = {
         "urllib": UrllibTransport,
@@ -209,19 +209,17 @@ def test_catalog_export_round_trips(dp, tmp_path):
     records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 200
     assert all(r["uri"] for r in records)
-    # Untagged literals must not key an object under the string "null".
-    assert all("null" not in r["title"] for r in records)
-    assert all(isinstance(r["title"], dict) for r in records)
-    # Vocabulary labels read in English, whatever the client preference.
-    # GOVE is "Regeringen och den offentliga sektorn" in Swedish, so seeing
-    # the English rendering proves the preference did not leak through.
-    seen = {t["uri"]: t["label"] for r in records for t in r["themes"]}
-    gove = "http://publications.europa.eu/resource/authority/data-theme/GOVE"
-    if gove in seen:
-        assert seen[gove] == "Government and public sector", seen[gove]
-    assert not any(
-        (label or "").startswith("Regeringen") for label in seen.values()
-    )
+    # Default language: one string per field, not a map to unpack.
+    assert all(isinstance(r["title"], str) for r in records)
+    assert all(isinstance(r["keywords"], list) for r in records)
+    # Controlled values are short names, never URIs or localized labels.
+    themes = {t for r in records for t in r["themes"]}
+    assert themes
+    for theme in themes:
+        assert isinstance(theme, str) and "://" not in theme
+        assert theme == theme.lower()
+    # "transport" not "TRAN", and not "Regeringen och den offentliga sektorn".
+    assert not any(t.startswith("regeringen") for t in themes)
 
 
 def test_catalog_export_gzips(dp, tmp_path):
@@ -234,7 +232,7 @@ def test_catalog_export_gzips(dp, tmp_path):
     download_catalog(str(out), limit=25, client=dp)
     assert out.read_bytes()[:2] == b"\x1f\x8b"
     with gzip.open(out, "rt", encoding="utf-8") as handle:
-        assert len([json.loads(l) for l in handle]) == 25
+        assert len([json.loads(line) for line in handle]) == 25
 
 
 def test_vocabulary_labels_resolve_on_live_data(dp):
@@ -245,13 +243,58 @@ def test_vocabulary_labels_resolve_on_live_data(dp):
         for field in ("themes", "languages"):
             for value in doc[field]:
                 total += 1
-                labelled += 1 if value["label"] else 0
+                labelled += 1 if value and "://" not in value else 0
         for field in ("access_rights", "accrual_periodicity"):
             value = doc[field]
             if value:
                 total += 1
-                labelled += 1 if value["label"] else 0
+                labelled += 1 if "://" not in value else 0
     assert total > 100
-    # These vocabularies are fully covered; a regression here means the
-    # shipped table drifted from what the registry serves.
+    # Every one of these resolves to a short name; a bare URI leaking through
+    # means the shipped table drifted from what the registry serves.
     assert labelled == total
+
+
+# -- the forms callers actually type -----------------------------------------
+
+
+def test_query_helpers_are_accepted_by_the_registry(dp):
+    """Every Q helper below once produced an HTTP 400 or silently zero hits."""
+    base = Q.rdf_type(DCAT.Dataset)
+    assert dp.count(base & Q.created("2020-01-01")) > 0
+    assert dp.count(base & Q.modified("2020")) > 0
+    assert dp.count(base & Q.predicate_range(
+        "http://purl.org/dc/terms/modified", "2024-01-01")) > 0
+    assert dp.count(Q.entry_type("local")) > 0
+    assert dp.count(Q.graph_type("none")) > 0
+    assert dp.count(Q.resource_type("informationresource")) > 0
+    assert dp.count(base & Q.format("text/csv")) > 0
+
+
+def test_every_filter_matches_something(dp):
+    """A filter that matches nothing is indistinguishable from a broken one."""
+    cases = {
+        "text": "cykel", "title": "bidrag", "keyword": "geodata",
+        "publisher": "trafikverket", "theme": "transport", "format": "csv",
+        "license": "cc_by_4_0", "access_rights": "public", "updated": "annual",
+        "language": "swedish", "place": "kingdom_of_sweden", "catalog": 50,
+        "updated_after": "2024-01-01", "published_after": "2020",
+    }
+    for name, value in cases.items():
+        assert dp.datasets(limit=1, **{name: value}).total > 0, name
+
+
+def test_organisations_lead_into_a_search(dp):
+    orgs = dp.organisations()
+    assert len(orgs) > 300
+    filterable = [o for o in orgs if o.publisher]
+    assert len(filterable) >= len(orgs) - 5
+    assert dp.datasets(publisher=filterable[0].publisher, limit=1).total > 0
+
+
+def test_language_shapes_the_output(dp):
+    uri = next(iter(dp.datasets(limit=1))).resource_uri
+    swedish = dp.dataset(uri=uri).to_dict()
+    assert isinstance(swedish["title"], str)
+    with Dataportal(language="all") as every:
+        assert isinstance(every.dataset(uri=uri).to_dict()["title"], dict)

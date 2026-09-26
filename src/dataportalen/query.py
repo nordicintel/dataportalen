@@ -5,7 +5,7 @@ some awkward escaping rules (every colon inside a URI must be backslashed).
 :class:`Q` hides that:
 
     >>> from dataportalen import Q
-    >>> from dataportalen.namespaces import DCAT
+    >>> from dataportalen.rdf import DCAT
     >>> str(Q.rdf_type(DCAT.Dataset) & Q.public())
     'rdfType:http\\\\:\\\\/\\\\/www.w3.org\\\\/ns\\\\/dcat#Dataset AND public:true'
 
@@ -15,18 +15,19 @@ remain available through :meth:`Q.raw`.
 Negation needs care in Lucene: a purely negative query matches nothing, and
 ``a AND (NOT b)`` is silently empty. :class:`Q` tracks which fragments are
 negative and anchors them to ``*:*`` wherever a positive clause is required,
-so ``~Q.language("eng")`` and ``Q.title("x") & ~Q.language("eng")`` both do
-what they look like they do.
+so ``~Q.theme(uri)`` and ``Q.title("x") & ~Q.theme(uri)`` both do what they
+look like they do.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import re
 from typing import Any, Iterable, List, Optional, Sequence, Union
 
-from .exceptions import QueryError
-from .namespaces import expand
+from .core import QueryError
+from .rdf import expand
 
 __all__ = ["Q", "escape", "escape_uri", "predicate_field", "SORT_MODIFIED_DESC"]
 
@@ -85,14 +86,46 @@ def predicate_field(predicate: str, kind: str = "literal") -> str:
     return "%s.%s.%s" % (prefix, kind, digest)
 
 
+_BARE_DATE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
+
+
 def _fmt_date(value: _DateLike) -> str:
+    """A date in the only form the index accepts.
+
+    The registry answers HTTP 400 for ``created:[2020-01-01 TO *]`` -- it wants
+    a full timestamp -- so a bare date or year is filled out here rather than
+    failing at the far end.
+    """
     if isinstance(value, _dt.datetime):
         if value.tzinfo is not None:
             value = value.astimezone(_dt.timezone.utc).replace(tzinfo=None)
         return value.strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, _dt.date):
         return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
+    text = str(value).strip()
+    if _BARE_DATE.match(text):
+        parts = text.split("-")
+        while len(parts) < 3:
+            parts.append("01")
+        return "%s-%s-%sT00:00:00Z" % tuple(parts)
+    return text
+
+
+#: The envelope fields are indexed with this exact casing.
+_ENTRY_TYPES = ("Local", "Link", "LinkReference", "Reference")
+_GRAPH_TYPES = ("None", "Context", "List", "PipelineResult", "Pipeline",
+                "Group", "User", "SystemContext")
+_RESOURCE_TYPES = ("InformationResource", "NamedResource", "ResolvableInformationResource",
+                   "Unknown")
+
+
+def _envelope_value(value: str, known: Sequence[str]) -> str:
+    """The index's own spelling of an envelope value, whatever case is given."""
+    text = str(value).strip()
+    for candidate in known:
+        if candidate.lower() == text.lower():
+            return candidate
+    return text
 
 
 class Q:
@@ -220,8 +253,8 @@ class Q:
         end: Optional[Any] = None,
     ) -> "Q":
         """``field:[start TO end]``; ``None`` becomes the open bound ``*``."""
-        low = "*" if start is None else (_fmt_date(start) if isinstance(start, (_dt.date, _dt.datetime)) else str(start))
-        high = "*" if end is None else (_fmt_date(end) if isinstance(end, (_dt.date, _dt.datetime)) else str(end))
+        low = "*" if start is None else _fmt_date(start)
+        high = "*" if end is None else _fmt_date(end)
         return cls("%s:[%s TO %s]" % (field, low, high))
 
     @classmethod
@@ -303,11 +336,6 @@ class Q:
         return cls.any_of("tag.uri", uris)
 
     @classmethod
-    def language(cls, code: str) -> "Q":
-        """Match the resource language (``dcterms:language``)."""
-        return cls("lang:%s" % escape(code))
-
-    @classmethod
     def creator(cls, uri: str) -> "Q":
         return cls("creator:%s" % escape_uri(uri))
 
@@ -316,28 +344,23 @@ class Q:
         return cls("contributors:%s" % escape_uri(uri))
 
     @classmethod
-    def lists(cls, uri: str) -> "Q":
-        """Entries belonging to the list with the given resource URI."""
-        return cls("lists:%s" % escape_uri(uri))
-
-    @classmethod
     def graph_type(cls, value: str) -> "Q":
-        """``Context``, ``List``, ``User``, ``Pipeline``, ``None``, ..."""
-        return cls("graphType:%s" % escape(value))
+        """``Context``, ``List``, ``PipelineResult``, ``None``, ...
+
+        The index stores these capitalised and matches exactly, so
+        ``graph_type("list")`` would otherwise silently find nothing.
+        """
+        return cls("graphType:%s" % escape(_envelope_value(value, _GRAPH_TYPES)))
 
     @classmethod
     def entry_type(cls, value: str) -> "Q":
         """``Local``, ``Link``, ``LinkReference`` or ``Reference``."""
-        return cls("entryType:%s" % escape(value))
+        return cls("entryType:%s" % escape(_envelope_value(value, _ENTRY_TYPES)))
 
     @classmethod
     def resource_type(cls, value: str) -> "Q":
         """``InformationResource``, ``NamedResource``, ``Unknown``, ..."""
-        return cls("resourceType:%s" % escape(value))
-
-    @classmethod
-    def profile(cls, uri: str) -> "Q":
-        return cls("profile:%s" % escape_uri(uri))
+        return cls("resourceType:%s" % escape(_envelope_value(value, _RESOURCE_TYPES)))
 
     @classmethod
     def created(cls, start: Optional[_DateLike] = None, end: Optional[_DateLike] = None) -> "Q":
@@ -426,12 +449,20 @@ class Q:
         return cls.any_of(field, uris)
 
     @classmethod
-    def format(cls, *uris: str) -> "Q":
-        """Distributions with the given ``dcterms:format`` URI(s)."""
-        field = predicate_field("http://purl.org/dc/terms/format", "uri")
-        if len(uris) == 1:
-            return cls("%s:%s" % (field, escape_uri(uris[0])))
-        return cls.any_of(field, uris)
+    def format(cls, *values: str) -> "Q":
+        """The given ``dcterms:format``, stated either way publishers state it.
+
+        Only ~120 datasets give a file-type URI; ~16,400 give a media type as
+        a plain literal. Checking one index alone finds almost nothing, so both
+        are checked and ``Q.format("text/csv")`` works as well as the URI.
+        """
+        uri_field = predicate_field("http://purl.org/dc/terms/format", "uri")
+        literal_field = predicate_field("http://purl.org/dc/terms/format", "literal_s")
+        parts = [
+            cls.term(uri_field if "://" in value else literal_field, value)
+            for value in values
+        ]
+        return cls.join(parts, "OR")
 
     @classmethod
     def media_type(cls, *uris: str) -> "Q":

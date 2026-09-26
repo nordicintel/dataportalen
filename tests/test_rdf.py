@@ -1,15 +1,36 @@
-"""The RDF/JSON graph model."""
+"""The RDF layer: namespaces, graph parsing, and the label table."""
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import pytest
 
 from dataportalen import BNode, Graph, Literal, URIRef
-from dataportalen.exceptions import ParseError
-from dataportalen.namespaces import DCAT, DCTERMS, RDF, XSD
-from dataportalen.rdf import parse_xsd
+from dataportalen.core import ParseError
+from dataportalen.rdf import (
+    DCAT,
+    DCTERMS,
+    FOAF,
+    NAMESPACES,
+    RDF,
+    VOCABULARY,
+    XSD,
+    Namespace,
+    Types,
+    Vocabulary,
+    expand,
+    parse_xsd,
+    shorten,
+)
+
+# ==========================================================================
+# The RDF/JSON graph model.
+# ==========================================================================
+
+
+
 
 DOC = {
     "http://example.org/d1": {
@@ -175,3 +196,167 @@ def test_parse_xsd_handles_offsets_and_fractional_seconds():
 def test_date_accessor_tolerates_missing_datatypes():
     graph = Graph({"s": {DCTERMS.issued: [{"type": "literal", "value": "2020-01-02"}]}})
     assert graph.resource("s").date(DCTERMS.issued) == dt.date(2020, 1, 2)
+
+
+# ==========================================================================
+# Namespace expansion, including the str-method collisions it must survive.
+# ==========================================================================
+
+
+
+
+def test_attribute_access_expands_a_term():
+    assert DCAT.Dataset == "http://www.w3.org/ns/dcat#Dataset"
+    assert DCAT["keyword"] == "http://www.w3.org/ns/dcat#keyword"
+    assert DCAT("keyword") == "http://www.w3.org/ns/dcat#keyword"
+
+
+@pytest.mark.parametrize("local", ["title", "format", "type", "index", "count", "split"])
+def test_terms_that_collide_with_str_methods_still_expand(local):
+    # DCTERMS.title must be the predicate, not str.title.
+    assert isinstance(DCTERMS[local], str)
+    assert DCTERMS[local] == "http://purl.org/dc/terms/" + local
+    assert getattr(DCTERMS, local) == DCTERMS[local]
+
+
+def test_a_namespace_is_still_usable_as_a_plain_uri():
+    assert str(DCAT) == "http://www.w3.org/ns/dcat#"
+    assert "http://www.w3.org/ns/dcat#x".startswith(DCAT)
+    assert len(DCAT) == len("http://www.w3.org/ns/dcat#")
+    assert DCAT[0:4] == "http"
+
+
+def test_expand_handles_curies_full_uris_and_unknown_prefixes():
+    assert expand("dcat:Dataset") == DCAT.Dataset
+    assert expand("dct:title") == DCTERMS.title
+    assert expand("http://example.org/x") == "http://example.org/x"
+    assert expand("nosuch:Term") == "nosuch:Term"
+    assert expand("bare") == "bare"
+
+
+def test_shorten_prefers_the_longest_matching_namespace():
+    assert shorten(DCAT.Dataset) == "dcat:Dataset"
+    assert shorten("http://entryscape.com/terms/MQA") == "escape:MQA"
+    assert shorten("http://example.org/x") == "http://example.org/x"
+
+
+def test_types_are_plain_uri_strings():
+    assert Types.DATASET == DCAT.Dataset
+    assert Types.AGENT == FOAF.Agent
+    assert Types.CATALOG_STATISTICS.endswith("#CatalogStatistics")
+
+
+def test_every_registered_namespace_is_a_namespace():
+    assert all(isinstance(ns, Namespace) for ns in NAMESPACES.values())
+
+
+# ==========================================================================
+# Vocabulary label lookup.
+# ==========================================================================
+
+
+
+
+THEME_TRAN = "http://publications.europa.eu/resource/authority/data-theme/TRAN"
+
+
+@pytest.fixture
+def vocabulary() -> Vocabulary:
+    return Vocabulary({
+        THEME_TRAN: {"sv": "Transport", "en": "Transport"},
+        "http://example.org/sv-only": {"sv": "Bara svenska"},
+        "http://example.org/trailing/": {"en": "Trailing slash"},
+    })
+
+
+def test_label_follows_the_language_preference(vocabulary):
+    assert vocabulary.label(THEME_TRAN, ["en"]) == "Transport"
+    assert vocabulary.label(THEME_TRAN, ["sv"]) == "Transport"
+
+
+def test_label_falls_back_when_the_language_is_missing(vocabulary):
+    assert vocabulary.label("http://example.org/sv-only", ["en"]) == "Bara svenska"
+
+
+def test_unknown_uris_report_none_rather_than_guessing(vocabulary):
+    # A guess derived from the URI would look like data; None is honest.
+    assert vocabulary.label("http://example.org/authority/file-type/CSV") is None
+    assert vocabulary.label(None) is None
+    assert vocabulary.label("") is None
+
+
+def test_term_shape_is_stable(vocabulary):
+    assert vocabulary.term(THEME_TRAN, ["en"]) == {"uri": THEME_TRAN, "label": "Transport"}
+    assert vocabulary.term("http://example.org/nope") == {
+        "uri": "http://example.org/nope", "label": None,
+    }
+    assert vocabulary.term(None) is None
+
+
+def test_terms_maps_a_list_and_drops_empties(vocabulary):
+    out = vocabulary.terms([THEME_TRAN, "", "http://example.org/nope"], ["en"])
+    assert [t["uri"] for t in out] == [THEME_TRAN, "http://example.org/nope"]
+
+
+def test_trailing_slashes_are_tolerated(vocabulary):
+    assert vocabulary.label("http://example.org/trailing") == "Trailing slash"
+
+
+def test_membership_and_size(vocabulary):
+    assert THEME_TRAN in vocabulary
+    assert "http://example.org/nope" not in vocabulary
+    assert len(vocabulary) == 3
+
+
+def test_a_missing_data_file_yields_an_empty_vocabulary(tmp_path):
+    empty = Vocabulary.load(str(tmp_path / "does-not-exist.json"))
+    assert len(empty) == 0
+    assert empty.label(THEME_TRAN) is None
+
+
+def test_a_corrupt_data_file_does_not_raise(tmp_path):
+    path = tmp_path / "vocabulary.json"
+    path.write_text("{not json", encoding="utf-8")
+    assert len(Vocabulary.load(str(path))) == 0
+
+
+def test_round_trips_through_json(vocabulary):
+    restored = Vocabulary(json.loads(json.dumps(vocabulary.to_dict())))
+    assert restored.label(THEME_TRAN, ["en"]) == "Transport"
+
+
+# --- the table actually shipped ---------------------------------------------
+
+
+def test_the_shipped_table_is_populated():
+    assert len(VOCABULARY) > 200, (
+        "vocabulary.json looks empty or missing; "
+        "regenerate it with `python tools/build_vocabulary.py`"
+    )
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://publications.europa.eu/resource/authority/data-theme/TRAN",
+        "http://publications.europa.eu/resource/authority/data-theme/GOVE",
+        "http://publications.europa.eu/resource/authority/frequency/ANNUAL",
+        "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
+        "http://publications.europa.eu/resource/authority/file-type/CSV",
+        "http://publications.europa.eu/resource/authority/language/SWE",
+    ],
+)
+def test_common_vocabulary_uris_have_labels(uri):
+    label = VOCABULARY.label(uri)
+    assert label, "%s has no label" % uri
+
+
+def test_labels_exist_in_both_languages_for_the_data_themes():
+    themes = [
+        uri for uri in VOCABULARY
+        if uri.startswith("http://publications.europa.eu/resource/authority/data-theme/")
+    ]
+    assert len(themes) >= 13
+    for uri in themes:
+        found = VOCABULARY.labels(uri)
+        assert "sv" in found and "en" in found, uri

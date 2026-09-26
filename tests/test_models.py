@@ -5,8 +5,8 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import (
     Agent,
     CatalogStatistics,
@@ -16,7 +16,7 @@ from dataportalen import (
     Entry,
 )
 from dataportalen.models import wrap_entry
-from dataportalen.namespaces import DCAT, DCTERMS
+from dataportalen.rdf import DCAT, DCTERMS
 
 
 @pytest.fixture
