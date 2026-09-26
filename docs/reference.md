@@ -11,6 +11,9 @@
 - [Configuration and errors](#configuration-and-errors)
 - [Raw RDF and raw queries](#raw-rdf-and-raw-queries)
 - [Upstream caveats](#upstream-caveats)
+- [Layout](#layout)
+- [Development](#development)
+- [Releasing](#releasing)
 
 ## Search filters
 
@@ -279,4 +282,37 @@ Seven modules, imported from the package root in normal use:
 pip install -e ".[dev]"
 pytest                                  # offline, against recorded fixtures
 DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
+ruff check src tests tools              # runs on every commit via the hook
+git config core.hooksPath .githooks     # enable that hook, once per clone
 ```
+
+Refreshing the label table when the registry gains new vocabulary values —
+rewrites `vocabulary.json` and reports coverage against live datasets:
+
+```bash
+python tools/build_vocabulary.py --sample 5000
+```
+
+## Releasing
+
+**Pushing to `main` never publishes anything.** The only workflow that uploads
+is `Release`, and it runs only when a GitHub Release is published, or when you
+run it by hand with the dry-run switch turned off.
+
+1. Bump `__version__` in `src/dataportalen/core.py` — the single source, read by
+   `pyproject.toml` and by the User-Agent.
+2. Merge to `main`.
+3. `gh release create v0.3.0 --title "v0.3.0" --notes "What changed"`
+   (or **Releases → Draft a new release**, tag `v0.3.0`, target `main`).
+4. Watch **Actions → Release**. It checks the tag against `core.py`, tests,
+   builds and uploads.
+
+To rehearse: **Actions → Release → Run workflow**, `dry_run` on by default —
+builds, validates the metadata, checks the wheel imports, uploads nothing.
+
+Requires a `PYPI_TOKEN` repository secret (a PyPI API token, starting `pypi-`)
+under **Settings → Secrets and variables → Actions**.
+
+If the tag and the version disagree the workflow stops before uploading. If an
+upload fails partway, **do not retry the same version** — PyPI refuses
+re-uploads of a version even after deletion; bump the patch and release again.

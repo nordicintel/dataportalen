@@ -36,11 +36,9 @@ path = "src/dataportalen/core.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dataportalen"]
-# vocabulary.json bundles CC BY data; the notices travel with it.
-force-include = { "NOTICE" = "dataportalen/NOTICE" }
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "docs", "README.md", "RELEASING.md", "LICENSE", "NOTICE", "pyproject.toml"]
+include = ["src", "tests", "tools", "docs", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100

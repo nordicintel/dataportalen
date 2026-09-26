@@ -66,13 +66,13 @@ progress line while it runs.
   paging, the catalogue export, entities, async, logging, configuration.
 - **[docs/vocabulary.md](docs/vocabulary.md)** — where the short names come
   from, measured coverage, and how to regenerate the table.
-- **[RELEASING.md](RELEASING.md)** — publishing a new version.
 
 ## Licence
 
-Code is MIT ([LICENSE](LICENSE)). The bundled label table is third-party data
-redistributed under CC BY 4.0 and EU Decision 2011/833/EU — see
-[NOTICE](NOTICE) and [docs/vocabulary.md](docs/vocabulary.md).
+Code is MIT. The bundled label table is third-party data redistributed under
+CC BY 4.0 and EU Decision 2011/833/EU; both notices are in
+[LICENSE](LICENSE), with the details in
+[docs/vocabulary.md](docs/vocabulary.md).
 
 Metadata you retrieve is published by its respective publishers, each under its
 own licence — check the `license` field on the dataset.

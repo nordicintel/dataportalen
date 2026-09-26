@@ -96,4 +96,6 @@ redistributed under their terms:
 | [EU Vocabularies](https://op.europa.eu/en/web/eu-vocabularies) | themes, file types, frequencies, languages | Decision 2011/833/EU |
 | [INSPIRE registry](https://inspire.ec.europa.eu/registry) | INSPIRE themes and code lists | Decision 2011/833/EU |
 
-Full notices: [NOTICE](../NOTICE).
+The same notice ships with the package, at the bottom of
+[LICENSE](../LICENSE) and in the `_comment` key of `vocabulary.json` itself.
+No third-party data is fetched at runtime.

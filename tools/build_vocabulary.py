@@ -425,7 +425,7 @@ def main(argv: Optional[list] = None) -> int:
             "t code: labels come from DIGG's DCAT-AP-SE (CC BY 4.0), the GeoNames"
             ' bulk exports (CC BY 4.0), the EU Publications Office authority tabl'
             'es and the INSPIRE registry (both reusable under Commission Decision'
-            ' 2011/833/EU). See the NOTICE file. Do not edit by hand; re-run the '
+            ' 2011/833/EU). See LICENSE. Do not edit by hand; re-run the '
             'script instead.'
         ),
         "labels": {uri: vocabulary[uri] for uri in sorted(vocabulary)},
