@@ -48,27 +48,28 @@ always a short string and never a URI.
 
 ## Label coverage
 
-Measured over a seeded random sample of 5,000 datasets drawn from 225 random
-positions across the corpus (25,109 vocabulary values):
+Measured over a seeded random sample of 5,000 datasets drawn from random
+positions across the corpus (25,038 vocabulary values):
 
 | Field | Labelled |
 | --- | --- |
-| `themes` | 100% |
-| `access_rights` | 100% |
-| `accrual_periodicity` | 100% |
-| `hvd_categories` | 100% |
-| `languages` | 100% |
-| `spatial` | 99% |
-| `license` | 57% |
-| `subjects` | 44% |
-| **total** | **91%** |
+| `themes` | 5,560 / 5,560 |
+| `access_rights` | 4,110 / 4,110 |
+| `accrual_periodicity` | 3,047 / 3,047 |
+| `hvd_categories` | 57 / 57 |
+| `languages` | 5,431 / 5,435 |
+| `spatial` | 1,629 / 1,637 |
+| `license` | 2,913 / 5,000 |
+| `subjects` | 89 / 192 |
+| **total** | **22,836 / 25,038 — 91%** |
 
-94% of what is still unlabelled is two URIs —
+95% of what is unlabelled is one vocabulary:
 `https://dataportal.se/concepts/licensecategories/{nolicense,otherlicense}`,
-between them about 9,000 datasets. They do not dereference (the host answers
+2,087 of the 2,202 misses. Those URIs do not dereference (the host answers
 `426`) and appear in neither DIGG's templates nor the dataportal.se frontend
-translations. Real licence URLs resolve fine. The remainder is GEMET concepts,
-whose host is unreachable over plain HTTP.
+translations, so there is no authoritative label to ship. Real licence URLs
+resolve fine. The remainder is mostly GEMET concepts, whose host is unreachable
+over plain HTTP.
 
 Sampling is offset-based because the index has no random sort, so it is mildly
 clustered — a good estimate rather than a census.
