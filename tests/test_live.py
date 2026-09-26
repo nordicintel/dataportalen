@@ -209,9 +209,9 @@ def test_catalog_export_round_trips(dp, tmp_path):
     records = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 200
     assert all(r["uri"] for r in records)
-    # Untagged literals must not key an object under the string "null".
-    assert all("null" not in r["title"] for r in records)
-    assert all(isinstance(r["title"], dict) for r in records)
+    # Default language: one string per field, not a map to unpack.
+    assert all(isinstance(r["title"], str) for r in records)
+    assert all(isinstance(r["keywords"], list) for r in records)
     # Controlled values are short names, never URIs or localized labels.
     themes = {t for r in records for t in r["themes"]}
     assert themes
@@ -253,3 +253,48 @@ def test_vocabulary_labels_resolve_on_live_data(dp):
     # Every one of these resolves to a short name; a bare URI leaking through
     # means the shipped table drifted from what the registry serves.
     assert labelled == total
+
+
+# -- the forms callers actually type -----------------------------------------
+
+
+def test_query_helpers_are_accepted_by_the_registry(dp):
+    """Every Q helper below once produced an HTTP 400 or silently zero hits."""
+    base = Q.rdf_type(DCAT.Dataset)
+    assert dp.count(base & Q.created("2020-01-01")) > 0
+    assert dp.count(base & Q.modified("2020")) > 0
+    assert dp.count(base & Q.predicate_range(
+        "http://purl.org/dc/terms/modified", "2024-01-01")) > 0
+    assert dp.count(Q.entry_type("local")) > 0
+    assert dp.count(Q.graph_type("none")) > 0
+    assert dp.count(Q.resource_type("informationresource")) > 0
+    assert dp.count(base & Q.format("text/csv")) > 0
+
+
+def test_every_filter_matches_something(dp):
+    """A filter that matches nothing is indistinguishable from a broken one."""
+    cases = {
+        "text": "cykel", "title": "bidrag", "keyword": "geodata",
+        "publisher": "trafikverket", "theme": "transport", "format": "csv",
+        "license": "cc_by_4_0", "access_rights": "public", "updated": "annual",
+        "language": "swedish", "place": "kingdom_of_sweden", "catalog": 50,
+        "updated_after": "2024-01-01", "published_after": "2020",
+    }
+    for name, value in cases.items():
+        assert dp.datasets(limit=1, **{name: value}).total > 0, name
+
+
+def test_organisations_lead_into_a_search(dp):
+    orgs = dp.organisations()
+    assert len(orgs) > 300
+    filterable = [o for o in orgs if o.publisher]
+    assert len(filterable) >= len(orgs) - 5
+    assert dp.datasets(publisher=filterable[0].publisher, limit=1).total > 0
+
+
+def test_language_shapes_the_output(dp):
+    uri = next(iter(dp.datasets(limit=1))).resource_uri
+    swedish = dp.dataset(uri=uri).to_dict()
+    assert isinstance(swedish["title"], str)
+    with Dataportal(language="all") as every:
+        assert isinstance(every.dataset(uri=uri).to_dict()["title"], dict)

@@ -428,7 +428,7 @@ writes Solr queries for you, escaping as needed:
 ```python
 from dataportalen import Q
 
-dp.search(Q.text("cykel") & ~Q.language("eng"))
+dp.search(Q.text("cykel") & ~Q.tag("historisk"))
 ```
 
 Combine with `&` (and), `|` (or) and `~` (not). `Q.raw("...")` passes a
@@ -439,7 +439,7 @@ fragment through untouched if you know the query language.
 ```python
 dp.datasets(catalog=50)              # one catalogue, by its number
 dp.datasets(uri="https://...")       # a dataset by its own address
-dp.datasets(query="lang:eng")        # a raw index query, as above
+dp.datasets(query="title.en:*")      # a raw index query, as above
 
 dp.lookup("https://...")             # any entry, whatever type it turns out to be
 dp.lookup_many([...])                # several at once, batched into few requests

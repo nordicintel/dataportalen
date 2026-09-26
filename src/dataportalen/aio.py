@@ -592,7 +592,7 @@ class AsyncDataportal:
         limit: Optional[int] = None,
         page_size: int = MAX_LIMIT,
     ) -> AsyncIterator[Entry]:
-        return self.iter_datasets(context=context_id, limit=limit, page_size=page_size)
+        return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
 
     # -- registry-wide statistics -----------------------------------------
 

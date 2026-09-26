@@ -702,7 +702,7 @@ class Dataportal:
         if theme:
             parts.append(Q.theme(*_flatten(theme, resolve, "theme")))
         if format:
-            parts.append(_format_query(_flatten(format, resolve, "format")))
+            parts.append(Q.format(*_flatten(format, resolve, "format")))
         if license:
             parts.append(Q.license(*_flatten(license, resolve, "license")))
         if access_rights:
@@ -813,7 +813,7 @@ class Dataportal:
         page_size: int = MAX_LIMIT,
     ) -> Iterator[Dataset]:
         """Every dataset harvested into one catalog context."""
-        return self.iter_datasets(context=context_id, limit=limit, page_size=page_size)
+        return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
 
     def distributions(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
         """Search distributions (``dcat:Distribution``)."""
@@ -1079,25 +1079,6 @@ def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
 def _one(value: Any, resolver: Any, what: str) -> str:
     found = resolver(value, what)
     return found[0]
-
-
-def _format_query(values: List[str]) -> Q:
-    """Match dcterms:format, which publishers write both ways.
-
-    Only 122 datasets state a file-type URI; 16,430 state a media type as a
-    plain literal. Checking one index finds almost nothing, so check both.
-    """
-    from .query import predicate_field
-
-    uri_field = predicate_field(DCTERMS.format, "uri")
-    literal_field = predicate_field(DCTERMS.format, "literal_s")
-    parts: List[Q] = []
-    for value in values:
-        if "://" in value:
-            parts.append(Q.term(uri_field, value))
-        else:
-            parts.append(Q.term(literal_field, value))
-    return Q.join(parts, "OR")
 
 
 def _any_uri(predicate: str, uris: List[str]) -> Q:
