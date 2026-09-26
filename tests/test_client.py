@@ -85,17 +85,45 @@ def test_facet_parameters_are_passed_through(client, transport, search_response)
 
 def test_datasets_filters_compose_into_one_query(client, transport, search_response):
     transport.push(search_response)
-    client.datasets(title="bidrag", title_lang="sv", keyword="cykel", language="swe")
+    client.datasets(title="bidrag", keyword="cykel", theme="transport")
     query = query_of(transport.requests[-1])
-    assert "title.sv:bidrag" in query
+    assert "title:bidrag" in query
     assert "tag.literal:cykel" in query
-    assert "lang:swe" in query
     assert "rdfType" in query
+    # theme="transport" became the EU data-theme URI, not a literal.
+    # ('-' is escaped for Solr, hence data\-theme.)
+    assert r"data\-theme" in query and "TRAN" in query
 
 
-def test_context_filter_uses_the_context_resource_uri(client, transport, search_response):
+def test_short_values_resolve_to_uris(client, transport, search_response):
+    """A caller never types a URI; the query still contains one."""
     transport.push(search_response)
-    client.datasets(context=50)
+    client.datasets(publisher="trafikverket")
+    assert "SE2021006297" in query_of(transport.requests[-1])
+
+
+def test_an_unknown_short_value_is_rejected_with_suggestions(client):
+    from dataportalen.exceptions import QueryError
+
+    with pytest.raises(QueryError) as info:
+        client.datasets(theme="transprot")
+    message = str(info.value)
+    assert "transprot" in message
+    assert "transport" in message          # the near miss is offered
+
+
+def test_a_uri_is_not_accepted_as_a_value(client):
+    """One spelling per concept: the short name. URIs are not a second form."""
+    from dataportalen.exceptions import QueryError
+
+    with pytest.raises(QueryError):
+        client.datasets(
+            theme="http://publications.europa.eu/resource/authority/data-theme/TRAN")
+
+
+def test_catalog_filter_uses_the_context_resource_uri(client, transport, search_response):
+    transport.push(search_response)
+    client.datasets(catalog=50)
     assert r"store\/50" in query_of(transport.requests[-1])
 
 
@@ -421,3 +449,55 @@ def test_metadata_quality_can_exclude_the_total(client, transport):
     query = query_of(transport.requests[0])
     assert "MQATotal" not in query
     assert "MQA" in query
+
+
+# -- dates -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("given,expected", [
+    ("2024-01-01", "2024-01-01T00:00:00Z"),
+    ("2024-01", "2024-01-01T00:00:00Z"),
+    ("2024", "2024-01-01T00:00:00Z"),
+    ("2024-01-01T12:30:00Z", "2024-01-01T12:30:00Z"),
+])
+def test_plain_dates_are_expanded_for_solr(client, transport, search_response, given, expected):
+    """A bare date used to produce HTTP 400. The obvious input must work."""
+    transport.push(search_response)
+    client.datasets(updated_after=given)
+    assert expected in query_of(transport.requests[-1])
+
+
+def test_date_objects_are_accepted(client, transport, search_response):
+    import datetime as dt
+
+    transport.push(search_response)
+    client.datasets(updated_after=dt.date(2024, 3, 4))
+    assert "2024-03-04T00:00:00Z" in query_of(transport.requests[-1])
+    transport.push(search_response)
+    client.datasets(updated_after=dt.datetime(2024, 3, 4, 15, 0))
+    assert "2024-03-04T15:00:00Z" in query_of(transport.requests[-1])
+
+
+def test_updated_filters_the_publishers_date_not_the_harvest(client, transport, search_response):
+    """`modified_after` used to filter the nightly harvest, matching ~97% of
+    everything. `updated_after` filters dcterms:modified, which is the date a
+    caller means."""
+    from dataportalen.query import predicate_field
+
+    transport.push(search_response)
+    client.datasets(updated_after="2024-01-01")
+    assert predicate_field("dcterms:modified", "date") in query_of(transport.requests[-1])
+
+    transport.push(search_response)
+    client.datasets(harvested_after="2024-01-01")
+    query = query_of(transport.requests[-1])
+    assert query.startswith("rdfType") or "modified:[" in query
+    assert predicate_field("dcterms:modified", "date") not in query
+
+
+def test_published_filters_dcterms_issued(client, transport, search_response):
+    from dataportalen.query import predicate_field
+
+    transport.push(search_response)
+    client.datasets(published_after="2020-01-01")
+    assert predicate_field("dcterms:issued", "date") in query_of(transport.requests[-1])

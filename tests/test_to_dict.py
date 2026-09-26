@@ -56,14 +56,19 @@ def test_dataset_dict_carries_the_core_fields(dataset):
     assert out["landing_page"]
 
 
-def test_vocabulary_fields_are_uri_label_pairs(dataset):
+def test_controlled_values_are_short_names_not_uris(dataset):
+    """No URIs and no {uri,label} objects -- just the short name."""
     out = dataset.to_dict()
     for theme in out["themes"]:
-        assert set(theme) == {"uri", "label"}
-        assert theme["uri"].startswith("http")
+        assert isinstance(theme, str)
+        assert "://" not in theme
+        assert theme == theme.lower()
     for key in ("license", "access_rights", "accrual_periodicity"):
         if out[key] is not None:
-            assert set(out[key]) == {"uri", "label"}
+            assert isinstance(out[key], str), key
+            assert "://" not in out[key], key
+    for language in out["languages"]:
+        assert isinstance(language, str) and "://" not in language
 
 
 def test_dates_are_iso_strings_not_objects(dataset):
@@ -97,7 +102,9 @@ def test_distributions_are_nested_after_a_recursive_fetch(dataset):
     assert len(out["distributions"]) == len(dataset.distribution_uris)
     first = out["distributions"][0]
     assert first["download_url"] or first["access_url"]
-    assert set(first["format"]) == {"uri", "label"} if first["format"] else True
+    if first["format"]:
+        assert isinstance(first["format"], str)
+        assert "://" not in first["format"]
 
 
 def test_distributions_can_be_left_out(dataset):
@@ -208,10 +215,10 @@ def test_the_dropped_fields_are_still_on_the_model(dataset):
     assert isinstance(dataset.distribution_uris, list)
 
 
-def test_vocabulary_labels_are_english(dataset):
-    """Standardised terms read in English regardless of language preference."""
+def test_short_names_ignore_the_language_preference(dataset):
+    """Controlled values are one fixed name; only authored text is localized."""
     swedish_first = dataset.with_languages(["sv", "en"]).to_dict()
-    assert swedish_first["access_rights"]["label"] == "Public"
-    assert swedish_first["accrual_periodicity"]["label"] == "annual"
+    assert swedish_first["access_rights"] == "public"
+    assert swedish_first["accrual_periodicity"] == "annual"
     # Publisher-authored text still follows the preference.
     assert "sv" in swedish_first["title"]

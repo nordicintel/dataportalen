@@ -83,6 +83,7 @@ from .namespaces import (
 )
 from ._version import __version__ as _version
 from .query import Q, escape, escape_uri, predicate_field
+from .terms import known_publishers, known_values, slug_for, slugify
 from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
 from .transport import (
@@ -123,6 +124,11 @@ __all__ = [
     "terms",
     "escape_uri",
     "predicate_field",
+    # short values
+    "known_values",
+    "known_publishers",
+    "slug_for",
+    "slugify",
     # models
     "Entry",
     "Dataset",

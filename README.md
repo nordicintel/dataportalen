@@ -25,21 +25,21 @@ with Dataportal() as dp:
   "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
   "description": {"sv": "..."},
   "keywords": {"sv": ["vägnät", "trafik"]},
-  "themes": [
-    {"uri": "http://publications.europa.eu/resource/authority/data-theme/TRAN",
-     "label": "Transport"}
-  ],
-  "license": {"uri": "http://creativecommons.org/licenses/by/4.0/",
-              "label": "CC BY 4.0 (Attribution)"},
-  "accrual_periodicity": {"uri": ".../frequency/ANNUAL", "label": "annual"},
-  "access_rights": {"uri": ".../access-right/PUBLIC", "label": "Public"},
-  "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                "name": {"sv": "Trafikverket"}, "identifiers": ["2021006297"]},
+  "themes": ["transport"],
+  "license": "cc_by_4_0",
+  "access_rights": "public",
+  "accrual_periodicity": "annual",
+  "languages": ["swedish"],
+  "publisher": {
+    "name": {"sv": "Trafikverket"},
+    "type": "national_authority",
+    "identifiers": ["2021006297"]
+  },
   "issued": "2020-03-04",
   "distributions": [
     {"title": {"sv": "Vägnät CSV"},
      "download_url": ["https://...csv"],
-     "format": {"uri": ".../file-type/CSV", "label": "CSV"}}
+     "format": "csv"}
   ],
   "contact_points": [{"name": "Datasupport", "email": "data@example.org"}]
 }
@@ -48,22 +48,23 @@ with Dataportal() as dp:
 Every value above is `json.dumps`-able. No RDF terms, no graph traversal, no
 URIs left unexplained.
 
+**Short values, not URIs.** `"transport"`, not
+`http://publications.europa.eu/resource/authority/data-theme/TRAN`. The same
+name works as a filter: `dp.datasets(theme="transport")`. One spelling per
+concept — no code, URI and label to choose between.
+
 **One key per concept.** `title`, `description`, `keywords` and
 `publisher.name` are language maps; `access_url` and `download_url` are lists.
-There is no scalar-plus-plural pair to keep straight, and nothing in the output
-is derivable from something else in it.
+No scalar-plus-plural pairs, and nothing in the output is derivable from
+something else in it.
 
-**Vocabulary labels are English.** Access rights, frequencies, file types,
-publisher types and the rest are standardised terms — "annual" and "Public"
-are more useful to build on than *årligen* and *Publik*. Publisher-authored
-text (title, description, keywords) keeps every language the publisher
-supplied, so you pick.
 
 ## What it does for you
 
-- **Resolves vocabulary URIs to labels.** Themes, file types, frequencies,
-  languages, licences, access rights, HVD categories — Swedish and English,
-  shipped in the package, no network call.
+- **Turns URIs into names, both ways.** `theme="transport"` going in,
+  `"themes": ["transport"]` coming out. Themes, formats, frequencies,
+  languages, licences, access rights, publisher types, places and 360+
+  publishers — shipped in the package, no network call.
 - **Flattens the graph.** Blank nodes, nested `PeriodOfTime`, `vcard` contact
   points and `spdx` checksums come out as ordinary keys.
 - **Resolves references.** A search hit names its publisher and distributions
@@ -97,51 +98,92 @@ No optional extras. `pip install -e ".[dev]"` adds pytest for development.
 ## Searching
 
 ```python
-page = dp.datasets(text="cykel", limit=10)
+page = dp.datasets(theme="transport", updated_after="2024-01-01")
 print(page.total)
-page.to_dict()            # the whole page, ready for json.dumps
 ```
 
-Keyword filters cover the common cases:
+Every filter takes a short lowercase value. No URIs, no codes, no date formats
+to remember.
+
+### Filters
+
+| Filter | What it matches | Example |
+| --- | --- | --- |
+| `text` | Free text across title, description and keywords | `text="cykel"` |
+| `title` | Words in the title | `title="bidrag"` |
+| `description` | Words in the description | `description="vägnät"` |
+| `keyword` | A publisher's keyword. Several means all must match | `keyword=["geodata", "trafik"]` |
+| `publisher` | The publishing organisation, by name | `publisher="trafikverket"` |
+| `theme` | Subject category | `theme="transport"` |
+| `format` | A format the data is available in | `format="csv"`, `format="xlsx"` |
+| `license` | The licence | `license="cc_by_4_0"` |
+| `access_rights` | Whether the data is open | `access_rights="public"` |
+| `updated` | How often the publisher refreshes it | `updated="annual"` |
+| `language` | Language of the data | `language="swedish"` |
+| `place` | Geographic coverage | `place="kingdom_of_sweden"` |
+| `catalog` | One catalogue, by its numeric id | `catalog=50` |
+| `uri` | A specific dataset, by its own identifier | `uri="https://example.org/d1"` |
+| `query` | A raw Solr fragment, for anything not covered above | `query="lang:eng"` |
+
+Passing several values to `publisher`, `theme`, `format`, `license`, `language`
+or `place` matches any of them.
+
+### Dates
+
+All of these accept `"2024-01-01"`, `"2024-01"`, `"2024"`, a `date` or a
+`datetime`.
+
+| Filter | Which date |
+| --- | --- |
+| `updated_after` / `updated_before` | When the **publisher** last changed the data |
+| `published_after` / `published_before` | When the publisher **first released** it |
+| `harvested_after` / `harvested_before` | When **this registry** last re-read it |
+
+Use `updated_*` unless you specifically want the registry's bookkeeping. The
+nightly harvest touches nearly every dataset, so `harvested_after` with any
+recent date matches almost the whole catalogue — it tells you about the harvest
+job, not about the data.
+
+### Finding a value
+
+Pass something that does not exist and the error tells you what you meant:
 
 ```python
-dp.datasets(
-    title="bidrag", title_lang="sv",
-    keyword=["geodata", "trafik"],
-    publisher="http://dataportal.se/organisation/SE2021005521",
-    theme="http://publications.europa.eu/resource/authority/data-theme/TRAN",
-    modified_after="2024-01-01T00:00:00Z",
-)
+>>> dp.datasets(theme="transprot")
+QueryError: unknown theme 'transprot'.  Did you mean: transport, transportation, ...
 ```
 
-Available: `text`, `title` (+ `title_lang`), `description`, `keyword`
-(+ `keyword_lang`), `publisher`, `theme`, `format`, `license`, `hvd_category`,
-`language`, `context`, `resource`, `modified_after` / `modified_before`,
-`created_after` / `created_before`, and `query` for a raw fragment.
-
-Iterate across pages without touching offsets:
+Or list them:
 
 ```python
-for dataset in dp.iter_datasets(theme="...TRAN"):
-    print(dataset.to_dict()["title"])
+from dataportalen import known_values, known_publishers
+
+known_values("transport")   # ['transport', 'transport_networks', 'transportation']
+known_publishers("trafikv") # ['trafikverket']
+```
+
+### Paging
+
+`datasets()` returns one page; `iter_datasets()` walks the whole result:
+
+```python
+for dataset in dp.iter_datasets(theme="transport"):
+    ...
 ```
 
 ### When you need the query language
 
-`Q` builds Solr queries and handles the escaping — colons and slashes inside
-URIs, and the MD5-hashed predicate fields EntryStore uses:
+The filters cover the common cases. `Q` builds arbitrary Solr queries and
+handles the escaping:
 
 ```python
-from dataportalen import Q, predicate_field
+from dataportalen import Q
 from dataportalen.namespaces import DCAT
 
 dp.search(Q.rdf_type(DCAT.Dataset) & Q.title("cykel", "sv") & ~Q.language("eng"))
-dp.search(Q.predicate("dcterms:accessRights", "http://.../PUBLIC", kind="uri"))
-
-predicate_field("dcterms:subject")    # metadata.predicate.literal.256bd150
 ```
 
-Combine with `&`, `|`, `~`; drop to `Q.raw("...")` for anything else.
+Combine with `&`, `|`, `~`; `Q.raw("...")` passes a fragment through untouched.
 Negation is handled properly — Lucene returns nothing for a purely negative
 query and silently drops everything for `a AND (NOT b)`, so `Q` anchors
 negative fragments to `*:*` where a positive clause is required.
@@ -426,12 +468,12 @@ The code is MIT — see [LICENSE](LICENSE).
 The bundled label table (`vocabulary.json`) is **data, not code**, compiled
 from third-party sources and redistributed under their terms:
 
-| Source | Used for | Licence |
-| --- | --- | --- |
-| [DIGG DCAT-AP-SE](https://github.com/diggsweden/DCAT-AP-SE) | Swedish/English vocabulary labels | CC BY 4.0 |
-| [GeoNames](https://www.geonames.org/) | place names for `spatial` | CC BY 4.0 |
+| Source                                                         | Used for                                   | Licence              |
+| -------------------------------------------------------------- | ------------------------------------------ | -------------------- |
+| [DIGG DCAT-AP-SE](https://github.com/diggsweden/DCAT-AP-SE)    | Swedish/English vocabulary labels          | CC BY 4.0            |
+| [GeoNames](https://www.geonames.org/)                          | place names for`spatial`                   | CC BY 4.0            |
 | [EU Vocabularies](https://op.europa.eu/en/web/eu-vocabularies) | themes, file types, frequencies, languages | Decision 2011/833/EU |
-| [INSPIRE registry](https://inspire.ec.europa.eu/registry) | INSPIRE themes and code lists | Decision 2011/833/EU |
+| [INSPIRE registry](https://inspire.ec.europa.eu/registry)      | INSPIRE themes and code lists              | Decision 2011/833/EU |
 
 Full notices: [NOTICE](NOTICE).
 

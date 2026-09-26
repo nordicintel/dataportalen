@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import random
+import re
 import time
 from typing import (
     Any,
@@ -57,6 +58,7 @@ from .models import (
 )
 from .namespaces import DCAT, DCTERMS, FOAF, Types
 from .query import Q, SORT_MODIFIED_DESC
+from .terms import resolve, resolve_publisher
 from .rdf import DEFAULT_LANGUAGES, Graph
 from .transport import (
     DEFAULT_USER_AGENT,
@@ -80,6 +82,10 @@ MAX_LIMIT = 100
 _RETRY_STATUSES = frozenset([408, 425, 429, 500, 502, 503, 504])
 
 _DateLike = Union[str, _dt.date, _dt.datetime]
+
+_BARE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_BARE_MONTH = re.compile(r"^\d{4}-\d{2}$")
+_BARE_YEAR = re.compile(r"^\d{4}$")
 
 
 class _LRU:
@@ -625,26 +631,34 @@ class Dataportal:
         self,
         rdf_type: Optional[str],
         *,
-        query: Union[str, Q, None] = None,
         text: Optional[str] = None,
         title: Optional[str] = None,
-        title_lang: Optional[str] = None,
         description: Optional[str] = None,
         keyword: Optional[Union[str, Sequence[str]]] = None,
-        keyword_lang: Optional[str] = None,
         publisher: Optional[Union[str, Sequence[str]]] = None,
         theme: Optional[Union[str, Sequence[str]]] = None,
         format: Optional[Union[str, Sequence[str]]] = None,
         license: Optional[Union[str, Sequence[str]]] = None,
-        hvd_category: Optional[Union[str, Sequence[str]]] = None,
-        language: Optional[str] = None,
-        context: Optional[Union[str, int, Sequence[Union[str, int]]]] = None,
-        resource: Optional[Union[str, Sequence[str]]] = None,
-        modified_after: Optional[_DateLike] = None,
-        modified_before: Optional[_DateLike] = None,
-        created_after: Optional[_DateLike] = None,
-        created_before: Optional[_DateLike] = None,
+        access_rights: Optional[str] = None,
+        updated: Optional[str] = None,
+        language: Optional[Union[str, Sequence[str]]] = None,
+        place: Optional[Union[str, Sequence[str]]] = None,
+        updated_after: Optional[_DateLike] = None,
+        updated_before: Optional[_DateLike] = None,
+        published_after: Optional[_DateLike] = None,
+        published_before: Optional[_DateLike] = None,
+        harvested_after: Optional[_DateLike] = None,
+        harvested_before: Optional[_DateLike] = None,
+        catalog: Optional[Union[str, int, Sequence[Union[str, int]]]] = None,
+        uri: Optional[Union[str, Sequence[str]]] = None,
+        query: Union[str, Q, None] = None,
     ) -> Q:
+        """Build the Solr query for a set of keyword filters.
+
+        Controlled values are short names (``theme="transport"``), never URIs;
+        see :mod:`dataportalen.terms`. Dates accept ``"2024-01-01"``, a
+        ``date`` or a ``datetime``.
+        """
         parts: List[Q] = []
         if rdf_type:
             parts.append(Q.rdf_type(rdf_type))
@@ -653,32 +667,49 @@ class Dataportal:
         if text:
             parts.append(Q.text(text))
         if title:
-            parts.append(Q.title(title, title_lang))
+            parts.append(Q.title(title))
         if description:
             parts.append(Q.description(description))
         if keyword:
-            keywords = [keyword] if isinstance(keyword, str) else list(keyword)
-            parts.append(Q.join([Q.tag(k, keyword_lang) for k in keywords], "AND"))
+            words = [keyword] if isinstance(keyword, str) else list(keyword)
+            parts.append(Q.join([Q.tag(w) for w in words], "AND"))
+
+        # Short names -> the URIs publishers actually used.
         if publisher:
-            parts.append(Q.publisher(*_as_list(publisher)))
+            parts.append(Q.publisher(*_flatten(publisher, resolve_publisher)))
         if theme:
-            parts.append(Q.theme(*_as_list(theme)))
+            parts.append(Q.theme(*_flatten(theme, resolve, "theme")))
         if format:
-            parts.append(Q.format(*_as_list(format)))
+            parts.append(_format_query(_flatten(format, resolve, "format")))
         if license:
-            parts.append(Q.license(*_as_list(license)))
-        if hvd_category:
-            parts.append(Q.hvd_category(*_as_list(hvd_category)))
+            parts.append(Q.license(*_flatten(license, resolve, "license")))
+        if access_rights:
+            parts.append(Q.predicate(
+                DCTERMS.accessRights,
+                _one(access_rights, resolve, "access_rights"), kind="uri"))
+        if updated:
+            parts.append(Q.accrual_periodicity(*_flatten(updated, resolve, "updated")))
         if language:
-            parts.append(Q.language(language))
-        if context is not None:
-            parts.append(Q.context(*[self.context_uri(c) for c in _as_list(context)]))
-        if resource:
-            parts.append(Q.resource(*_as_list(resource)))
-        if modified_after is not None or modified_before is not None:
-            parts.append(Q.modified(modified_after, modified_before))
-        if created_after is not None or created_before is not None:
-            parts.append(Q.created(created_after, created_before))
+            parts.append(_any_uri(
+                DCTERMS.language, _flatten(language, resolve, "language")))
+        if place:
+            parts.append(_any_uri(DCTERMS.spatial, _flatten(place, resolve, "place")))
+
+        # Dates. `updated`/`published` are the publisher's own; `harvested` is
+        # this registry's bookkeeping, which changes nightly for everything.
+        if updated_after is not None or updated_before is not None:
+            parts.append(Q.predicate_range(
+                DCTERMS.modified, _date(updated_after), _date(updated_before)))
+        if published_after is not None or published_before is not None:
+            parts.append(Q.predicate_range(
+                DCTERMS.issued, _date(published_after), _date(published_before)))
+        if harvested_after is not None or harvested_before is not None:
+            parts.append(Q.modified(_date(harvested_after), _date(harvested_before)))
+
+        if catalog is not None:
+            parts.append(Q.context(*[self.context_uri(c) for c in _as_list(catalog)]))
+        if uri:
+            parts.append(Q.resource(*_as_list(uri)))
         return Q.join(parts, "AND")
 
     def context_uri(self, context_id: Union[str, int]) -> str:
@@ -1010,6 +1041,76 @@ class Dataportal:
                 if progress is not None:
                     progress(total)
         return destination
+
+
+def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
+    """Resolve one-or-many short names to the union of their URIs."""
+    out: List[str] = []
+    for item in _as_list(value):
+        for uri in (resolver(item, what) if what != "value" else resolver(item)):
+            if uri not in out:
+                out.append(uri)
+    return out
+
+
+def _one(value: Any, resolver: Any, what: str) -> str:
+    found = resolver(value, what)
+    return found[0]
+
+
+def _format_query(values: List[str]) -> Q:
+    """Match dcterms:format, which publishers write both ways.
+
+    Only 122 datasets state a file-type URI; 16,430 state a media type as a
+    plain literal. Checking one index finds almost nothing, so check both.
+    """
+    from .query import predicate_field
+
+    uri_field = predicate_field(DCTERMS.format, "uri")
+    literal_field = predicate_field(DCTERMS.format, "literal_s")
+    parts: List[Q] = []
+    for value in values:
+        if "://" in value:
+            parts.append(Q.term(uri_field, value))
+        else:
+            parts.append(Q.term(literal_field, value))
+    return Q.join(parts, "OR")
+
+
+def _any_uri(predicate: str, uris: List[str]) -> Q:
+    """Match a predicate against any of several object URIs."""
+    from .query import predicate_field
+
+    field = predicate_field(predicate, "uri")
+    if len(uris) == 1:
+        return Q.term(field, uris[0])
+    return Q.any_of(field, uris)
+
+
+def _date(value: Any) -> Optional[str]:
+    """Accept "2024-01-01", a date or a datetime; emit what Solr needs.
+
+    A bare date used to produce an HTTP 400, which is the whole reason this
+    exists: the obvious input has to be the working one.
+    """
+    if value is None:
+        return None
+    if isinstance(value, _dt.datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, _dt.date):
+        return value.strftime("%Y-%m-%dT00:00:00Z")
+    text = str(value).strip()
+    if text in ("*", "NOW") or text.startswith("NOW"):
+        return text
+    if _BARE_DATE.match(text):
+        return text + "T00:00:00Z"
+    if _BARE_MONTH.match(text):
+        return text + "-01T00:00:00Z"
+    if _BARE_YEAR.match(text):
+        return text + "-01-01T00:00:00Z"
+    return text
 
 
 def _as_list(value: Any) -> List[str]:

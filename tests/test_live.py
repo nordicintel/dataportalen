@@ -212,16 +212,14 @@ def test_catalog_export_round_trips(dp, tmp_path):
     # Untagged literals must not key an object under the string "null".
     assert all("null" not in r["title"] for r in records)
     assert all(isinstance(r["title"], dict) for r in records)
-    # Vocabulary labels read in English, whatever the client preference.
-    # GOVE is "Regeringen och den offentliga sektorn" in Swedish, so seeing
-    # the English rendering proves the preference did not leak through.
-    seen = {t["uri"]: t["label"] for r in records for t in r["themes"]}
-    gove = "http://publications.europa.eu/resource/authority/data-theme/GOVE"
-    if gove in seen:
-        assert seen[gove] == "Government and public sector", seen[gove]
-    assert not any(
-        (label or "").startswith("Regeringen") for label in seen.values()
-    )
+    # Controlled values are short names, never URIs or localized labels.
+    themes = {t for r in records for t in r["themes"]}
+    assert themes
+    for theme in themes:
+        assert isinstance(theme, str) and "://" not in theme
+        assert theme == theme.lower()
+    # "transport" not "TRAN", and not "Regeringen och den offentliga sektorn".
+    assert not any(t.startswith("regeringen") for t in themes)
 
 
 def test_catalog_export_gzips(dp, tmp_path):
@@ -245,13 +243,13 @@ def test_vocabulary_labels_resolve_on_live_data(dp):
         for field in ("themes", "languages"):
             for value in doc[field]:
                 total += 1
-                labelled += 1 if value["label"] else 0
+                labelled += 1 if value and "://" not in value else 0
         for field in ("access_rights", "accrual_periodicity"):
             value = doc[field]
             if value:
                 total += 1
-                labelled += 1 if value["label"] else 0
+                labelled += 1 if "://" not in value else 0
     assert total > 100
-    # These vocabularies are fully covered; a regression here means the
-    # shipped table drifted from what the registry serves.
+    # Every one of these resolves to a short name; a bare URI leaking through
+    # means the shipped table drifted from what the registry serves.
     assert labelled == total

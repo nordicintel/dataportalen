@@ -46,7 +46,7 @@ from .namespaces import (
     expand,
 )
 from .rdf import DEFAULT_LANGUAGES, Graph, Resource
-from . import vocab as _vocab
+from .terms import slug_for
 
 __all__ = [
     "Entry",
@@ -76,13 +76,6 @@ E = TypeVar("E", bound="Entry")
 
 _MISSING = object()
 
-
-#: Controlled-vocabulary labels are always English. These are standardised
-#: terms -- access rights, frequencies, file types, publisher types -- and a
-#: Swedish rendering of "annual" or "Public" helps nobody building on this.
-#: Publisher-authored text (title, description, keywords) still honours the
-#: client's language preference, because that genuinely differs per reader.
-VOCABULARY_LANGUAGES = ("en",)
 
 #: BCP-47 for "undetermined". Literals with no language tag would otherwise
 #: key a JSON object under `null`, which json.dumps renders as the string
@@ -453,17 +446,20 @@ class Entry:
             "entry_id": self.entry_id,
         }
 
-    def _term(self, uri: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
-        """One controlled-vocabulary value as ``{"uri", "label"}``.
+    def _term(self, uri: Optional[str]) -> Optional[str]:
+        """One controlled value as a short name: ``"local_authority"``.
 
-        Always English -- see :data:`VOCABULARY_LANGUAGES`. The lookup falls
-        back to any label it has, so a term with no English rendering still
-        shows something rather than nothing.
+        Not a URI and not an object -- see :mod:`dataportalen.terms`.
         """
-        return _vocab.term(uri, VOCABULARY_LANGUAGES)
+        return slug_for(uri)
 
-    def _terms(self, uris: Sequence[str]) -> List[Dict[str, Optional[str]]]:
-        return _vocab.terms(uris, VOCABULARY_LANGUAGES)
+    def _terms(self, uris: Sequence[str]) -> List[str]:
+        out = []
+        for uri in uris:
+            slug = slug_for(uri)
+            if slug and slug not in out:
+                out.append(slug)
+        return out
 
     def _publisher_dict(self) -> Optional[Dict[str, Any]]:
         """The publishing organisation, named when the graph describes it.
@@ -1164,7 +1160,7 @@ class Dataset(Entry):
 
         One key per concept: ``title``, ``description`` and ``keywords`` are
         language maps, never a scalar plus a plural. Vocabulary URIs come back
-        as ``{"uri", "label"}`` with **English** labels, dates as ISO strings,
+        as short names -- ``"transport"``, not a URI -- dates as ISO strings,
         and the publisher and any inline distributions as nested dicts.
 
         Fields that are empty for ~97%+ of the registry are left out to keep
