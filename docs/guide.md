@@ -56,11 +56,15 @@ for dataset in page:
 Every result is a `Dataset`. `dataset.to_dict()` turns it into a plain
 dictionary you can save as JSON, put in a dataframe, or hand to something else.
 
-To fetch one dataset you already know the address of:
+To fetch one dataset whose address you already have:
 
 ```python
-dataset = dp.dataset(uri="https://example.org/data/roads")
+dataset = dp.dataset(uri="https://catalog.skane.se/rowstore/dataset/9f0e...")
 ```
+
+That address is the publisher's own identifier for the dataset — the `uri` field
+of any result. A URI nothing matches gives you `None` rather than an error, so
+check before using it.
 
 ## Narrow the search
 
@@ -224,8 +228,9 @@ ask for `"all"`, and the text fields become maps instead of strings:
 
 ```python
 dp = Dataportal(language="all")
-dp.dataset(uri="https://example.org/data/roads").to_dict()["title"]
-# {"sv": "Vägtrafiknät", "en": "Road traffic network"}
+dataset = next(iter(dp.datasets(text="cykel")))
+dataset.to_dict()["title"]
+# {"sv": "Cykelstråk", "en": "Cycle routes"}
 ```
 
 That applies to `title`, `description`, `keywords` and the publisher's `name` —
@@ -246,8 +251,9 @@ from dataportalen import download_catalog
 download_catalog("catalog.jsonl")
 ```
 
-It takes about five minutes and draws a progress line while it runs. The result
-is roughly 23,500 datasets, one JSON object per line, 117 MB.
+It takes about six minutes and draws a progress line while it runs. The last
+full run wrote 23,580 datasets and 35,151 distributions: one JSON object per
+line, 58 MB.
 
 Each line is complete on its own — distributions, publisher and contacts are
 already inside it, so there is nothing left to look up:
@@ -367,7 +373,7 @@ When you want to react differently to different failures:
 | Error | Means |
 | --- | --- |
 | `QueryError` | your filters were wrong — a value that does not exist, usually |
-| `NotFoundError` | there is no such dataset |
+| `NotFoundError` | there is no such entry (looking one up by URI gives `None` instead) |
 | `RateLimitError` | too many requests; the client already retried |
 | `TimeoutError` | the registry did not answer in time |
 | `TransportError` | the connection failed |
@@ -419,7 +425,7 @@ dataset.to_rdf_dict()   # every field the publisher supplied, including ones
 **A file in another format**, when you want to feed it to a proper RDF library:
 
 ```python
-dp.entry_raw(547, 28672, format="text/turtle").text
+dp.entry_raw(dataset.context_id, dataset.entry_id, format="text/turtle").text
 ```
 
 **A search this package cannot express.** The registry's index is Solr, and `Q`

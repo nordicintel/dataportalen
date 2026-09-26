@@ -279,8 +279,21 @@ def dereference(uris: Iterable[str]) -> Dict[str, Dict[str, str]]:
 
 #: Fields whose values are genuine controlled vocabularies. dcterms:conformsTo
 #: is deliberately absent: it holds arbitrary specification URLs.
-COVERAGE_FIELDS = ("themes", "languages", "spatial", "subjects", "hvd_categories")
-COVERAGE_SINGLE = ("license", "access_rights", "accrual_periodicity")
+#: (report name, model property) for the fields whose values are controlled
+#: vocabulary URIs. Measured from the URIs rather than from ``to_dict()``,
+#: which now returns short names and no longer says whether a label was found.
+COVERAGE_FIELDS = (
+    ("themes", "theme_uris"),
+    ("languages", "language_uris"),
+    ("spatial", "spatial_uris"),
+    ("subjects", "subject_uris"),
+    ("hvd_categories", "hvd_categories"),
+)
+COVERAGE_SINGLE = (
+    ("license", "license"),
+    ("access_rights", "access_rights"),
+    ("accrual_periodicity", "accrual_periodicity"),
+)
 
 
 def sample_datasets(client, sample: int, seed: int) -> list:
@@ -326,36 +339,34 @@ def report_usage_coverage(sample: int = 5000, seed: int = 20260922) -> None:
     """Print label coverage weighted by how often values really occur."""
     import importlib
 
-    from dataportalen import vocab as vocab_module
+    from dataportalen import rdf as rdf_module
 
-    importlib.reload(vocab_module)  # pick up the file just written
+    importlib.reload(rdf_module)  # pick up the file just written
 
     print()
     print("[5/5] coverage over a random sample of %s datasets"
           % ("all" if sample >= 10 ** 9 else sample), flush=True)
 
+    vocabulary = rdf_module.VOCABULARY
     total = collections.Counter()
     labelled = collections.Counter()
     unresolved = collections.Counter()
     with Dataportal() as client:
         datasets = sample_datasets(client, sample, seed)
         for entry in datasets:
-            doc = entry.to_dict(distributions=False)
-            for field in COVERAGE_FIELDS:
-                for value in doc.get(field) or []:
-                    total[field] += 1
-                    if value["label"]:
-                        labelled[field] += 1
-                    else:
-                        unresolved[value["uri"].rsplit("/", 1)[0]] += 1
-            for field in COVERAGE_SINGLE:
-                value = doc.get(field)
-                if value:
-                    total[field] += 1
-                    if value["label"]:
-                        labelled[field] += 1
-                    else:
-                        unresolved[value["uri"].rsplit("/", 1)[0]] += 1
+            values = []
+            for name, prop in COVERAGE_FIELDS:
+                values.extend((name, uri) for uri in (getattr(entry, prop) or []))
+            for name, prop in COVERAGE_SINGLE:
+                uri = getattr(entry, prop)
+                if uri:
+                    values.append((name, uri))
+            for name, uri in values:
+                total[name] += 1
+                if vocabulary.label(uri):
+                    labelled[name] += 1
+                else:
+                    unresolved[uri.rsplit("/", 1)[0]] += 1
 
     grand = sum(total.values())
     good = sum(labelled.values())

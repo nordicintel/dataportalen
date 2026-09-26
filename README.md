@@ -56,7 +56,7 @@ with Dataportal(language="sv") as dp:      # "en", or "all" for every language
 from dataportalen import download_catalog
 
 download_catalog("catalog.jsonl")
-# 23,548 datasets · 35,102 distributions · 117 MiB · ~5 minutes
+# 23,580 datasets · 35,151 distributions · 58 MiB · ~6 minutes
 ```
 
 One dataset per line, distributions and publisher already nested, with a live
