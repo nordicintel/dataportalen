@@ -40,7 +40,7 @@ packages = ["src/dataportalen"]
 force-include = { "NOTICE" = "dataportalen/NOTICE" }
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "README.md", "RELEASING.md", "LICENSE", "NOTICE", "pyproject.toml"]
+include = ["src", "tests", "tools", "docs", "README.md", "RELEASING.md", "LICENSE", "NOTICE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
