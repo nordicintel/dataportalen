@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json as _json
+import re as _re
 from collections.abc import Sequence as _ABCSequence
 from typing import (
     Any,
@@ -22,11 +23,13 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Tuple,
     Type,
     TypeVar,
     Union,
 )
 
+from .core import QueryError
 from .rdf import (
     ADMS,
     DCAT,
@@ -47,7 +50,10 @@ from .rdf import (
     Graph,
     Resource,
     expand,
+    known_publishers,
+    publisher_for,
     slug_for,
+    slugify,
 )
 
 __all__ = [
@@ -85,9 +91,63 @@ _MISSING = object()
 UNDETERMINED = "und"
 
 
+#: The language a client reads in unless told otherwise.
+DEFAULT_LANGUAGE = "sv"
+
+_LANGUAGE_CODE = _re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$")
+
+
+def language_preference(language: str) -> Tuple[str, ...]:
+    """The internal preference tuple behind the public ``language`` argument.
+
+    ``"sv"`` reads Swedish and falls back to whatever exists; ``"all"`` keeps
+    every language the publisher supplied, as a map per field.
+    """
+    if not isinstance(language, str) or not language.strip():
+        raise QueryError("language must be a string like \"sv\", got %r" % (language,))
+    code = language.strip().lower()
+    if code == "all":
+        return (ALL_LANGUAGES,) + DEFAULT_LANGUAGES
+    if not _LANGUAGE_CODE.match(code):
+        raise QueryError(
+            "language must be a code like \"sv\" or \"en\", or \"all\" for every "
+            "language; got %r" % (language,)
+        )
+    return (code,)
+
+
+#: Marker at the head of a language preference meaning "keep every language".
+#: It travels with the preference tuple, so every model built from a client --
+#: nested publishers and distributions included -- shapes its output the same
+#: way without threading a second argument through every constructor.
+ALL_LANGUAGES = "*"
+
+
 def _langmap(values: Dict[Optional[str], Any]) -> Dict[str, Any]:
     """A localized map with JSON-safe keys."""
     return {(lang or UNDETERMINED): value for lang, value in values.items()}
+
+
+def _multilingual(languages: Sequence[str]) -> bool:
+    return bool(languages) and languages[0] == ALL_LANGUAGES
+
+
+def _one_language(values: Dict[Optional[str], Any], languages: Sequence[str]) -> Any:
+    """The value in the preferred language, or the nearest thing available.
+
+    Falls back rather than returning nothing: a Swedish-only title is more
+    useful to a caller who asked for English than ``None`` is.
+    """
+    for lang in languages:
+        if lang in values:
+            return values[lang]
+    for lang in languages:                      # "sv" also answers "sv-SE"
+        for present in values:
+            if present and present.split("-")[0] == lang.split("-")[0]:
+                return values[present]
+    for key in sorted(values, key=lambda k: (k is None, k or "")):
+        return values[key]
+    return None
 
 
 def _iso(value: Any) -> Optional[str]:
@@ -206,8 +266,16 @@ class Entry:
             raw=self._raw,
         )
 
+    def with_language(self: E, language: str) -> E:
+        """A copy that reads in another language, or in all of them.
+
+        >>> dataset.with_language("all").to_dict()["title"]   # doctest: +SKIP
+        {'sv': 'Vägtrafiknät', 'en': 'Road traffic network'}
+        """
+        return self.with_languages(language_preference(language))
+
     def with_languages(self: E, languages: Sequence[str]) -> E:
-        """A copy that prefers a different language order."""
+        """A copy that prefers a different language order (internal)."""
         clone = type(self)(
             metadata=self.metadata,
             info=self.info,
@@ -436,8 +504,8 @@ class Entry:
         plus whatever title and description are present.
         """
         return dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
-            "description": _langmap(self.descriptions),
+            "title": self._text(self.titles),
+            "description": self._text(self.descriptions),
             "types": self.types,
         })
 
@@ -447,6 +515,19 @@ class Entry:
             "context_id": self.context_id,
             "entry_id": self.entry_id,
         }
+
+    def _text(self, values: Dict[Optional[str], Any], empty: Any = None) -> Any:
+        """Localized values shaped by the client's ``language``.
+
+        One language (the default) gives the value itself;
+        ``language="all"`` gives every language the publisher supplied.
+        """
+        if _multilingual(self.languages):
+            return _langmap(values)
+        if not values:
+            return empty
+        chosen = _one_language(values, self.languages)
+        return chosen if chosen is not None else empty
 
     def _term(self, uri: Optional[str]) -> Optional[str]:
         """One controlled value as a short name: ``"local_authority"``.
@@ -475,7 +556,7 @@ class Entry:
             return None
         for ref in self.resource.refs(DCTERMS.publisher):
             return Agent.from_resource(ref, client=self._client).to_dict()
-        return {"uri": uri, "name": {}}
+        return {"uri": uri, "name": {} if _multilingual(self.languages) else None}
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """:meth:`to_dict` rendered as a JSON string."""
@@ -729,7 +810,7 @@ class Agent(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "name": _langmap(self.names),
+            "name": self._text(self.names),
             "type": self._term(self.agent_type),
             "homepage": self.homepage,
             "email": self.mbox,
@@ -838,8 +919,8 @@ class Distribution(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
-            "description": _langmap(self.descriptions),
+            "title": self._text(self.titles),
+            "description": self._text(self.descriptions),
             "access_url": self.access_urls,
             "download_url": self.download_urls,
             "format": self._term(self.format),
@@ -928,8 +1009,8 @@ class DataService(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
-            "description": _langmap(self.descriptions),
+            "title": self._text(self.titles),
+            "description": self._text(self.descriptions),
             "endpoint_url": self.endpoint_url,
             "endpoint_urls": self.endpoint_urls,
             "endpoint_descriptions": self.endpoint_description_uris,
@@ -1180,9 +1261,9 @@ class Dataset(Entry):
         """
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
-            "description": _langmap(self.descriptions),
-            "keywords": _langmap(self.keywords_by_language),
+            "title": self._text(self.titles),
+            "description": self._text(self.descriptions),
+            "keywords": self._text(self.keywords_by_language, empty=[]),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
@@ -1281,8 +1362,8 @@ class Catalog(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
-            "description": _langmap(self.descriptions),
+            "title": self._text(self.titles),
+            "description": self._text(self.descriptions),
             "publisher": self._publisher_dict(),
             "homepage": self.homepage,
             "languages": self._terms(self.language_uris),
@@ -1406,7 +1487,7 @@ class MetadataQuality(Entry):
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
-            "title": _langmap(self.titles),
+            "title": self._text(self.titles),
             "score": self.score,
             "percentage": self.percentage,
             "rating": self.rating,
@@ -1515,18 +1596,42 @@ class CatalogStatistics(Entry):
         return "<CatalogStatistics %s datasets=%s>" % (self.date, self.dataset_count)
 
 
-class OrganisationStats:
-    """One row of ``/charts/orgData.json``: an organisation and its dataset count."""
+def _known_publisher(name: str) -> Optional[str]:
+    """A name-derived filter value, but only if it really resolves."""
+    slug = slugify(name)
+    return slug if slug and slug in known_publishers(slug) else None
 
-    __slots__ = ("uri", "name", "dataset_count")
+
+class OrganisationStats:
+    """A publisher, how many datasets it has, and how to filter on it.
+
+    ``publisher`` is the value to pass to
+    :meth:`~dataportalen.Dataportal.datasets`, so a listing leads straight
+    into a search::
+
+        for org in dp.organisations()[:5]:
+            print(org.dataset_count, org.publisher)
+            dp.datasets(publisher=org.publisher)
+
+    It is ``None`` for the handful of publishers that are in the chart but not
+    in the package's table, which are then only reachable by URI.
+    """
+
+    __slots__ = ("uri", "name", "dataset_count", "publisher")
 
     def __init__(self, uri: str, name: str, dataset_count: int) -> None:
         self.uri = uri
         self.name = name
         self.dataset_count = dataset_count
+        self.publisher = publisher_for(uri) or _known_publisher(name)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"uri": self.uri, "name": self.name, "dataset_count": self.dataset_count}
+        return {
+            "publisher": self.publisher,
+            "name": self.name,
+            "dataset_count": self.dataset_count,
+            "uri": self.uri,
+        }
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<OrganisationStats %r datasets=%d>" % (self.name, self.dataset_count)

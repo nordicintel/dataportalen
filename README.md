@@ -27,7 +27,7 @@ Distribution and import name are both `dataportalen`. The unrelated
 ```python
 from dataportalen import Dataportal
 
-with Dataportal() as dp:
+with Dataportal(language="sv") as dp:      # "en", or "all" for every language
     page = dp.datasets(theme="transport", publisher="trafikverket",
                        updated_after="2024-01-01")
     print(page.total)
@@ -38,12 +38,12 @@ with Dataportal() as dp:
 ```json
 {
   "uri": "https://example.org/data/roads",
-  "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
+  "title": "Vägtrafiknät",
   "themes": ["transport"],
   "license": "cc_by_4_0",
   "access_rights": "public",
   "accrual_periodicity": "annual",
-  "publisher": {"name": {"sv": "Trafikverket"}, "type": "national_authority"},
+  "publisher": {"name": "Trafikverket", "type": "national_authority"},
   "distributions": [
     {"download_url": ["https://...csv"], "format": "csv"}
   ]

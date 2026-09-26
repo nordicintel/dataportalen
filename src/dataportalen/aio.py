@@ -54,6 +54,7 @@ from .core import (
     build_url,
 )
 from .models import (
+    DEFAULT_LANGUAGE,
     Agent,
     Catalog,
     CatalogStatistics,
@@ -68,10 +69,11 @@ from .models import (
     OrganisationStats,
     SearchPage,
     Standard,
+    language_preference,
     wrap_entry,
 )
 from .query import SORT_MODIFIED_DESC, Q
-from .rdf import DCAT, DCTERMS, DEFAULT_LANGUAGES, FOAF, Graph, Types
+from .rdf import DCAT, DCTERMS, FOAF, Graph, Types
 
 __all__ = ["AsyncDataportal"]
 
@@ -92,7 +94,7 @@ class AsyncDataportal:
         *,
         transport: Optional[AsyncHttpxTransport] = None,
         timeout: float = 30.0,
-        languages: Sequence[str] = DEFAULT_LANGUAGES,
+        language: str = DEFAULT_LANGUAGE,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
@@ -103,7 +105,8 @@ class AsyncDataportal:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.languages = tuple(languages)
+        self.language = language
+        self.languages = language_preference(language)
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
         self.public_only = public_only

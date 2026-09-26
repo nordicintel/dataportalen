@@ -51,6 +51,7 @@ from .core import (
     progress_reporter,
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
+    DEFAULT_LANGUAGE,
     Agent,
     Catalog,
     CatalogStatistics,
@@ -66,13 +67,13 @@ from .models import (
     OrganisationStats,
     SearchPage,
     Standard,
+    language_preference,
     wrap_entry,
 )
 from .query import SORT_MODIFIED_DESC, Q
 from .rdf import (
     DCAT,
     DCTERMS,
-    DEFAULT_LANGUAGES,
     FOAF,
     VCARD,
     Graph,
@@ -145,7 +146,9 @@ class Dataportal:
     The registry is read-only and unauthenticated: everything here is a GET.
 
     :param base_url: registry root; override to point at another EntryStore.
-    :param languages: preferred language order for localized values.
+    :param language: which language to read text in -- ``"sv"`` by default,
+        any code such as ``"en"``, or ``"all"`` to get every language the
+        publisher supplied as a map per field.
     :param public_only: add ``public:true`` to every search (the default, and
         what the public API effectively serves).
     :param transport: an explicit :class:`~dataportalen.core.BaseTransport`;
@@ -167,7 +170,7 @@ class Dataportal:
         *,
         transport: Optional[BaseTransport] = None,
         timeout: float = 30.0,
-        languages: Sequence[str] = DEFAULT_LANGUAGES,
+        language: str = DEFAULT_LANGUAGE,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
@@ -178,7 +181,8 @@ class Dataportal:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.languages = tuple(languages)
+        self.language = language
+        self.languages = language_preference(language)
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
         self.public_only = public_only
@@ -1344,7 +1348,7 @@ def _targeted_indexes(client, datasets, workers, counter):
 def download_catalog(
     path: str,
     *,
-    languages: Sequence[str] = DEFAULT_LANGUAGES,
+    language: str = DEFAULT_LANGUAGE,
     workers: int = 8,
     limit: Optional[int] = None,
     progress: Any = "auto",
@@ -1359,7 +1363,7 @@ def download_catalog(
     its own with no further lookups.
 
     :param path: where to write; a ``.gz`` suffix gzips the output.
-    :param languages: preferred language order for localized values.
+    :param language: which language to read text in; see :class:`Dataportal`.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
     :param limit: stop after this many datasets, for smoke tests.
     :param progress: ``"auto"`` (the default) draws a live progress line on
@@ -1371,7 +1375,7 @@ def download_catalog(
     """
     owned = client is None
     if owned:
-        kwargs = {"languages": languages}
+        kwargs = {"language": language}
         if base_url:
             kwargs["base_url"] = base_url
         client = Dataportal(**kwargs)

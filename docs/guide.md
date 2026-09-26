@@ -21,10 +21,16 @@ Everything here is ordinary Python. You ask for datasets, you get dictionaries.
 ```python
 from dataportalen import Dataportal
 
-dp = Dataportal()
+dp = Dataportal()              # reads Swedish
+dp = Dataportal(language="en") # reads English
 ```
 
 That is the client. Every example below uses `dp`.
+
+Swedish is the default because the registry is Swedish: most datasets are
+described in Swedish only. Ask for another language and you get it where the
+publisher wrote one, and the Swedish text where they did not — text you can use
+beats a blank.
 
 It holds an open connection, so close it when you are finished — or let a `with`
 block do it:
@@ -171,22 +177,22 @@ dataset.to_dict()
 ```json
 {
   "uri": "https://example.org/data/roads",
-  "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
-  "description": {"sv": "..."},
-  "keywords": {"sv": ["vägnät", "trafik"]},
+  "title": "Vägtrafiknät",
+  "description": "Nationell vägdatabas ...",
+  "keywords": ["vägnät", "trafik"],
   "themes": ["transport"],
   "license": "cc_by_4_0",
   "access_rights": "public",
   "accrual_periodicity": "annual",
   "languages": ["swedish"],
   "publisher": {
-    "name": {"sv": "Trafikverket"},
+    "name": "Trafikverket",
     "type": "national_authority",
     "identifiers": ["2021006297"]
   },
   "issued": "2020-03-04",
   "distributions": [
-    {"title": {"sv": "Vägnät CSV"},
+    {"title": "Vägnät CSV",
      "download_url": ["https://...csv"],
      "format": "csv"}
   ],
@@ -194,29 +200,41 @@ dataset.to_dict()
 }
 ```
 
-Two things to expect:
+Strings are strings — in the language you asked the client for.
 
-**Text written by the publisher is a language map.** `title`, `description`,
-`keywords` and the publisher's `name` come back as `{"sv": ..., "en": ...}`,
-because many datasets really are described in more than one language. Take the
-language you want, or fall back:
-
-```python
-title = dataset.to_dict()["title"]
-title.get("en") or title.get("sv")
-```
+Two things worth knowing:
 
 **Everything from a fixed list of options is one short English word.** `themes`,
 `license`, `access_rights`, `languages`, the publisher's `type` — these come
 from standard vocabularies, and this package gives you `"transport"` rather than
 the web address the registry actually publishes. The same word works as a
-filter, which is the point.
+filter, which is the point. They stay English whatever language you chose,
+because `"annual"` is more useful to build on than *årligen*.
 
 **The files live under `distributions`.** One entry per download the publisher
 offers, each with its own format and URL. `download_url` is the file itself;
 `access_url` is a page or service you go through to get it.
 
 `dataset.to_json()` gives you the same thing as a JSON string.
+
+### Every language at once
+
+Some datasets really are described in several languages. To keep all of them,
+ask for `"all"`, and the text fields become maps instead of strings:
+
+```python
+dp = Dataportal(language="all")
+dp.dataset(uri="https://example.org/data/roads").to_dict()["title"]
+# {"sv": "Vägtrafiknät", "en": "Road traffic network"}
+```
+
+That applies to `title`, `description`, `keywords` and the publisher's `name` —
+the fields publishers write themselves. A single dataset can also be switched
+without a second client:
+
+```python
+dataset.with_language("all").to_dict()
+```
 
 ## Download the whole catalogue
 
@@ -256,9 +274,34 @@ summary.datasets, summary.distributions, summary.elapsed
 
 ## Other things in the registry
 
+**Who publishes what.** `dp.organisations()` lists every publisher with its
+dataset count, biggest first:
+
 ```python
-dp.organisations()          # every publisher, with how many datasets it has
-dp.organisation_summary()   # totals for the whole registry
+for org in dp.organisations()[:3]:
+    print(org.dataset_count, org.publisher, "-", org.name)
+```
+
+```text
+5920 radet_for_framjande_av_kommunala_analyser_kolada - Rådet för främjande av kommunala analyser - Kolada
+4315 statistikmyndigheten_scb_statistiska_centralbyran - Statistikmyndigheten SCB
+2248 goteborgs_universitet - Göteborgs universitet
+```
+
+`org.publisher` is the value you filter with, so a listing leads straight into a
+search:
+
+```python
+biggest = dp.organisations()[0]
+page = dp.datasets(publisher=biggest.publisher)
+```
+
+The counts come from a chart the registry rebuilds nightly, so they can be a
+little ahead of what a search returns today. `org.to_dict()` gives you the same
+four fields as a dictionary, and `dp.organisation_summary()` gives registry-wide
+totals.
+
+```python
 dataset.publisher()         # the organisation behind one dataset
 ```
 
@@ -288,7 +331,7 @@ All optional:
 
 ```python
 dp = Dataportal(
-    languages=["en", "sv"],   # which language to prefer, when reading fields
+    language="sv",            # "sv", "en", any code, or "all" for every one
     timeout=30.0,             # seconds to wait for a response
     max_retries=3,            # retry a failed or rate-limited request
     log_level="INFO",         # see what the client is doing

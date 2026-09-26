@@ -25,8 +25,9 @@ Each one is mapped to a short name derived from its official **English** label â
 package accepts or returns. There is no code, URI and label to choose between.
 
 English is deliberate for standardised terms; a Swedish rendering of "annual" or
-"public" helps nobody building on this. Publisher-authored text keeps every
-language the publisher supplied.
+"public" helps nobody building on this, and they stay English whatever the
+client's `language` is. Publisher-authored text follows `language` instead:
+one string, or every language the publisher supplied when `language="all"`.
 
 The mapping lives in two generated data files shipped inside the package:
 `vocabulary.json` (1,017 vocabulary terms) and `organisations.json` (538

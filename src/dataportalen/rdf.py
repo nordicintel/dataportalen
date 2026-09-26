@@ -957,19 +957,39 @@ def _build_terms() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     return by_slug, by_uri
 
 
-def _build_publishers() -> Dict[str, List[str]]:
-    """``slug -> [uri]`` for publishers, by name and by organisation number."""
+def _build_publishers() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+    """``(slug -> [uri], uri -> slug)`` for publishers.
+
+    A publisher is listed under its slugged name and, where it has one, its
+    organisation number. The reverse map prefers the name, because that is
+    what a caller wants printed back at them.
+    """
     organisations = _load(_ORGANISATIONS_FILE, "organisations")
-    out: Dict[str, List[str]] = {}
+    by_slug: Dict[str, List[str]] = {}
+    by_uri: Dict[str, str] = {}
     for slug, record in organisations.items():
         uri = record.get("uri")
-        if uri:
-            out.setdefault(slug, []).append(uri)
-    return out
+        if not uri:
+            continue
+        by_slug.setdefault(slug, []).append(uri)
+        if uri not in by_uri or slug.strip("se0123456789"):
+            by_uri[uri] = slug
+    return by_slug, by_uri
 
 
 _BY_SLUG, _BY_URI = _build_terms()
-_PUBLISHERS = _build_publishers()
+_PUBLISHERS, _PUBLISHER_BY_URI = _build_publishers()
+
+
+def publisher_for(uri: Optional[str]) -> Optional[str]:
+    """The name to pass as ``publisher=`` for a publisher's URI.
+
+    >>> publisher_for("http://dataportal.se/organisation/SE2021006297")
+    'trafikverket'
+    """
+    if not uri:
+        return None
+    return _PUBLISHER_BY_URI.get(uri) or _PUBLISHER_BY_URI.get(uri.rstrip("/"))
 
 
 def slug_for(uri: Optional[str]) -> Optional[str]:
@@ -1093,6 +1113,7 @@ __all__ = [
     "terms",
     "slugify",
     "slug_for",
+    "publisher_for",
     "resolve",
     "resolve_publisher",
     "known_values",
