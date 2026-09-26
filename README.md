@@ -3,13 +3,15 @@
 Python access to [dataportal.se](https://www.dataportal.se) that gives you
 **plain dicts, not RDF**.
 
-Sweden's open-data registry publishes everything as DCAT-AP-SE: RDF graphs,
-blank nodes, and controlled vocabularies expressed as bare URIs. The
-[registry documentation](https://docs.dataportal.se/registry/api/) is explicit
-that turning `http://publications.europa.eu/resource/authority/data-theme/TRAN`
-into the word "transport" is _your_ problem. This package makes it not your
-problem — short names go in, short names come out, and everything is
-`json.dumps`-able.
+Sweden's open-data registry describes its 23,500 datasets in RDF, which means
+every value arrives as a web address: a dataset about roads is filed under
+`http://publications.europa.eu/resource/authority/data-theme/TRAN` rather than
+under "transport". Working out that it means "transport" is, per the
+[registry's own documentation](https://docs.dataportal.se/registry/api/), your
+problem.
+
+This package makes it not your problem. You search with words and you get
+dictionaries back.
 
 ## Install
 
@@ -62,17 +64,17 @@ progress line while it runs.
 
 ## Documentation
 
-- **[docs/reference.md](docs/reference.md)** — every filter, the date filters,
-  paging, the catalogue export, entities, async, logging, configuration.
-- **[docs/vocabulary.md](docs/vocabulary.md)** — where the short names come
-  from, measured coverage, and how to regenerate the table.
+- **[docs/guide.md](docs/guide.md)** — how to use it: searching, what comes
+  back, the catalogue download, settings, async.
+- **[docs/internals.md](docs/internals.md)** — how it is built: where the short
+  values come from, module layout, development, releasing.
 
 ## Licence
 
 Code is MIT. The bundled label table is third-party data redistributed under
 CC BY 4.0 and EU Decision 2011/833/EU; both notices are in
 [LICENSE](LICENSE), with the details in
-[docs/vocabulary.md](docs/vocabulary.md).
+[docs/internals.md](docs/internals.md).
 
 Metadata you retrieve is published by its respective publishers, each under its
 own licence — check the `license` field on the dataset.

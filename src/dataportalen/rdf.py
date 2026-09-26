@@ -988,10 +988,15 @@ def slug_for(uri: Optional[str]) -> Optional[str]:
 
 
 def _suggest(value: str, candidates: Sequence[str], what: str) -> QueryError:
-    close = difflib.get_close_matches(value, candidates, n=5, cutoff=0.5)
+    """The error for an unknown value, naming the likeliest few alternatives.
+
+    The cutoff is deliberately strict: three plausible names help, whereas a
+    long tail of weak matches ("landskrona" for "transprot") is just noise.
+    """
+    close = difflib.get_close_matches(value, candidates, n=3, cutoff=0.7)
     if not close:
-        close = [c for c in candidates if value in c][:5]
-    hint = ("  Did you mean: %s?" % ", ".join(close)) if close else ""
+        close = sorted(c for c in candidates if value in c)[:3]
+    hint = (" Did you mean: %s?" % ", ".join(close)) if close else ""
     return QueryError("unknown %s %r.%s" % (what, value, hint))
 
 
