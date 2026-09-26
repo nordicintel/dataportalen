@@ -6,8 +6,8 @@ import io
 import logging
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataportal, enable_logging, logger
 from dataportalen._log import _duration, _TerminalProgress, progress_reporter
 

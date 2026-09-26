@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataset, Distribution
 from dataportalen.models import wrap_entry
 

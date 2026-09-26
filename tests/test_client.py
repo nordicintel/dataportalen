@@ -5,8 +5,8 @@ from __future__ import annotations
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from conftest import FakeTransport, load_fixture
 
+from conftest import FakeTransport, load_fixture
 from dataportalen import (
     Dataportal,
     Dataset,
@@ -488,11 +488,11 @@ def test_updated_filters_the_publishers_date_not_the_harvest(client, transport, 
     client.datasets(updated_after="2024-01-01")
     assert predicate_field("dcterms:modified", "date") in query_of(transport.requests[-1])
 
-    transport.push(search_response)
-    client.datasets(harvested_after="2024-01-01")
-    query = query_of(transport.requests[-1])
-    assert query.startswith("rdfType") or "modified:[" in query
-    assert predicate_field("dcterms:modified", "date") not in query
+
+def test_the_harvest_timestamp_is_not_a_filter(client):
+    """It matched ~97% of the corpus, so it only ever misled. Gone."""
+    with pytest.raises(TypeError):
+        client.datasets(harvested_after="2024-01-01")
 
 
 def test_published_filters_dcterms_issued(client, transport, search_response):

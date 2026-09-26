@@ -12,8 +12,8 @@ from typing import Any, Mapping, Optional
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataset
 from dataportalen.aio import AsyncDataportal
 from dataportalen.transport import Response

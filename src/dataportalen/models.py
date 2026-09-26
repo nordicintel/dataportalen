@@ -543,7 +543,9 @@ class PeriodOfTime(_Wrapped):
     otherwise; :attr:`start_value`/:attr:`end_value` always give the raw text.
     """
 
-    def _bound(self, dcat_term: str, schema_term: str) -> Optional[Union[_dt.date, _dt.datetime, str]]:
+    def _bound(
+        self, dcat_term: str, schema_term: str
+    ) -> Optional[Union[_dt.date, _dt.datetime, str]]:
         for predicate in (dcat_term, schema_term):
             parsed = self.resource.date(predicate)
             if parsed is not None:

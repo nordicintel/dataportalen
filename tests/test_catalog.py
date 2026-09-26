@@ -6,8 +6,8 @@ import gzip
 import json
 
 import pytest
-from conftest import load_fixture
 
+from conftest import load_fixture
 from dataportalen import Dataportal, download_catalog
 from dataportalen.catalog import CatalogSummary
 

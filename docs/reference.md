@@ -51,12 +51,10 @@ All of these accept `"2024-01-01"`, `"2024-01"`, `"2024"`, a `date` or a
 | --- | --- |
 | `updated_after` / `updated_before` | When the **publisher** last changed the data |
 | `published_after` / `published_before` | When the publisher **first released** it |
-| `harvested_after` / `harvested_before` | When **this registry** last re-read it |
 
-Use `updated_*` unless you specifically want the registry's bookkeeping. The
-nightly harvest touches nearly every dataset, so `harvested_after` with any
-recent date matches almost the whole catalogue — it tells you about the harvest
-job, not about the data.
+Both are the publisher's own dates. The registry's harvest timestamp is not a
+filter: it changes nightly for nearly every dataset, so it would tell you about
+the harvest job rather than about the data.
 
 ## Finding a value
 

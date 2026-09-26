@@ -6,7 +6,9 @@ This product includes software developed for the dataportalen project,
 licensed under the MIT License (see LICENSE).
 
 ================================================================================
-THIRD-PARTY DATA
+
+## THIRD-PARTY DATA
+
 ================================================================================
 
 The file `src/dataportalen/vocabulary.json` is generated data, not source code.

@@ -164,10 +164,18 @@ class UrllibTransport(BaseTransport):
 
     def __init__(self, ssl_context: Optional[ssl.SSLContext] = None) -> None:
         self._opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl_context) if ssl_context else urllib.request.HTTPSHandler()
+            urllib.request.HTTPSHandler(context=ssl_context)
+            if ssl_context
+            else urllib.request.HTTPSHandler()
         )
 
-    def _open(self, method: str, url: str, headers: Optional[Mapping[str, str]], timeout: Optional[float]):
+    def _open(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Mapping[str, str]],
+        timeout: Optional[float],
+    ):
         request = urllib.request.Request(url, method=method.upper())
         for key, value in (headers or {}).items():
             request.add_header(key, value)
@@ -264,7 +272,9 @@ class RequestsTransport(BaseTransport):
         timeout: Optional[float] = None,
     ) -> Response:
         try:
-            resp = self._session.request(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+            resp = self._session.request(
+                method.upper(), url, headers=dict(headers or {}), timeout=timeout
+            )
         except self._requests.Timeout as exc:
             raise TimeoutError("request to %s timed out" % url) from exc
         except self._requests.RequestException as exc:
@@ -324,7 +334,9 @@ class HttpxTransport(BaseTransport):
         timeout: Optional[float] = None,
     ) -> Response:
         try:
-            resp = self._client.request(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+            resp = self._client.request(
+                method.upper(), url, headers=dict(headers or {}), timeout=timeout
+            )
         except self._httpx.TimeoutException as exc:
             raise TimeoutError("request to %s timed out" % url) from exc
         except self._httpx.HTTPError as exc:
@@ -340,7 +352,9 @@ class HttpxTransport(BaseTransport):
         timeout: Optional[float] = None,
         chunk_size: int = 1 << 16,
     ) -> Tuple[int, Mapping[str, str], Iterator[bytes]]:
-        manager = self._client.stream(method.upper(), url, headers=dict(headers or {}), timeout=timeout)
+        manager = self._client.stream(
+            method.upper(), url, headers=dict(headers or {}), timeout=timeout
+        )
         try:
             resp = manager.__enter__()
         except self._httpx.TimeoutException as exc:

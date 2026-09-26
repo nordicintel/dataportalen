@@ -43,7 +43,7 @@ from typing import (
     Union,
 )
 
-from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, _LRU, _RETRY_STATUSES
+from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT
 from .exceptions import HTTPError, ParseError, TransportError
 from .models import (
     Agent,
@@ -63,7 +63,7 @@ from .models import (
     wrap_entry,
 )
 from .namespaces import DCAT, DCTERMS, FOAF, Types
-from .query import Q, SORT_MODIFIED_DESC
+from .query import SORT_MODIFIED_DESC, Q
 from .rdf import DEFAULT_LANGUAGES, Graph
 from .transport import DEFAULT_USER_AGENT, AsyncHttpxTransport, Response, build_url
 
@@ -102,7 +102,9 @@ class AsyncDataportal:
         self.backoff_factor = backoff_factor
         self.public_only = public_only
         self.default_sort = default_sort
-        self.user_agent = user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        self.user_agent = (
+            user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        )
         self._transport = transport if transport is not None else AsyncHttpxTransport()
         self._owns_transport = transport is None
         self._cache = _LRU(cache_size)
@@ -529,19 +531,25 @@ class AsyncDataportal:
             context_id, entry_id, recursive=recursive, model=Dataset
         )
 
-    async def distributions(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def distributions(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.Distribution, **filters),
             model=Distribution, limit=limit, offset=offset,
         )
 
-    async def data_services(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def data_services(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.DataService, **filters),
             model=DataService, limit=limit, offset=offset,
         )
 
-    async def dataset_series(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
+    async def dataset_series(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> SearchPage:
         return await self.search(
             self._entity_query(DCAT.DatasetSeries, **filters),
             model=DatasetSeries, limit=limit, offset=offset,

@@ -57,9 +57,9 @@ from .models import (
     wrap_entry,
 )
 from .namespaces import DCAT, DCTERMS, FOAF, Types
-from .query import Q, SORT_MODIFIED_DESC
-from .terms import resolve, resolve_publisher
+from .query import SORT_MODIFIED_DESC, Q
 from .rdf import DEFAULT_LANGUAGES, Graph
+from .terms import resolve, resolve_publisher
 from .transport import (
     DEFAULT_USER_AGENT,
     BaseTransport,
@@ -165,7 +165,9 @@ class Dataportal:
         self.backoff_factor = backoff_factor
         self.public_only = public_only
         self.default_sort = default_sort
-        self.user_agent = user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        self.user_agent = (
+            user_agent or os.environ.get("DATAPORTAL_USER_AGENT") or DEFAULT_USER_AGENT
+        )
         self._transport = transport if transport is not None else default_transport()
         self._owns_transport = transport is None
         self._cache = _LRU(cache_size)
@@ -647,8 +649,6 @@ class Dataportal:
         updated_before: Optional[_DateLike] = None,
         published_after: Optional[_DateLike] = None,
         published_before: Optional[_DateLike] = None,
-        harvested_after: Optional[_DateLike] = None,
-        harvested_before: Optional[_DateLike] = None,
         catalog: Optional[Union[str, int, Sequence[Union[str, int]]]] = None,
         uri: Optional[Union[str, Sequence[str]]] = None,
         query: Union[str, Q, None] = None,
@@ -695,16 +695,15 @@ class Dataportal:
         if place:
             parts.append(_any_uri(DCTERMS.spatial, _flatten(place, resolve, "place")))
 
-        # Dates. `updated`/`published` are the publisher's own; `harvested` is
-        # this registry's bookkeeping, which changes nightly for everything.
+        # Dates: the publisher's own. The registry's harvest timestamp is not
+        # exposed as a filter -- it changes nightly for nearly everything, so
+        # filtering on it tells you about the harvest job, not about the data.
         if updated_after is not None or updated_before is not None:
             parts.append(Q.predicate_range(
                 DCTERMS.modified, _date(updated_after), _date(updated_before)))
         if published_after is not None or published_before is not None:
             parts.append(Q.predicate_range(
                 DCTERMS.issued, _date(published_after), _date(published_before)))
-        if harvested_after is not None or harvested_before is not None:
-            parts.append(Q.modified(_date(harvested_after), _date(harvested_before)))
 
         if catalog is not None:
             parts.append(Q.context(*[self.context_uri(c) for c in _as_list(catalog)]))
@@ -801,7 +800,9 @@ class Dataportal:
             model=Distribution, limit=limit, offset=offset,
         )
 
-    def iter_distributions(self, *, limit: Optional[int] = None, **filters: Any) -> Iterator[Distribution]:
+    def iter_distributions(
+        self, *, limit: Optional[int] = None, **filters: Any
+    ) -> Iterator[Distribution]:
         return self.iter_search(  # type: ignore[return-value]
             self._entity_query(DCAT.Distribution, **filters), model=Distribution, limit=limit
         )
@@ -813,7 +814,9 @@ class Dataportal:
             model=DataService, limit=limit, offset=offset,
         )
 
-    def iter_data_services(self, *, limit: Optional[int] = None, **filters: Any) -> Iterator[DataService]:
+    def iter_data_services(
+        self, *, limit: Optional[int] = None, **filters: Any
+    ) -> Iterator[DataService]:
         return self.iter_search(  # type: ignore[return-value]
             self._entity_query(DCAT.DataService, **filters), model=DataService, limit=limit
         )

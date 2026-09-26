@@ -19,8 +19,8 @@ import pytest
 from dataportalen import (
     Agent,
     Catalog,
-    DataService,
     Dataportal,
+    DataService,
     Dataset,
     Distribution,
     Q,
@@ -232,7 +232,7 @@ def test_catalog_export_gzips(dp, tmp_path):
     download_catalog(str(out), limit=25, client=dp)
     assert out.read_bytes()[:2] == b"\x1f\x8b"
     with gzip.open(out, "rt", encoding="utf-8") as handle:
-        assert len([json.loads(l) for l in handle]) == 25
+        assert len([json.loads(line) for line in handle]) == 25
 
 
 def test_vocabulary_labels_resolve_on_live_data(dp):

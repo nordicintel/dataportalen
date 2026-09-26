@@ -220,8 +220,8 @@ class Q:
         end: Optional[Any] = None,
     ) -> "Q":
         """``field:[start TO end]``; ``None`` becomes the open bound ``*``."""
-        low = "*" if start is None else (_fmt_date(start) if isinstance(start, (_dt.date, _dt.datetime)) else str(start))
-        high = "*" if end is None else (_fmt_date(end) if isinstance(end, (_dt.date, _dt.datetime)) else str(end))
+        low = "*" if start is None else _fmt_date(start)
+        high = "*" if end is None else _fmt_date(end)
         return cls("%s:[%s TO %s]" % (field, low, high))
 
     @classmethod

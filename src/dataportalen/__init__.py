@@ -27,9 +27,10 @@ See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 from __future__ import annotations
 
 from ._log import enable_logging, logger
+from ._version import __version__ as _version
+from .aio import AsyncDataportal
 from .catalog import CatalogSummary, download_catalog
 from .client import DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, Dataportal
-from .aio import AsyncDataportal
 from .exceptions import (
     DataportalError,
     HTTPError,
@@ -58,11 +59,13 @@ from .models import (
     MetadataQuality,
     OrganisationStats,
     PeriodOfTime,
-    PeriodOfTime as Temporal,
     SearchPage,
     Standard,
     register_model,
     wrap_entry,
+)
+from .models import (
+    PeriodOfTime as Temporal,
 )
 from .namespaces import (
     ADMS,
@@ -76,16 +79,14 @@ from .namespaces import (
     PROV,
     RDF,
     SKOS,
-    Types,
     VCARD,
+    Types,
     expand,
     shorten,
 )
-from ._version import __version__ as _version
 from .query import Q, escape, escape_uri, predicate_field
-from .terms import known_publishers, known_values, slug_for, slugify
-from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 from .rdf import BNode, Graph, Literal, Node, Resource, URIRef
+from .terms import known_publishers, known_values, slug_for, slugify
 from .transport import (
     AsyncHttpxTransport,
     BaseTransport,
@@ -94,6 +95,7 @@ from .transport import (
     Response,
     UrllibTransport,
 )
+from .vocab import VOCABULARY, Vocabulary, label, labels, term, terms
 
 #: Defined in _version.py so packaging and the User-Agent cannot drift.
 __version__ = _version
