@@ -1,5 +1,6 @@
 # Reference
 
+- [The client](#the-client)
 - [Search filters](#search-filters)
 - [Dates](#dates)
 - [Finding a value](#finding-a-value)
@@ -15,12 +16,34 @@
 - [Development](#development)
 - [Releasing](#releasing)
 
+## The client
+
+Every example below starts from this:
+
+```python
+from dataportalen import Dataportal
+
+dp = Dataportal()                                          # close it when done
+dataset = dp.dataset(uri="https://example.org/data/roads")  # one dataset
+```
+
+`Dataportal` is also a context manager, which closes the connection for you:
+
+```python
+with Dataportal() as dp:
+    ...
+```
+
+So wherever a snippet says `dp` it means that client, and `dataset` means one
+result from it.
+
 ## Search filters
 
 Every filter takes a short lowercase value. No URIs, no codes.
 
 ```python
 page = dp.datasets(theme="transport", format="csv")
+print(page.total)
 ```
 
 | Filter | What it matches | Example |
