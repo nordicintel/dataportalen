@@ -93,9 +93,14 @@ def transport() -> FakeTransport:
 
 @pytest.fixture
 def client(transport: FakeTransport):
+    """A client wired to the fake transport.
+
+    ``local=False`` because these tests are about what goes over the wire;
+    the local path is covered in test_local_catalog.py and test_local_first.py.
+    """
     from dataportalen import Dataportal
 
-    with Dataportal(transport=transport, max_retries=0) as dp:
+    with Dataportal(transport=transport, max_retries=0, local=False) as dp:
         yield dp
 
 

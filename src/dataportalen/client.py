@@ -67,6 +67,7 @@ from .models import (
     LinkCheckReport,
     MetadataQuality,
     OrganisationStats,
+    Results,
     SearchPage,
     Standard,
     ValueCount,
@@ -146,6 +147,26 @@ class _LRU:
         return len(self._data)
 
 
+def default_catalog_path() -> str:
+    """Where the catalogue is kept when no path is given.
+
+    One copy per machine rather than per project, out of the way of any
+    repository: ``%LOCALAPPDATA%\\dataportalen`` on Windows, ``$XDG_CACHE_HOME``
+    or ``~/.cache/dataportalen`` elsewhere.
+    """
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+            os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "dataportalen", "catalog.jsonl")
+
+
+#: A copy older than this is reported as stale. Nothing is re-downloaded on
+#: its own -- a six-minute download should never surprise a running program.
+STALE_AFTER_DAYS = 7
+
+
 class Dataportal:
     """Client for ``admin.dataportal.se`` (EntryStore Registry).
 
@@ -177,6 +198,8 @@ class Dataportal:
         transport: Optional[BaseTransport] = None,
         timeout: float = 30.0,
         language: str = DEFAULT_LANGUAGE,
+        local: bool = True,
+        catalog_path: Optional[str] = None,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
@@ -189,6 +212,9 @@ class Dataportal:
         self.timeout = timeout
         self.language = language
         self.languages = language_preference(language)
+        self.local = local
+        self.catalog_path = catalog_path or default_catalog_path()
+        self._catalog: Optional[LocalCatalog] = None
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
         self.public_only = public_only
@@ -478,6 +504,12 @@ class Dataportal:
             if current >= page.total:
                 return
 
+    def count_datasets(self, **filters: Any) -> int:
+        """How many datasets match -- from the local catalogue when local."""
+        if self._serve_locally(**filters):
+            return self.catalog.count(**filters)
+        return self.count(self._entity_query(DCAT.Dataset, **filters))
+
     def count(self, query: Union[str, Q, None] = None, **kwargs: Any) -> int:
         """Estimated number of matches (Solr's count, see the docs' caveat)."""
         data = self.search_raw(query, limit=1, offset=0, sort=None, **kwargs)
@@ -746,24 +778,75 @@ class Dataportal:
             return text
         return "%s/store/%s" % (self.base_url, text)
 
+    # -- the catalogue -----------------------------------------------------
+
+    @property
+    def catalog(self) -> "LocalCatalog":
+        """The local catalogue, downloaded the first time it is needed.
+
+        Reading it takes a second; downloading it takes about six minutes and
+        58 MB, once. Every dataset search then runs against it.
+        """
+        if self._catalog is None:
+            self._catalog = LocalCatalog(
+                self.catalog_path, client=self._api(), progress="auto")
+        return self._catalog
+
+    def _api(self) -> "Dataportal":
+        """A view of this client that always talks to the registry.
+
+        Used for the searches a local catalogue cannot answer, and to fetch
+        the catalogue itself without asking it to fetch itself.
+        """
+        if not self.local:
+            return self
+        if self.__dict__.get("_api_twin") is None:
+            twin = object.__new__(Dataportal)
+            twin.__dict__.update(self.__dict__)
+            twin.local = False
+            twin._catalog = None
+            self.__dict__["_api_twin"] = twin
+        return self.__dict__["_api_twin"]
+
+    def refresh_catalog(self) -> "CatalogSummary":
+        """Download the catalogue again."""
+        summary = self.catalog.refresh()
+        return summary
+
     def datasets(
         self,
         *,
-        limit: int = 50,
+        limit: Optional[int] = 50,
         offset: int = 0,
         sort: Optional[str] = ...,  # type: ignore[assignment]
         facet_fields: Optional[Sequence[str]] = None,
         **filters: Any,
-    ) -> SearchPage:
-        """Search datasets (``dcat:Dataset``); returns one page."""
-        return self.search(
+    ) -> Results:
+        """Search datasets. Returns a list of dicts that knows the total.
+
+        Runs against the local catalogue, which is downloaded the first time
+        (about six minutes, once) and then answers in milliseconds. Pass
+        ``local=False`` when constructing the client to search the registry
+        instead; the filters, the values and the dicts are the same either
+        way.
+
+            >>> page = dp.datasets(theme="transport")     # doctest: +SKIP
+            >>> page.total, page[0]["title"]              # doctest: +SKIP
+            (545, 'Farthinder')
+        """
+        if self._serve_locally(facet_fields=facet_fields, **filters):
+            found = self.catalog.datasets(**filters)
+            window = found[offset:offset + limit] if limit else found[offset:]
+            return Results(window, total=len(found), offset=offset, limit=limit)
+        page = self.search(
             self._entity_query(DCAT.Dataset, **filters),
             model=Dataset,
-            limit=limit,
+            limit=limit or MAX_LIMIT,
             offset=offset,
             sort=sort,
             facet_fields=facet_fields,
         )
+        return _as_results(page)
 
     def iter_datasets(
         self,
@@ -772,15 +855,34 @@ class Dataportal:
         page_size: int = MAX_LIMIT,
         sort: Optional[str] = ...,  # type: ignore[assignment]
         **filters: Any,
-    ) -> Iterator[Dataset]:
-        """Iterate over matching datasets across pages."""
-        return self.iter_search(  # type: ignore[return-value]
-            self._entity_query(DCAT.Dataset, **filters),
-            model=Dataset,
-            limit=limit,
-            page_size=page_size,
-            sort=sort,
+    ) -> Iterator[Dict[str, Any]]:
+        """Every matching dataset, as dicts, however many pages that takes."""
+        if self._serve_locally(**filters):
+            found = self.catalog.datasets(**filters)
+            return iter(found[:limit] if limit else found)
+        return (
+            entry.to_dict()
+            for entry in self.iter_search(
+                self._entity_query(DCAT.Dataset, **filters),
+                model=Dataset,
+                limit=limit,
+                page_size=page_size,
+                sort=sort,
+            )
         )
+
+    def _serve_locally(self, facet_fields: Any = None, **filters: Any) -> bool:
+        """Whether the local catalogue can answer this search.
+
+        It holds datasets, so a dataset search is local; a raw index query or
+        a facet request is not something a file can answer, and goes to the
+        registry instead.
+        """
+        if not self.local:
+            return False
+        if facet_fields or "query" in filters:
+            return False
+        return True
 
     def dataset(
         self,
@@ -795,6 +897,11 @@ class Dataportal:
         With ``recursive`` (the default for the id form) the distributions,
         publisher and contact points come along in the same request.
         """
+        if uri and self.local:
+            record = self.catalog.get(uri)
+            if record is not None:
+                return record
+            logger.debug("%s is not in the local catalogue; asking the registry", uri)
         if uri:
             found = self.lookup(uri, model=Dataset)
             if found is None:
@@ -821,75 +928,139 @@ class Dataportal:
         """Every dataset harvested into one catalog context."""
         return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
 
-    def distributions(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search distributions (``dcat:Distribution``)."""
-        return self.search(
+    def distributions(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search distributions (``dcat:Distribution``). Always asks the registry.
+
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
             self._entity_query(DCAT.Distribution, **filters),
             model=Distribution, limit=limit, offset=offset,
-        )
+        ))
 
     def iter_distributions(
         self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Distribution]:
-        return self.iter_search(  # type: ignore[return-value]
-            self._entity_query(DCAT.Distribution, **filters), model=Distribution, limit=limit
+    ) -> Iterator[Dict[str, Any]]:
+        """Every match, as dicts, across as many pages as it takes."""
+        return (
+            entry.to_dict()
+            for entry in self.iter_search(
+                self._entity_query(DCAT.Distribution, **filters), model=Distribution, limit=limit
+            )
         )
 
-    def data_services(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search data services (``dcat:DataService``)."""
-        return self.search(
+    def data_services(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search data services (``dcat:DataService``). Always asks the registry.
+
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
             self._entity_query(DCAT.DataService, **filters),
             model=DataService, limit=limit, offset=offset,
-        )
+        ))
 
     def iter_data_services(
         self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[DataService]:
-        return self.iter_search(  # type: ignore[return-value]
-            self._entity_query(DCAT.DataService, **filters), model=DataService, limit=limit
+    ) -> Iterator[Dict[str, Any]]:
+        """Every match, as dicts, across as many pages as it takes."""
+        return (
+            entry.to_dict()
+            for entry in self.iter_search(
+                self._entity_query(DCAT.DataService, **filters), model=DataService, limit=limit
+            )
         )
 
-    def dataset_series(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search dataset series (``dcat:DatasetSeries``)."""
-        return self.search(
+    def dataset_series(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search dataset series (``dcat:DatasetSeries``). Always asks the registry.
+
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
             self._entity_query(DCAT.DatasetSeries, **filters),
             model=DatasetSeries, limit=limit, offset=offset,
-        )
+        ))
 
-    def catalogs(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search catalogs (``dcat:Catalog``) -- one per harvested source."""
-        return self.search(
+    def catalogs(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search catalogues -- one ``dcat:Catalog`` per harvested source.
+
+        Always asks the registry.
+
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
             self._entity_query(DCAT.Catalog, **filters),
             model=Catalog, limit=limit, offset=offset,
+        ))
+
+    def iter_catalogs(
+        self, *, limit: Optional[int] = None, **filters: Any
+    ) -> Iterator[Dict[str, Any]]:
+        """Every match, as dicts, across as many pages as it takes."""
+        return (
+            entry.to_dict()
+            for entry in self.iter_search(
+                self._entity_query(DCAT.Catalog, **filters), model=Catalog, limit=limit
+            )
         )
 
-    def iter_catalogs(self, *, limit: Optional[int] = None, **filters: Any) -> Iterator[Catalog]:
-        return self.iter_search(  # type: ignore[return-value]
-            self._entity_query(DCAT.Catalog, **filters), model=Catalog, limit=limit
-        )
+    def agents(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search agents (``foaf:Agent``) -- publishers and creators. Always asks the registry.
 
-    def agents(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search agents (``foaf:Agent``) -- publishers and creators."""
-        return self.search(
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
             self._entity_query(FOAF.Agent, **filters),
             model=Agent, limit=limit, offset=offset,
-        )
+        ))
 
-    def iter_agents(self, *, limit: Optional[int] = None, **filters: Any) -> Iterator[Agent]:
-        return self.iter_search(  # type: ignore[return-value]
-            self._entity_query(FOAF.Agent, **filters), model=Agent, limit=limit
+    def iter_agents(
+        self, *, limit: Optional[int] = None, **filters: Any
+    ) -> Iterator[Dict[str, Any]]:
+        """Every match, as dicts, across as many pages as it takes."""
+        return (
+            entry.to_dict()
+            for entry in self.iter_search(
+                self._entity_query(FOAF.Agent, **filters), model=Agent, limit=limit
+            )
         )
 
     def agent(self, uri: str) -> Optional[Agent]:
         """Look up one agent (e.g. a dataset's ``dcterms:publisher``)."""
         return self.lookup(uri, model=Agent)  # type: ignore[return-value]
 
-    def standards(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        """Search standards/specifications (``dcterms:Standard``)."""
-        return self.search(
-            self._entity_query(DCTERMS.Standard, **filters),
+    def standards(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search standards datasets declare conformance to. Always asks the registry.
+
+        The local catalogue holds datasets, with their distributions
+        nested inside them; anything else is a search the file cannot
+        answer.
+        """
+        return _as_results(self.search(
+            self._entity_query(Types.STANDARD, **filters),
             model=Standard, limit=limit, offset=offset,
-        )
+        ))
 
     # -- registry-wide statistics -----------------------------------------
 
@@ -909,6 +1080,8 @@ class Dataportal:
         list, and :meth:`organisations` for publishers, which the registry
         counts for us.
         """
+        if self.local:
+            return self.catalog.values(filter, limit=limit)
         if filter == "publisher":
             return [ValueCount(o.publisher, o.dataset_count)
                     for o in self.organisations() if o.publisher][:limit]
@@ -1115,6 +1288,17 @@ def _one(value: Any, resolver: Any, what: str) -> str:
     return found[0]
 
 
+def _as_results(page: SearchPage) -> Results:
+    """A page of models as the dicts every caller wanted anyway."""
+    return Results(
+        [entry.to_dict() for entry in page],
+        total=page.total,
+        offset=page.offset,
+        limit=page.limit,
+        facets=page.facets,
+    )
+
+
 def _counted(values: Any, limit: int) -> List[ValueCount]:
     """Facet values as short names, merging the ones that share a name.
 
@@ -1248,7 +1432,15 @@ class _Counter:
 
 
 def _open_output(path: str):
-    """Open ``path`` for writing text, gzipping when the name says so."""
+    """Open ``path`` for writing text, gzipping when the name says so.
+
+    Creates the directory if it is missing: the default location is a cache
+    directory that may not exist yet, and six minutes of downloading must not
+    end in a FileNotFoundError.
+    """
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     if path.endswith(".gz"):
         return gzip.open(path, "wt", encoding="utf-8", newline="\n")
     return io.open(path, "w", encoding="utf-8", newline="\n")
@@ -1567,15 +1759,17 @@ class LocalCatalog:
 
     def __init__(
         self,
-        path: str,
+        path: Optional[str] = None,
         *,
         download: bool = True,
         progress: Any = "auto",
         client: Any = None,
     ) -> None:
-        self.path = path
+        self.path = path or default_catalog_path()
+        path = self.path
         self._progress = progress
         self._client = client
+        self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
         if not os.path.exists(path):
             if not download:
                 raise FileNotFoundError(
@@ -1584,6 +1778,7 @@ class LocalCatalog:
         else:
             self._records = _read_jsonl(path)
             logger.info("read %s datasets from %s", f"{len(self._records):,}", path)
+            self._warn_if_stale()
 
     # -- the file ----------------------------------------------------------
 
@@ -1592,7 +1787,46 @@ class LocalCatalog:
         summary = download_catalog(
             self.path, progress=self._progress, client=self._client)
         self._records = _read_jsonl(self.path)
+        self._by_uri = None
         return summary
+
+    def _warn_if_stale(self) -> None:
+        """Say so when the copy has fallen behind the nightly harvest.
+
+        Nothing is re-downloaded on its own: a program that answered in a
+        second yesterday must not block for six minutes today. The age is
+        reported so the decision is yours.
+        """
+        age = self.age_days
+        if age is not None and age >= STALE_AFTER_DAYS:
+            logger.warning(
+                "%s is %d days old; the registry re-harvests nightly. "
+                "Call refresh() (or Dataportal.refresh_catalog()) for current data.",
+                self.path, age)
+
+    @property
+    def age_days(self) -> Optional[int]:
+        """How many days old the file is, or ``None`` if it is not there."""
+        when = self.downloaded
+        if when is None:
+            return None
+        return (_dt.datetime.now() - when).days
+
+    @property
+    def stale(self) -> bool:
+        """Whether the copy is older than a week."""
+        age = self.age_days
+        return age is not None and age >= STALE_AFTER_DAYS
+
+    def get(self, uri: str) -> Optional[Dict[str, Any]]:
+        """One dataset by its URI, or ``None`` if this copy has no such thing."""
+        if self._by_uri is None:
+            self._by_uri = {r.get("uri"): r for r in self._records if r.get("uri")}
+        return self._by_uri.get(uri)
+
+    def count(self, **filters: Any) -> int:
+        """How many datasets match, without building the list."""
+        return len(self.datasets(**filters))
 
     @property
     def downloaded(self) -> Optional[_dt.datetime]:

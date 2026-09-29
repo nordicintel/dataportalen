@@ -90,7 +90,7 @@ def test_limit_avoids_crawling_every_distribution(transport, dataset_children, t
     for _ in range(6):
         transport.push(_page([], 0))
     download_catalog(
-        str(tmp_path / "c.jsonl"), limit=1, client=Dataportal(transport=transport)
+        str(tmp_path / "c.jsonl"), limit=1, client=Dataportal(transport=transport, local=False)
     )
     assert len(transport.requests) < 10
 
@@ -127,7 +127,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     transport.push(_page([], 0))               # contacts
 
     out = tmp_path / "c.jsonl"
-    download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
+    download_catalog(str(out), limit=1, client=Dataportal(transport=transport, local=False))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
@@ -154,7 +154,7 @@ def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
 
     out = tmp_path / "c.jsonl"
     with pytest.warns(UserWarning, match="not found in the bulk crawl"):
-        download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
+        download_catalog(str(out), limit=1, client=Dataportal(transport=transport, local=False))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     # Unresolved references drop out of the record but are warned about, so
     # a line never silently claims a dataset has no distributions.
@@ -198,3 +198,16 @@ def test_language_keys_are_json_safe(wired, tmp_path, dataset_children):
         record = json.loads(line)
         assert "null" not in record["title"]
         assert all(isinstance(k, str) and k for k in record["title"])
+
+
+def test_the_output_directory_is_created(tmp_path, transport, search_response):
+    """The default location is a cache directory that may not exist yet."""
+    transport.push(search_response)          # count
+    transport.push(search_response)          # datasets
+    transport.push(_page([], 0))             # distributions
+    transport.push(_page([], 0))             # agents
+    transport.push(_page([], 0))             # contacts
+    out = tmp_path / "does" / "not" / "exist" / "catalog.jsonl"
+    download_catalog(str(out), limit=1, progress=None,
+                     client=Dataportal(transport=transport, local=False))
+    assert out.exists()

@@ -27,13 +27,21 @@ Distribution and import name are both `dataportalen`. The unrelated
 ```python
 from dataportalen import Dataportal
 
-with Dataportal(language="sv") as dp:      # "en", or "all" for every language
+with Dataportal() as dp:
     page = dp.datasets(theme="transport", publisher="trafikverket",
                        updated_after="2024-01-01")
     print(page.total)
     for dataset in page:
-        print(dataset.to_dict())
+        print(dataset["title"])
 ```
+
+The first search downloads the whole catalogue — about six minutes and 58 MB,
+once — and every search after that runs against that copy in milliseconds.
+The registry answers about two requests a second and does not go faster with
+more of them in flight, so reading it once beats reading it every time.
+`Dataportal(local=False)` searches the registry instead.
+
+Results are plain dictionaries:
 
 ```json
 {
@@ -59,7 +67,11 @@ dp.values("publisher")   # every publisher, biggest first
 
 Every value it returns is one you can pass straight back as a filter.
 
-## The whole catalogue in one file
+## The catalogue file
+
+The copy the client keeps is an ordinary JSONL file — one dataset per line,
+distributions and publisher already nested — in the usual cache directory.
+To write one somewhere of your own:
 
 ```python
 from dataportalen import download_catalog
@@ -68,18 +80,11 @@ download_catalog("catalog.jsonl")
 # 23,580 datasets · 35,151 distributions · 58 MiB · ~6 minutes
 ```
 
-One dataset per line, distributions and publisher already nested, with a live
-progress line while it runs.
-
-The registry answers about two requests a second and does not go faster with
-more of them in flight, so anything touching more than a few thousand datasets
-belongs on that file rather than on the API:
-
 ```python
 from dataportalen import LocalCatalog
 
-catalog = LocalCatalog("catalog.jsonl")              # downloads it if missing
-catalog.datasets(theme="transport", format="csv")    # same filters, milliseconds
+catalog = LocalCatalog("catalog.jsonl", download=False)   # search a file directly
+catalog.datasets(theme="transport", format="csv")
 ```
 
 ## Documentation

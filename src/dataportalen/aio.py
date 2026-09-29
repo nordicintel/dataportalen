@@ -43,7 +43,15 @@ from typing import (
     Union,
 )
 
-from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, _counted
+from .client import (
+    _LRU,
+    _RETRY_STATUSES,
+    DEFAULT_BASE_URL,
+    DUMP_URL,
+    MAX_LIMIT,
+    _as_results,
+    _counted,
+)
 from .core import (
     DEFAULT_USER_AGENT,
     AsyncHttpxTransport,
@@ -69,6 +77,7 @@ from .models import (
     LinkCheckReport,
     MetadataQuality,
     OrganisationStats,
+    Results,
     SearchPage,
     Standard,
     ValueCount,
@@ -496,13 +505,19 @@ class AsyncDataportal:
         sort: Optional[str] = ...,  # type: ignore[assignment]
         facet_fields: Optional[Sequence[str]] = None,
         **filters: Any,
-    ) -> SearchPage:
-        """Search datasets (``dcat:Dataset``)."""
-        return await self.search(
+    ) -> Results:
+        """Search datasets. Returns a list of dicts that knows the total.
+
+        The async client always asks the registry: a local catalogue is a
+        file, and reading a file is not what ``await`` is for. For the local
+        path use :class:`~dataportalen.Dataportal`, whose results are the
+        same dicts.
+        """
+        return _as_results(await self.search(
             self._entity_query(DCAT.Dataset, **filters),
             model=Dataset, limit=limit, offset=offset, sort=sort,
             facet_fields=facet_fields,
-        )
+        ))
 
     def iter_datasets(
         self,
@@ -511,12 +526,12 @@ class AsyncDataportal:
         page_size: int = MAX_LIMIT,
         sort: Optional[str] = ...,  # type: ignore[assignment]
         **filters: Any,
-    ) -> AsyncIterator[Entry]:
-        """Yield matching datasets across pages."""
-        return self.iter_search(
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Yield matching datasets, as dicts, across pages."""
+        return _dicts(self.iter_search(
             self._entity_query(DCAT.Dataset, **filters),
             model=Dataset, limit=limit, page_size=page_size, sort=sort,
-        )
+        ))
 
     async def dataset(
         self,
@@ -525,68 +540,80 @@ class AsyncDataportal:
         context_id: Optional[Union[str, int]] = None,
         entry_id: Optional[Union[str, int]] = None,
         recursive: bool = True,
-    ) -> Optional[Dataset]:
-        """Fetch a single dataset, by its own URI or by registry ids."""
+    ) -> Optional[Dict[str, Any]]:
+        """One dataset as a dict, by its own URI or by registry ids."""
         if uri:
             found = await self.lookup(uri, model=Dataset)
             if found is None:
                 return None
             if recursive and found.context_id and found.entry_id:
-                return await self.entry(  # type: ignore[return-value]
+                found = await self.entry(
                     found.context_id, found.entry_id, recursive=True,
                     model=Dataset, info=found.info, rights=found.rights,
                 )
-            return found  # type: ignore[return-value]
+            return found.to_dict() if found else None
         if context_id is None or entry_id is None:
             raise TypeError("pass either uri= or both context_id= and entry_id=")
-        return await self.entry(  # type: ignore[return-value]
-            context_id, entry_id, recursive=recursive, model=Dataset
-        )
+        found = await self.entry(
+            context_id, entry_id, recursive=recursive, model=Dataset)
+        return found.to_dict() if found else None
 
     async def distributions(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> SearchPage:
-        return await self.search(
+    ) -> Results:
+        """Search distributions. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(DCAT.Distribution, **filters),
             model=Distribution, limit=limit, offset=offset,
-        )
+        ))
 
     async def data_services(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> SearchPage:
-        return await self.search(
+    ) -> Results:
+        """Search data services. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(DCAT.DataService, **filters),
             model=DataService, limit=limit, offset=offset,
-        )
+        ))
 
     async def dataset_series(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> SearchPage:
-        return await self.search(
+    ) -> Results:
+        """Search dataset series. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(DCAT.DatasetSeries, **filters),
             model=DatasetSeries, limit=limit, offset=offset,
-        )
+        ))
 
-    async def catalogs(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        return await self.search(
+    async def catalogs(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search catalogs. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(DCAT.Catalog, **filters),
             model=Catalog, limit=limit, offset=offset,
-        )
+        ))
 
-    async def agents(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        return await self.search(
+    async def agents(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search agents. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(FOAF.Agent, **filters),
             model=Agent, limit=limit, offset=offset,
-        )
+        ))
 
     async def agent(self, uri: str) -> Optional[Agent]:
         return await self.lookup(uri, model=Agent)  # type: ignore[return-value]
 
-    async def standards(self, *, limit: int = 50, offset: int = 0, **filters: Any) -> SearchPage:
-        return await self.search(
+    async def standards(
+        self, *, limit: int = 50, offset: int = 0, **filters: Any
+    ) -> Results:
+        """Search standards. Returns dicts."""
+        return _as_results(await self.search(
             self._entity_query(DCTERMS.Standard, **filters),
             model=Standard, limit=limit, offset=offset,
-        )
+        ))
 
     def datasets_in_context(
         self,
@@ -744,3 +771,9 @@ class AsyncDataportal:
                     if progress is not None:
                         progress(total)
         return destination
+
+
+async def _dicts(entries: Any) -> AsyncIterator[Dict[str, Any]]:
+    """An async iterator of models as the dicts callers asked for."""
+    async for entry in entries:
+        yield entry.to_dict()

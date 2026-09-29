@@ -103,7 +103,7 @@ Seven modules; callers import from the package root.
 | `rdf.py` | namespaces, the RDF/JSON parser, the label table, the short-name layer |
 | `models.py` | `Dataset`, `Distribution`, `Agent` and friends, and `to_dict()` |
 | `query.py` | the `Q` Solr query builder |
-| `client.py` | `Dataportal`, the catalogue export and `LocalCatalog` |
+| `client.py` | `Dataportal` (local-first), the catalogue export, `LocalCatalog` |
 | `aio.py` | `AsyncDataportal` |
 | `__init__.py` | the public surface |
 
@@ -119,7 +119,22 @@ Measured, because both numbers shape the package's design:
 | Deep paging | flat — offset 23,000 costs the same as offset 0 |
 
 So the ceiling is roughly 200 datasets a second whatever you do, which is why
-`download_catalog` takes ~6 minutes and why `LocalCatalog` exists.
+`download_catalog` takes ~6 minutes — and why the client reads the whole
+catalogue once and searches it locally by default.
+
+### How the client decides
+
+`Dataportal(local=True)` (the default) serves a dataset search from the file
+and sends everything else to the registry. `_serve_locally()` holds the rule
+in one place: local unless `local=False`, unless the call uses `query=` (a
+raw index expression) or `facet_fields=` (counting the index). A client also
+keeps an API-only twin of itself, so downloading the catalogue cannot recurse
+into the catalogue it is downloading.
+
+Searches return `Results`, a `list` of dicts carrying `total`, `offset`,
+`limit` and `has_more`, so local and live results are the same type. The
+model objects (`Dataset`, `Entry`) are still there behind `lookup()`,
+`entry()` and `search()`, which is where the RDF lives.
 
 ## Development
 

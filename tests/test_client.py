@@ -278,7 +278,7 @@ def test_lookup_many_splits_oversized_batches(client, transport, search_response
 
 def test_organisations_zips_labels_values_and_series(transport, org_data):
     transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
+    with Dataportal(transport=transport, local=False) as dp:
         orgs = dp.organisations()
     assert len(orgs) == len(org_data["values"])
     assert orgs[0].name == org_data["labels"][0]
@@ -289,14 +289,15 @@ def test_organisations_zips_labels_values_and_series(transport, org_data):
 def test_organisations_carry_the_value_you_filter_with(transport, org_data, search_response):
     """A listing is only useful if it leads into a search."""
     transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
+    with Dataportal(transport=transport, local=False) as dp:
         orgs = dp.organisations()
         assert orgs[0].publisher == "radet_for_framjande_av_kommunala_analyser_kolada"
         assert orgs[0].to_dict()["publisher"] == orgs[0].publisher
 
         transport.push(search_response)
         dp.datasets(publisher=orgs[0].publisher)
-    assert "SE2220000315" in query_of(transport.requests[-1])
+    searches = [u for u in transport.requests if "query=" in u]
+    assert "SE2220000315" in query_of(searches[-1])
 
 
 def test_an_unknown_organisation_has_no_filter_value(transport, org_data):
@@ -304,13 +305,13 @@ def test_an_unknown_organisation_has_no_filter_value(transport, org_data):
     payload = dict(org_data, labels=["Nowhere At All"],
                    values=["https://example.org/organization/xyz"], series=[[1]])
     transport.routes["/charts/orgData.json"] = payload
-    with Dataportal(transport=transport) as dp:
+    with Dataportal(transport=transport, local=False) as dp:
         assert dp.organisations()[0].publisher is None
 
 
 def test_organisation_summary_reports_registry_totals(transport, org_data):
     transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
+    with Dataportal(transport=transport, local=False) as dp:
         summary = dp.organisation_summary()
     assert summary["datasets"] == org_data["datasetCount"]
     assert summary["publishers"] == org_data["publisherCount"]

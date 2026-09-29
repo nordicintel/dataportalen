@@ -7,55 +7,92 @@ Everything here is ordinary Python. You ask for datasets, you get dictionaries.
 3. [Narrow the search](#narrow-the-search)
 4. [Filter by date](#filter-by-date)
 5. [See what a filter accepts](#see-what-a-filter-accepts)
-6. [Read more than one page](#read-more-than-one-page)
+6. [How much comes back](#how-much-comes-back)
 7. [What a dataset looks like](#what-a-dataset-looks-like)
-8. [Download the whole catalogue](#download-the-whole-catalogue)
-9. [Work from a local copy](#work-from-a-local-copy)
-10. [Other things in the registry](#other-things-in-the-registry)
-11. [Settings](#settings)
-12. [When something goes wrong](#when-something-goes-wrong)
-13. [Async](#async)
-14. [Going deeper](#going-deeper)
+8. [The catalogue file](#the-catalogue-file)
+9. [Other things in the registry](#other-things-in-the-registry)
+10. [Settings](#settings)
+11. [When something goes wrong](#when-something-goes-wrong)
+12. [Async](#async)
+13. [Going deeper](#going-deeper)
 
 ## Connect
 
 ```python
 from dataportalen import Dataportal
 
-dp = Dataportal()              # reads Swedish
-dp = Dataportal(language="en") # reads English
+dp = Dataportal()
 ```
 
-That is the client. Every example below uses `dp`.
+The first search downloads the whole catalogue — about six minutes and 58 MB,
+once — and every search after that runs against that copy in milliseconds.
+This is the normal way to use the package.
+
+It is done that way because the registry is slow: it answers about two
+requests a second and does not go faster with more of them in flight, at 100
+datasets a request. Reading anything substantial over the API takes minutes
+every time; reading it once and keeping it takes minutes once.
+
+```python
+dp = Dataportal(language="en")   # English where the publisher wrote it
+dp = Dataportal(local=False)     # search the registry instead, no download
+```
 
 Swedish is the default because the registry is Swedish: most datasets are
 described in Swedish only. Ask for another language and you get it where the
-publisher wrote one, and the Swedish text where they did not — text you can use
-beats a blank.
+publisher wrote one, and the Swedish text where they did not.
 
-It holds an open connection, so close it when you are finished — or let a `with`
-block do it:
+The client holds an open connection, so close it when you are finished — or
+let a `with` block do it:
 
 ```python
 with Dataportal() as dp:
     ...
 ```
 
+### The copy on disk
+
+```python
+dp.catalog.path         # where it went
+dp.catalog.downloaded   # when it was written
+dp.catalog.age_days     # how old it is
+dp.refresh_catalog()    # download it again
+```
+
+The file lives in the usual cache directory —
+`%LOCALAPPDATA%\dataportalen\catalog.jsonl` on Windows,
+`~/.cache/dataportalen/catalog.jsonl` elsewhere — so one copy serves every
+project and nothing lands in a repository. Pass `catalog_path=` to put it
+somewhere of your choosing.
+
+The registry re-harvests nightly. After a week the client logs a warning
+saying how old the copy is; it never re-downloads on its own, because a
+script that answered in a second yesterday should not block for six minutes
+today.
+
 ## Find datasets
 
-`dp.datasets()` searches. It returns one page of results, which you can loop
-over:
+`dp.datasets()` searches. You get back a list of dictionaries that also knows
+the total:
 
 ```python
 page = dp.datasets(text="cykel")
 
-print(page.total)          # 251 — how many datasets matched
+print(page.total)          # 388 — how many matched
 for dataset in page:
-    print(dataset.title)
+    print(dataset["title"])
 ```
 
-Every result is a `Dataset`. `dataset.to_dict()` turns it into a plain
-dictionary you can save as JSON, put in a dataframe, or hand to something else.
+It is an ordinary list, so it slices, and goes straight into anything that
+takes records:
+
+```python
+import pandas
+pandas.DataFrame(dp.datasets(theme="transport", limit=None))
+```
+
+`limit` defaults to 50 so a stray search cannot print twenty thousand
+dictionaries; `limit=None` gives you everything that matched.
 
 To fetch one dataset whose address you already have:
 
@@ -63,9 +100,22 @@ To fetch one dataset whose address you already have:
 dataset = dp.dataset(uri="https://catalog.skane.se/rowstore/dataset/9f0e...")
 ```
 
-That address is the publisher's own identifier for the dataset — the `uri` field
-of any result. A URI nothing matches gives you `None` rather than an error, so
-check before using it.
+That address is the publisher's own identifier for the dataset — the `uri`
+field of any result. It comes out of the local copy when it is there, and off
+the registry when it is not. A URI nothing matches gives you `None` rather
+than an error.
+
+### What runs locally, and what does not
+
+| | |
+| --- | --- |
+| Local | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()`, `values()` |
+| Registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `standards()`, statistics, link checks, quality scores, and any search using `query=` or `facet_fields=` |
+
+The file holds datasets with their distributions, publisher and contacts
+nested inside them, so a dataset search never needs the network and anything
+else still does. You do not have to remember which is which — the results are
+the same dicts either way.
 
 ## Narrow the search
 
@@ -156,7 +206,7 @@ dp.datasets(theme="population_and_society")
 It works for `theme`, `format`, `license`, `access_rights`, `updated`,
 `language`, `place` and `publisher`, and takes one request. (Not `keyword` —
 the registry indexes keywords by fragment, so counting them returns pieces of
-words rather than keywords. A [local copy](#work-from-a-local-copy) can count
+words rather than keywords. A [local copy](#the-catalogue-file) can count
 those.)
 
 Without the network, `known_values` lists the same names from the table
@@ -177,37 +227,39 @@ dp.datasets(theme="transprot")
 # QueryError: unknown theme 'transprot'. Did you mean: transport?
 ```
 
-## Read more than one page
+## How much comes back
 
-A search returns at most 100 datasets at a time. That is the registry's cap,
-not this package's — ask for 1000 and it answers with 100. `page` tells you
-where you are:
+Locally there are no pages: a search scans the whole catalogue and `limit`
+just says how much of the result you want to hold.
 
 ```python
-page = dp.datasets(theme="transport", limit=100)
-page.total       # how many matched in total
-page.has_more    # whether anything follows this page
+dp.datasets(theme="transport")             # the first 50
+dp.datasets(theme="transport", limit=None) # all 545
+dp.datasets(theme="transport", limit=10, offset=100)
 ```
 
-Rather than asking for pages yourself, let the client do it:
+`page.total` is how many matched and `page.has_more` says whether you are
+holding all of them.
+
+`iter_datasets()` gives you the same records one at a time, which is the
+better shape for a loop over thousands:
 
 ```python
 for dataset in dp.iter_datasets(theme="transport"):
-    print(dataset.title)
+    print(dataset["title"])
 ```
 
-That keeps fetching until the results run out. Pass `limit=` to stop early.
-
-One caveat worth knowing: `total` is the registry's own estimate and can be a
-little optimistic, and results shift as publishers update their data. If you are
-walking a large result and need each dataset exactly once, add
-`sort="created asc"` so the order cannot change underneath you.
+Against the registry (`local=False`) the same two calls page for you, 100 at a
+time — that is the registry's cap, not this package's; ask for 1000 and it
+answers with 100. There `total` is the index's estimate and can be slightly
+optimistic, and the underlying data shifts as publishers update it: add
+`sort="created asc"` if you are walking a large result and need each dataset
+exactly once. Locally neither caveat applies — the file does not move while
+you read it.
 
 ## What a dataset looks like
 
-```python
-dataset.to_dict()
-```
+Every search result, and every dataset you fetch, is one of these:
 
 ```json
 {
@@ -252,7 +304,8 @@ because `"annual"` is more useful to build on than _årligen_.
 offers, each with its own format and URL. `download_url` is the file itself;
 `access_url` is a page or service you go through to get it.
 
-`dataset.to_json()` gives you the same thing as a JSON string.
+It is a plain dictionary, so `json.dumps` it, put a list of them in a
+dataframe, or pull out what you need.
 
 ### Every language at once
 
@@ -261,47 +314,37 @@ ask for `"all"`, and the text fields become maps instead of strings:
 
 ```python
 dp = Dataportal(language="all")
-dataset = next(iter(dp.datasets(text="cykel")))
-dataset.to_dict()["title"]
+dataset = dp.datasets(text="cykel")[0]
+dataset["title"]
 # {"sv": "Cykelstråk", "en": "Cycle routes"}
 ```
 
 That applies to `title`, `description`, `keywords` and the publisher's `name` —
-the fields publishers write themselves. A single dataset can also be switched
-without a second client:
+the fields publishers write themselves. The language is fixed when you build the client, and the local copy is
+written in it — switching languages on a client that has already downloaded
+the catalogue means downloading it again.
 
-```python
-dataset.with_language("all").to_dict()
-```
+## The catalogue file
 
-## Download the whole catalogue
-
-One call writes every dataset in Sweden's registry to a file:
-
-```python
-from dataportalen import download_catalog
-
-download_catalog("catalog.jsonl")
-```
-
-It takes about six minutes and draws a progress line while it runs. The last
-full run wrote 23,580 datasets and 35,151 distributions: one JSON object per
-line, 58 MB.
-
-Each line is complete on its own — distributions, publisher and contacts are
-already inside it, so there is nothing left to look up:
+The copy the client downloads is an ordinary JSONL file: one dataset per line,
+each line complete on its own, with its distributions, publisher and contacts
+already nested. Nothing stops you reading it yourself:
 
 ```python
 import json
 
-with open("catalog.jsonl", encoding="utf-8") as f:
+with open(dp.catalog.path, encoding="utf-8") as f:
     for line in f:
         dataset = json.loads(line)
 ```
 
-Useful variations:
+To write one somewhere of your own — for another tool, a pipeline, or an
+archive — call the download directly:
 
 ```python
+from dataportalen import download_catalog
+
+download_catalog("catalog.jsonl")                  # ~6 minutes, 58 MB
 download_catalog("catalog.jsonl.gz")               # compressed, from the suffix
 download_catalog("sample.jsonl", limit=500)        # just 500, to try it out
 download_catalog("catalog.jsonl", progress=None)   # no progress line
@@ -311,51 +354,35 @@ summary = download_catalog("catalog.jsonl")
 summary.datasets, summary.distributions, summary.elapsed
 ```
 
-## Work from a local copy
+The last full run wrote 23,580 datasets and 35,151 distributions in 354
+seconds. It reads the live search index rather than the registry's nightly
+RDF dump, which would be one request but has been seen lagging by a week.
 
-The registry answers about **two requests a second**, and more requests in
-flight does not help — 8, 16 and 32 at once all come back at the same rate. At
-100 datasets a request that is a ceiling of roughly 200 datasets a second, so
-reading any large slice of the catalogue over the API takes minutes.
-
-If you are going to touch more than a few thousand datasets, work from the
-file instead:
+To search a file you already have, without a client:
 
 ```python
 from dataportalen import LocalCatalog
 
-catalog = LocalCatalog("catalog.jsonl")     # downloads it the first time
-
-len(catalog)                                 # 23580
-catalog.datasets(theme="transport", format="csv")
-```
-
-Same filters, same short values, same dicts — and the whole corpus is scanned
-in milliseconds rather than minutes:
-
-| | over the API | over the file |
-| --- | --- | --- |
-| `theme="transport"` | ~1s for the first page, minutes for all 545 | 0.03s for all 545 |
-| `access_rights="public"` | ~90s for all 17,682 | 0.02s |
-| counting every keyword | not possible | 0.4s |
-
-```python
+catalog = LocalCatalog("catalog.jsonl", download=False)
 catalog.datasets(publisher="trafikverket", updated_after="2024-01-01")
-catalog.values("keyword")        # what the live index cannot count
-catalog.downloaded               # when the file was written
-catalog.refresh()                # download it again
+catalog.values("keyword")     # what the registry's index cannot count
 ```
 
-Two differences from the live search, both in your favour:
+`download=False` is for a program that must not reach the network: a missing
+file then raises instead of fetching 58 MB.
+
+### Where local and live results differ
+
+Two small differences, both in the file's favour:
 
 - `text=` is a plain substring match here, so it finds a few more than the
   registry's word-based index does.
 - `published_after=` compares the dataset's own date. The registry's index
-  covers every date in the entry, including each distribution's, so it returns
-  datasets whose distributions are recent even when the dataset is from 2013.
+  covers every date in the entry including each distribution's, so it returns
+  datasets whose *distributions* are recent even when the dataset is from 2013.
 
-Pass `download=False` to a program that must not reach the network; a missing
-file then raises instead of fetching 58 MB.
+Everything else matches: transport 545 either way, `access_rights="public"`
+17,682, `publisher="trafikverket"` 338.
 
 ## Other things in the registry
 
@@ -387,7 +414,7 @@ four fields as a dictionary, and `dp.organisation_summary()` gives registry-wide
 totals.
 
 ```python
-dataset.publisher()         # the organisation behind one dataset
+dataset["publisher"]        # the organisation behind one dataset, inline
 ```
 
 Beyond datasets, the registry publishes catalogues (a publisher's collection),
@@ -462,7 +489,7 @@ When you want to react differently to different failures:
 Two things that are not bugs in this package: the registry rebuilds its search
 index nightly, so data can be up to a day behind what a publisher has actually
 published; and result counts are estimates, as described under
-[paging](#read-more-than-one-page).
+[how much comes back](#how-much-comes-back).
 
 ## Async
 
@@ -477,12 +504,14 @@ async def main():
     async with AsyncDataportal() as dp:
         page = await dp.datasets(theme="transport", limit=10)
         async for dataset in dp.iter_datasets(limit=100):
-            print(dataset.title)
+            print(dataset["title"])
 
 asyncio.run(main())
 ```
 
-Requests are awaited and the loops are `async for`. Nothing else changes.
+Requests are awaited and the loops are `async for`; the results are the same
+dicts. The async client always asks the registry — a local catalogue is a
+file, and reading a file is not what `await` is for.
 
 ## Going deeper
 
@@ -492,19 +521,24 @@ The registry describes everything in RDF — a graph format where values are web
 addresses instead of words. This package exists so you do not have to deal with
 that, but it does not hide it either.
 
-**The original data behind a dataset:**
+**The original data behind a dataset.** `dp.lookup()` gives you the model
+object rather than a dict — it always asks the registry, because the graph is
+not in the local file:
 
 ```python
-dataset.raw_json()      # exactly what the registry sent
-dataset.to_rdf()        # the same, as a graph
-dataset.to_rdf_dict()   # every field the publisher supplied, including ones
-                        # to_dict() leaves out
+entry = dp.lookup("https://example.org/data/roads")
+
+entry.raw_json()      # exactly what the registry sent
+entry.to_rdf()        # the same, as a graph
+entry.to_rdf_dict()   # every field the publisher supplied, including ones
+                      # the dict leaves out
+entry.to_dict()       # back to the dict a search would have given you
 ```
 
 **A file in another format**, when you want to feed it to a proper RDF library:
 
 ```python
-dp.entry_raw(dataset.context_id, dataset.entry_id, format="text/turtle").text
+dp.entry_raw(entry.context_id, entry.entry_id, format="text/turtle").text
 ```
 
 **A search this package cannot express.** The registry's index is Solr, and `Q`
@@ -513,8 +547,11 @@ writes Solr queries for you, escaping as needed:
 ```python
 from dataportalen import Q
 
-dp.search(Q.text("cykel") & ~Q.tag("historisk"))
+dp.search(Q.text("cykel") & ~Q.tag("historisk"))   # returns model objects
 ```
+
+`search()` is the only search that hands back models rather than dicts, and it
+always asks the registry.
 
 Combine with `&` (and), `|` (or) and `~` (not). `Q.raw("...")` passes a
 fragment through untouched if you know the query language.

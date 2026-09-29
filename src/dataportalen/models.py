@@ -75,6 +75,7 @@ __all__ = [
     "FILTER_PREDICATES",
     "PeriodOfTime",
     "Checksum",
+    "Results",
     "SearchPage",
     "FacetValue",
     "Facet",
@@ -1725,6 +1726,57 @@ class Facet:
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Facet %s values=%d>" % (self.name, len(self.values))
+
+
+class Results(list):
+    """What a search gives you: a list of dataset dicts, and the total.
+
+    It *is* a list -- index it, slice it, loop over it, pass it to
+    ``pandas.DataFrame`` -- and it carries what the registry said about the
+    wider result::
+
+        page = dp.datasets(theme="transport")
+        len(page)        # what you got, at most `limit`
+        page.total       # how many matched altogether
+        page.has_more    # whether anything follows
+
+    The same type comes back whether the search ran against the local
+    catalogue or the registry, so code does not care which it used.
+    """
+
+    __slots__ = ("total", "offset", "limit", "facets")
+
+    def __init__(
+        self,
+        records: Sequence[Dict[str, Any]] = (),
+        total: Optional[int] = None,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        facets: Sequence[Any] = (),
+    ) -> None:
+        super().__init__(records)
+        self.total = len(self) if total is None else int(total)
+        self.offset = offset
+        self.limit = len(self) if limit is None else limit
+        self.facets = list(facets)
+
+    @property
+    def has_more(self) -> bool:
+        """Whether more matched than you are holding.
+
+        Over the API ``total`` is the index's estimate, so treat it as a hint;
+        against a local catalogue it is exact.
+        """
+        return self.offset + len(self) < self.total
+
+    def facet(self, name: str) -> Optional[Any]:
+        for facet in self.facets:
+            if facet.name == name:
+                return facet
+        return None
+
+    def __repr__(self) -> str:                            # pragma: no cover
+        return "<Results %d of %d>" % (len(self), self.total)
 
 
 class SearchPage(_ABCSequence):

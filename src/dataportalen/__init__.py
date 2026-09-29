@@ -34,6 +34,7 @@ from .client import (
     CatalogSummary,
     Dataportal,
     LocalCatalog,
+    default_catalog_path,
     download_catalog,
 )
 from .core import (
@@ -73,6 +74,7 @@ from .models import (
     MetadataQuality,
     OrganisationStats,
     PeriodOfTime,
+    Results,
     SearchPage,
     Standard,
     ValueCount,
@@ -132,6 +134,7 @@ __all__ = [
     "download_catalog",
     "CatalogSummary",
     "LocalCatalog",
+    "default_catalog_path",
     # logging
     "enable_logging",
     "logger",
@@ -170,6 +173,7 @@ __all__ = [
     "PeriodOfTime",
     "Temporal",
     "Checksum",
+    "Results",
     "SearchPage",
     "Facet",
     "FacetValue",

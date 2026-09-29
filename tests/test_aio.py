@@ -55,7 +55,7 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def test_search_returns_typed_entries():
+def test_search_returns_dicts():
     transport = FakeAsyncTransport()
     transport.push(load_fixture("search_datasets.json"))
 
@@ -65,8 +65,9 @@ def test_search_returns_typed_entries():
 
     page = run(main())
     assert len(page) == 2
-    assert all(isinstance(e, Dataset) for e in page)
-    assert page[0].title
+    assert all(isinstance(record, dict) for record in page)
+    assert all(record["uri"] for record in page)
+    assert page[0]["title"]
     assert params_of(transport.requests[-1])["type"] == "solr"
 
 
