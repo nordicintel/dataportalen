@@ -16,11 +16,8 @@ import os
 
 import pytest
 
-from dataportalen import (
-    Agent,
-    Dataportal,
-    Q,
-)
+from dataportalen import Dataportal, Q
+from dataportalen.models import Agent
 from dataportalen.rdf import DCAT
 
 pytestmark = pytest.mark.network
@@ -127,8 +124,8 @@ def test_facets_report_the_known_rdf_types(dp):
 
 
 def test_organisation_chart_is_consistent(dp):
-    orgs = dp.organisations()
-    summary = dp.organisation_summary()
+    orgs = dp.publishers()
+    summary = dp.registry_totals()
     assert len(orgs) == summary["publishers"]
     assert orgs == sorted(orgs, key=lambda o: o.dataset_count, reverse=True)
     assert sum(o.dataset_count for o in orgs) >= summary["datasets"] * 0.5
@@ -163,31 +160,15 @@ def test_unknown_entry_ids_raise_not_found(dp):
         dp.entry_raw(999999, 999999, part="metadata")
 
 
-@pytest.mark.parametrize("transport_name", ["urllib", "requests", "httpx"])
-def test_every_transport_reaches_the_registry(transport_name):
-    """All three work, with nothing optional to install."""
-    from dataportalen.core import HttpxTransport, RequestsTransport, UrllibTransport
+def test_the_transport_reaches_the_registry():
+    """The one HTTP stack, with nothing optional to install."""
+    from dataportalen.core import RequestsTransport
 
-    factories = {
-        "urllib": UrllibTransport,
-        "requests": RequestsTransport,
-        "httpx": HttpxTransport,
-    }
-    transport = factories[transport_name]()
+    transport = RequestsTransport()
     with Dataportal(transport=transport) as client:
         assert client.count(Q.rdf_type(DCAT.Dataset)) > 1000
     transport.close()
 
-
-def test_the_nightly_dump_streams_lazily(dp):
-    # The dump is hundreds of megabytes; read just enough to see it is RDF/XML.
-    head = b""
-    for chunk in dp.iter_dump(chunk_size=8192):
-        head += chunk
-        if len(head) > 2048:
-            break
-    assert head.lstrip().startswith(b"<?xml")
-    assert b"rdf:RDF" in head
 
 
 def test_negation_actually_excludes(dp):
@@ -305,8 +286,8 @@ def test_every_filter_matches_something(dp):
         assert dp.datasets(limit=1, **{name: value}).total > 0, name
 
 
-def test_organisations_lead_into_a_search(dp):
-    orgs = dp.organisations()
+def test_publishers_lead_into_a_search(dp):
+    orgs = dp.publishers()
     assert len(orgs) > 300
     filterable = [o for o in orgs if o.publisher]
     assert len(filterable) >= len(orgs) - 5

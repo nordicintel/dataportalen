@@ -74,14 +74,6 @@ def test_colons_in_uris_are_escaped_in_the_query(client, transport, search_respo
     assert r"http\:\/\/example.org\/dataset1" in query_of(transport.requests[-1])
 
 
-def test_facet_parameters_are_passed_through(client, transport, search_response):
-    transport.push(search_response)
-    client.search(facet_fields=["rdfType", "lang"], facet_limit=7, facet_min_count=2)
-    params = params_of(transport.requests[-1])
-    assert params["facetFields"] == "rdfType,lang"
-    assert params["facetLimit"] == "7"
-    assert params["facetMinCount"] == "2"
-
 
 def test_datasets_filters_compose_into_one_query(client, transport, search_response):
     transport.push(search_response)
@@ -151,17 +143,6 @@ def test_count_asks_for_a_single_row(client, transport, search_response):
     assert client.count() == search_response["results"]
     assert params_of(transport.requests[-1])["limit"] == "1"
 
-
-def test_facet_returns_an_empty_facet_when_the_server_sends_none(
-    client, transport, search_response
-):
-    transport.push(search_response)
-    facet = client.facet("rdfType")
-    assert facet.name == "rdfType"
-    assert facet.as_dict() == {}
-
-
-# -- paging ------------------------------------------------------------------
 
 
 def _page(children, total, offset, limit):
@@ -276,21 +257,21 @@ def test_lookup_many_splits_oversized_batches(client, transport, search_response
 # -- statistics endpoints ----------------------------------------------------
 
 
-def test_organisations_zips_labels_values_and_series(transport, org_data):
+def test_publishers_zips_labels_values_and_series(transport, org_data):
     transport.routes["/charts/orgData.json"] = org_data
     with Dataportal(transport=transport) as dp:
-        orgs = dp.organisations()
+        orgs = dp.publishers()
     assert len(orgs) == len(org_data["values"])
     assert orgs[0].name == org_data["labels"][0]
     assert orgs[0].dataset_count == org_data["series"][0][0]
     assert orgs[0].to_dict()["uri"] == org_data["values"][0]
 
 
-def test_organisations_carry_the_value_you_filter_with(transport, org_data, search_response):
+def test_publishers_carry_the_value_you_filter_with(transport, org_data, search_response):
     """A listing is only useful if it leads into a search."""
     transport.routes["/charts/orgData.json"] = org_data
     with Dataportal(transport=transport) as dp:
-        orgs = dp.organisations()
+        orgs = dp.publishers()
         assert orgs[0].publisher == "radet_for_framjande_av_kommunala_analyser_kolada"
         assert orgs[0].to_dict()["publisher"] == orgs[0].publisher
 
@@ -300,19 +281,19 @@ def test_organisations_carry_the_value_you_filter_with(transport, org_data, sear
     assert "SE2220000315" in query_of(searches[-1])
 
 
-def test_an_unknown_organisation_has_no_filter_value(transport, org_data):
+def test_an_unknown_publisher_has_no_filter_value(transport, org_data):
     """Better None than a value that would raise when used."""
     payload = dict(org_data, labels=["Nowhere At All"],
                    values=["https://example.org/organization/xyz"], series=[[1]])
     transport.routes["/charts/orgData.json"] = payload
     with Dataportal(transport=transport) as dp:
-        assert dp.organisations()[0].publisher is None
+        assert dp.publishers()[0].publisher is None
 
 
-def test_organisation_summary_reports_registry_totals(transport, org_data):
+def test_registry_totals_reports_registry_totals(transport, org_data):
     transport.routes["/charts/orgData.json"] = org_data
     with Dataportal(transport=transport) as dp:
-        summary = dp.organisation_summary()
+        summary = dp.registry_totals()
     assert summary["datasets"] == org_data["datasetCount"]
     assert summary["publishers"] == org_data["publisherCount"]
 
@@ -327,21 +308,6 @@ def test_catalog_statistics_sorts_newest_first(client, transport):
 # -- the dump ----------------------------------------------------------------
 
 
-def test_download_dump_streams_to_disk(client, transport, tmp_path):
-    transport.push(b"<rdf:RDF/>", content_type="application/rdf+xml")
-    destination = tmp_path / "all.rdf"
-    client.download_dump(str(destination))
-    assert destination.read_bytes() == b"<rdf:RDF/>"
-
-
-def test_download_dump_reports_progress(client, transport, tmp_path):
-    transport.push(b"x" * 100, content_type="application/rdf+xml")
-    seen = []
-    client.download_dump(str(tmp_path / "all.rdf"), progress=seen.append)
-    assert seen and seen[-1] == 100
-
-
-# -- errors and retries ------------------------------------------------------
 
 
 def test_404_raises_not_found(client, transport):
@@ -401,9 +367,9 @@ def test_transport_failures_are_retried(transport, search_response):
 
 
 def test_closing_the_client_closes_a_transport_it_owns():
-    from dataportalen.core import UrllibTransport
+    from dataportalen.core import RequestsTransport
 
-    owned = UrllibTransport()
+    owned = RequestsTransport()
     dp = Dataportal(transport=owned)
     dp.close()  # supplied transports are the caller's to close
     fake = FakeTransport()

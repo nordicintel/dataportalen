@@ -95,16 +95,15 @@ resolve, so gaps stay visible rather than assumed. Commit the regenerated
 
 ## Module layout
 
-Seven modules; callers import from the package root.
+Six modules; callers import from the package root.
 
 | Module | Holds |
 | --- | --- |
-| `core.py` | version, exceptions, logging and progress, the three HTTP transports |
+| `core.py` | version, exceptions, logging and progress, the HTTP transport |
 | `rdf.py` | namespaces, the RDF/JSON parser, the label table, the short-name layer |
 | `models.py` | `Dataset`, `Distribution`, `Agent` and friends, and `to_dict()` |
 | `query.py` | the `Q` Solr query builder |
 | `client.py` | `Dataportal` (local-first), the catalogue export, `LocalCatalog` |
-| `aio.py` | `AsyncDataportal` |
 | `__init__.py` | the public surface |
 
 ## What the registry can do

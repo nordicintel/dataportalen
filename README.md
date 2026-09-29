@@ -65,9 +65,9 @@ Results are plain dictionaries:
 ```python
 page = dp.datasets(text="cykel")
 page.total                     # 388
-page.breakdown["publisher"]    # [('trafikverket', 51), ...]
-page.breakdown["theme"]        # [('population_and_society', 233), ...]
-page.breakdown["format"]       # [('json', 246), ('html', 51), ...]
+page.breakdown["publisher"]       # [('kolada', 213), ('trafikverket', 51), ...]
+page.breakdown["theme"]           # [('population_and_society', 233), ...]
+page.breakdown["format"]          # [('json', 246), ('html', 51), ...]
 page.breakdown["publisher_type"]  # [('national_authority', 201), ...]
 ```
 

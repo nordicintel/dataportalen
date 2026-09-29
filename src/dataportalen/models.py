@@ -61,31 +61,23 @@ from .rdf import (
 __all__ = [
     "Entry",
     "Dataset",
-    "DatasetSeries",
     "Distribution",
     "DataService",
     "Catalog",
     "Agent",
     "ContactPoint",
-    "Standard",
     "LinkCheckReport",
     "MetadataQuality",
     "CatalogStatistics",
-    "OrganisationStats",
+    "Publisher",
     "ValueCount",
-    "FILTER_PREDICATES",
     "PeriodOfTime",
-    "Checksum",
     "Breakdown",
     "ValueList",
     "BREAKDOWN_FILTERS",
     "Results",
     "SearchPage",
-    "FacetValue",
-    "Facet",
     "wrap_entry",
-    "register_model",
-    "MODEL_REGISTRY",
 ]
 
 E = TypeVar("E", bound="Entry")
@@ -823,7 +815,6 @@ class Agent(Entry):
             "homepage": self.homepage,
             "email": self.mbox,
             "identifiers": self.identifiers,
-            "same_as": self.same_as,
         })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
@@ -936,11 +927,9 @@ class Distribution(Entry):
             "status": self._term(self.status),
             "availability": self._term(self.availability),
             "languages": self._terms(self.language_uris),
-            "conforms_to": self.conforms_to,
             "issued": _iso(self.issued),
             "modified": _iso(self.modified_date),
             "access_service_uris": self.access_service_uris,
-            "documentation": self.page_uris,
         })
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
@@ -1028,7 +1017,6 @@ class DataService(Entry):
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
             "landing_page": self.landing_page,
-            "conforms_to": self.conforms_to,
             "contact_points": [c.to_dict() for c in self.contact_points],
         })
 
@@ -1242,12 +1230,6 @@ class Dataset(Entry):
             return inline
         return [e.as_(Distribution) for e in self.fetch_many(uris)]
 
-    def series(self) -> List["DatasetSeries"]:
-        uris = self.in_series_uris
-        if not uris:
-            return []
-        return [e.as_(DatasetSeries) for e in self.fetch_many(uris)]
-
     def to_dict(self, distributions=True):
         """This dataset as a plain, JSON-serializable dict.
 
@@ -1283,11 +1265,8 @@ class Dataset(Entry):
             "languages": self._terms(self.language_uris),
             "spatial": self._terms(self.spatial_uris),
             "temporal": temporal.to_dict() if temporal else None,
-            "applicable_legislation": self._terms(self.applicable_legislation),
             "issued": _iso(self.issued),
             "modified": _iso(self.modified_date),
-            "conforms_to": self.conforms_to,
-            "documentation": self.documentation_uris,
             "contact_points": [c.to_dict() for c in self.contact_points],
         })
         if distributions:
@@ -1300,12 +1279,6 @@ class Dataset(Entry):
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
-
-
-class DatasetSeries(Dataset):
-    """``dcat:DatasetSeries`` -- a group of related datasets."""
-
-    rdf_types = (DCAT.DatasetSeries,)
 
 
 class Catalog(Entry):
@@ -1385,19 +1358,6 @@ class Catalog(Entry):
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Catalog %r ctx=%s>" % (self.title, self.context_id)
-
-
-class Standard(Entry):
-    """``dcterms:Standard`` -- a specification referenced by ``conformsTo``."""
-
-    rdf_types = (DCTERMS.Standard,)
-
-    @property
-    def page_uris(self) -> List[str]:
-        return self.resource.uris(FOAF.page)
-
-
-# --- registry-operational entities ------------------------------------------
 
 
 class LinkCheckReport(Entry):
@@ -1610,46 +1570,26 @@ def _known_publisher(name: str) -> Optional[str]:
     return slug if slug and slug in known_publishers(slug) else None
 
 
-#: Which predicate carries each filter's value in the metadata, and whether
-#: publishers state it as a URI or as a plain literal. Used to count the
-#: values actually in use -- see :meth:`~dataportalen.Dataportal.values`.
-FILTER_PREDICATES = {
-    "publisher": (DCTERMS.publisher, "uri"),
-    # The type is on the publisher, not on the dataset, so it is matched
-    # through the related entry: `related.uri` reaches the agent's graph.
-    "publisher_type": (DCTERMS.type, "related.uri"),
-    "theme": (DCAT.theme, "uri"),
-    "license": (DCTERMS.license, "uri"),
-    "access_rights": (DCTERMS.accessRights, "uri"),
-    "updated": (DCTERMS.accrualPeriodicity, "uri"),
-    "language": (DCTERMS.language, "uri"),
-    "place": (DCTERMS.spatial, "uri"),
-    "format": (DCTERMS.format, "literal_s"),
-}
-#: `keyword` is deliberately absent: the index n-grams it, so counting its
-#: values returns fragments ("and", "ion") rather than keywords.
-
-
 class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     """One value a filter accepts, and how many datasets carry it.
 
     A plain ``(value, dataset_count)`` pair, so it unpacks in a loop::
 
-        for value, count in dp.values("theme"):
+        for value, count in page.breakdown["theme"]:
             ...
     """
 
     __slots__ = ()
 
 
-class OrganisationStats:
+class Publisher:
     """A publisher, how many datasets it has, and how to filter on it.
 
     ``publisher`` is the value to pass to
     :meth:`~dataportalen.Dataportal.datasets`, so a listing leads straight
     into a search::
 
-        for org in dp.organisations()[:5]:
+        for org in dp.publishers()[:5]:
             print(org.dataset_count, org.publisher)
             dp.datasets(publisher=org.publisher)
 
@@ -1674,70 +1614,12 @@ class OrganisationStats:
         }
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<OrganisationStats %r datasets=%d>" % (self.name, self.dataset_count)
+        return "<Publisher %r datasets=%d>" % (self.name, self.dataset_count)
 
 
 # --- search results ---------------------------------------------------------
 
 
-class FacetValue:
-    """One value of a facet, with its count."""
-
-    __slots__ = ("name", "count", "valueString")
-
-    def __init__(self, name: str, count: int, value_string: Optional[str] = None) -> None:
-        self.name = name
-        self.count = count
-        self.valueString = value_string
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<FacetValue %s=%d>" % (self.name, self.count)
-
-
-class Facet:
-    """A facet field and its values, as returned by ``facetFields``."""
-
-    __slots__ = ("name", "values", "predicate", "type")
-
-    def __init__(
-        self,
-        name: str,
-        values: Sequence[FacetValue],
-        predicate: Optional[str] = None,
-        facet_type: Optional[str] = None,
-    ) -> None:
-        self.name = name
-        self.values = list(values)
-        self.predicate = predicate
-        self.type = facet_type
-
-    def as_dict(self) -> Dict[str, int]:
-        """``{value: count}``."""
-        return {v.name: v.count for v in self.values}
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "values": [{"value": v.name, "count": v.count} for v in self.values],
-        }
-
-    @classmethod
-    def from_json(cls, data: Mapping[str, Any]) -> "Facet":
-        values = [
-            FacetValue(v.get("name", ""), int(v.get("count", 0)), v.get("valueString"))
-            for v in data.get("values") or []
-        ]
-        return cls(data.get("name", ""), values, data.get("predicate"), data.get("type"))
-
-    def __iter__(self) -> Iterator[FacetValue]:
-        return iter(self.values)
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Facet %s values=%d>" % (self.name, len(self.values))
-
-
-#: The order a breakdown reports its filters in: who published it, what it is
-#: about, then how you can get it.
 BREAKDOWN_FILTERS = ("publisher", "publisher_type", "theme", "keyword",
                      "format", "license", "access_rights", "updated",
                      "language", "place")
@@ -1915,7 +1797,7 @@ class SearchPage(_ABCSequence):
         total: int,
         offset: int,
         limit: int,
-        facets: Sequence[Facet] = (),
+        facets: Sequence[Any] = (),
         raw: Optional[Mapping[str, Any]] = None,
         client: Any = None,
         params: Optional[Mapping[str, Any]] = None,
@@ -1956,18 +1838,11 @@ class SearchPage(_ABCSequence):
             "count": len(self.entries),
             "has_more": self.has_more,
             "results": [entry.to_dict() for entry in self.entries],
-            "facets": {facet.name: facet.as_dict() for facet in self.facets},
         }
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """:meth:`to_dict` rendered as a JSON string."""
         return _json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
-
-    def facet(self, name: str) -> Optional[Facet]:
-        for facet in self.facets:
-            if facet.name == name:
-                return facet
-        return None
 
     def next_page(self) -> Optional["SearchPage"]:
         """Fetch the following page, or ``None`` when exhausted."""
@@ -1999,13 +1874,11 @@ def register_model(model: Type[Entry], *rdf_types: str) -> Type[Entry]:
 
 for _model in (
     Dataset,
-    DatasetSeries,
     Distribution,
     DataService,
     Catalog,
     Agent,
     ContactPoint,
-    Standard,
     LinkCheckReport,
     MetadataQuality,
     CatalogStatistics,

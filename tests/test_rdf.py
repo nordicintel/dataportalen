@@ -7,7 +7,6 @@ import json
 
 import pytest
 
-from dataportalen import BNode, Graph, Literal, URIRef
 from dataportalen.core import ParseError
 from dataportalen.rdf import (
     DCAT,
@@ -17,8 +16,12 @@ from dataportalen.rdf import (
     RDF,
     VOCABULARY,
     XSD,
+    BNode,
+    Graph,
+    Literal,
     Namespace,
     Types,
+    URIRef,
     Vocabulary,
     expand,
     parse_xsd,

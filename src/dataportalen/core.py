@@ -2,7 +2,7 @@
 
 The plumbing everything else sits on: the package version, the exception
 hierarchy, the ``dataportalen`` logger and progress reporting, and the three
-HTTP transports (requests, httpx, stdlib urllib).
+the HTTP transport.
 """
 
 from __future__ import annotations
@@ -10,13 +10,9 @@ from __future__ import annotations
 import gzip
 import json
 import logging
-import socket
-import ssl
 import sys
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import zlib
 from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 
@@ -24,7 +20,7 @@ from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 # version: The package version, in one place.
 # ==========================================================================
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 
 # ==========================================================================
@@ -345,100 +341,6 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return data
 
 
-class UrllibTransport(BaseTransport):
-    """Standard-library transport -- no third-party dependency required."""
-
-    def __init__(self, ssl_context: Optional[ssl.SSLContext] = None) -> None:
-        self._opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl_context)
-            if ssl_context
-            else urllib.request.HTTPSHandler()
-        )
-
-    def _open(
-        self,
-        method: str,
-        url: str,
-        headers: Optional[Mapping[str, str]],
-        timeout: Optional[float],
-    ):
-        request = urllib.request.Request(url, method=method.upper())
-        for key, value in (headers or {}).items():
-            request.add_header(key, value)
-        try:
-            return self._opener.open(request, timeout=timeout)
-        except urllib.error.HTTPError as exc:
-            return exc  # HTTPError is itself a readable response object
-        except socket.timeout as exc:
-            raise TimeoutError("request to %s timed out" % url) from exc
-        except urllib.error.URLError as exc:
-            if isinstance(exc.reason, socket.timeout):
-                raise TimeoutError("request to %s timed out" % url) from exc
-            raise TransportError("request to %s failed: %s" % (url, exc.reason)) from exc
-        except OSError as exc:
-            raise TransportError("request to %s failed: %s" % (url, exc)) from exc
-
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        timeout: Optional[float] = None,
-    ) -> Response:
-        raw = self._open(method, url, headers, timeout)
-        try:
-            body = raw.read()
-        except socket.timeout as exc:
-            raise TimeoutError("reading %s timed out" % url) from exc
-        except OSError as exc:
-            raise TransportError("reading %s failed: %s" % (url, exc)) from exc
-        finally:
-            try:
-                raw.close()
-            except Exception:  # pragma: no cover - best effort
-                pass
-        response_headers = dict(raw.headers.items()) if raw.headers else {}
-        body = _decompress(body, response_headers.get("Content-Encoding", ""))
-        status = getattr(raw, "status", None) or getattr(raw, "code", 0)
-        return Response(int(status), response_headers, body, getattr(raw, "url", url))
-
-    def stream(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        timeout: Optional[float] = None,
-        chunk_size: int = 1 << 16,
-    ) -> Tuple[int, Mapping[str, str], Iterator[bytes]]:
-        # Compressed streams would need incremental inflation; ask for identity.
-        merged = dict(headers or {})
-        merged["Accept-Encoding"] = "identity"
-        raw = self._open(method, url, merged, timeout)
-        response_headers = dict(raw.headers.items()) if raw.headers else {}
-        status = int(getattr(raw, "status", None) or getattr(raw, "code", 0))
-
-        def chunks() -> Iterator[bytes]:
-            try:
-                while True:
-                    chunk = raw.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-            except socket.timeout as exc:
-                raise TimeoutError("reading %s timed out" % url) from exc
-            except OSError as exc:
-                raise TransportError("reading %s failed: %s" % (url, exc)) from exc
-            finally:
-                try:
-                    raw.close()
-                except Exception:  # pragma: no cover - best effort
-                    pass
-
-        return status, response_headers, chunks()
-
-
 class RequestsTransport(BaseTransport):
     """Transport backed by :mod:`requests` (connection pooling, keep-alive)."""
 
@@ -500,127 +402,13 @@ class RequestsTransport(BaseTransport):
             self._session.close()
 
 
-class HttpxTransport(BaseTransport):
-    """Transport backed by :mod:`httpx` (HTTP/2-capable, pooled)."""
-
-    def __init__(self, client: Any = None, **client_kwargs: Any) -> None:
-        import httpx  # a declared dependency; always present
-
-        self._httpx = httpx
-        client_kwargs.setdefault("follow_redirects", True)
-        self._client = client or httpx.Client(**client_kwargs)
-        self._owns_client = client is None
-
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        timeout: Optional[float] = None,
-    ) -> Response:
-        try:
-            resp = self._client.request(
-                method.upper(), url, headers=dict(headers or {}), timeout=timeout
-            )
-        except self._httpx.TimeoutException as exc:
-            raise TimeoutError("request to %s timed out" % url) from exc
-        except self._httpx.HTTPError as exc:
-            raise TransportError("request to %s failed: %s" % (url, exc)) from exc
-        return Response(resp.status_code, dict(resp.headers), resp.content, str(resp.url))
-
-    def stream(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        timeout: Optional[float] = None,
-        chunk_size: int = 1 << 16,
-    ) -> Tuple[int, Mapping[str, str], Iterator[bytes]]:
-        manager = self._client.stream(
-            method.upper(), url, headers=dict(headers or {}), timeout=timeout
-        )
-        try:
-            resp = manager.__enter__()
-        except self._httpx.TimeoutException as exc:
-            raise TimeoutError("request to %s timed out" % url) from exc
-        except self._httpx.HTTPError as exc:
-            raise TransportError("request to %s failed: %s" % (url, exc)) from exc
-
-        def chunks() -> Iterator[bytes]:
-            try:
-                for chunk in resp.iter_bytes(chunk_size):
-                    if chunk:
-                        yield chunk
-            finally:
-                manager.__exit__(None, None, None)
-
-        return resp.status_code, dict(resp.headers), chunks()
-
-    def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
-
-
-class AsyncHttpxTransport:
-    """Asynchronous transport backed by :mod:`httpx`."""
-
-    def __init__(self, client: Any = None, **client_kwargs: Any) -> None:
-        import httpx  # a declared dependency; always present
-
-        self._httpx = httpx
-        client_kwargs.setdefault("follow_redirects", True)
-        self._client = client or httpx.AsyncClient(**client_kwargs)
-        self._owns_client = client is None
-
-    async def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        timeout: Optional[float] = None,
-    ) -> Response:
-        try:
-            resp = await self._client.request(
-                method.upper(), url, headers=dict(headers or {}), timeout=timeout
-            )
-        except self._httpx.TimeoutException as exc:
-            raise TimeoutError("request to %s timed out" % url) from exc
-        except self._httpx.HTTPError as exc:
-            raise TransportError("request to %s failed: %s" % (url, exc)) from exc
-        return Response(resp.status_code, dict(resp.headers), resp.content, str(resp.url))
-
-    def stream(self, method: str, url: str, **kwargs: Any) -> Any:
-        """Return httpx's own async streaming context manager."""
-        headers = dict(kwargs.pop("headers", None) or {})
-        return self._client.stream(method.upper(), url, headers=headers, **kwargs)
-
-    async def aclose(self) -> None:
-        if self._owns_client:
-            await self._client.aclose()
-
-    async def __aenter__(self) -> "AsyncHttpxTransport":
-        return self
-
-    async def __aexit__(self, *exc: Any) -> None:
-        await self.aclose()
-
-
 def default_transport() -> BaseTransport:
     """The default synchronous transport.
 
-    Always ``requests``: it is a declared dependency, so this is predictable
-    rather than dependent on what else happens to be installed. Pass
-    ``transport=HttpxTransport()`` to the client for HTTP/2.
+    ``requests``, the one dependency. Pass ``transport=`` your own
+    :class:`BaseTransport` if you need something else.
     """
     return RequestsTransport()
-
-
-def default_async_transport() -> AsyncHttpxTransport:
-    """The async transport; requires ``httpx``."""
-    return AsyncHttpxTransport()
 
 
 def sleep(seconds: float) -> None:
@@ -643,11 +431,7 @@ __all__ = [
     "progress_reporter",
     "Response",
     "BaseTransport",
-    "UrllibTransport",
     "RequestsTransport",
-    "HttpxTransport",
-    "AsyncHttpxTransport",
     "default_transport",
-    "default_async_transport",
     "build_url",
 ]

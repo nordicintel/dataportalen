@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import gzip
 import io
-import json
 import logging
 from urllib.parse import parse_qs, urlparse
 
@@ -16,7 +14,6 @@ from dataportalen.core import (
     BaseTransport,
     ParseError,
     Response,
-    UrllibTransport,
     _duration,
     _TerminalProgress,
     build_url,
@@ -71,24 +68,6 @@ def test_response_raises_parse_error_on_non_json():
     with pytest.raises(ParseError):
         response.json()
 
-
-def test_urllib_transport_decompresses_gzip(monkeypatch):
-    payload = gzip.compress(json.dumps({"ok": True}).encode())
-
-    class FakeRaw:
-        status = 200
-        url = "https://x.se/a"
-        headers = {"Content-Encoding": "gzip", "Content-Type": "application/json"}
-
-        def read(self, *args):
-            return payload
-
-        def close(self):
-            pass
-
-    transport = UrllibTransport()
-    monkeypatch.setattr(transport, "_open", lambda *a, **k: FakeRaw())
-    assert transport.request("GET", "https://x.se/a").json() == {"ok": True}
 
 
 def test_default_transport_is_usable():

@@ -13,8 +13,7 @@ Everything here is ordinary Python. You ask for datasets, you get dictionaries.
 9. [Other things in the registry](#other-things-in-the-registry)
 10. [Settings](#settings)
 11. [When something goes wrong](#when-something-goes-wrong)
-12. [Async](#async)
-13. [Going deeper](#going-deeper)
+12. [Going deeper](#going-deeper)
 
 ## Connect
 
@@ -115,7 +114,7 @@ than an error.
 | | |
 | --- | --- |
 | The catalogue | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()`, and every breakdown |
-| The registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `standards()`, statistics, link checks, quality scores, `lookup()`/`entry()` for RDF, and `search(Q...)` for a raw index query |
+| The registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `publishers()`, nightly statistics, link checks, quality scores, `lookup()`/`entry()` for the RDF, `search(Q...)` for a raw index query |
 
 The file holds datasets with their distributions, publisher and contacts
 nested inside them — so dataset search, and everything counted from it, never
@@ -304,50 +303,91 @@ the file.)
 
 ## What a dataset looks like
 
-Every search result, and every dataset you fetch, is one of these:
+Every search result, and every dataset you fetch, is the same dictionary —
+21 keys, all of them here:
 
 ```json
 {
-    "uri": "https://example.org/data/roads",
-    "title": "Vägtrafiknät",
-    "description": "Nationell vägdatabas ...",
-    "keywords": ["vägnät", "trafik"],
-    "themes": ["transport"],
-    "license": "cc_by_4_0",
-    "access_rights": "public",
-    "accrual_periodicity": "annual",
-    "languages": ["swedish"],
-    "publisher": {
-        "name": "Trafikverket",
-        "type": "national_authority",
-        "identifiers": ["2021006297"]
-    },
-    "issued": "2020-03-04",
-    "distributions": [
-        {
-            "title": "Vägnät CSV",
-            "download_url": ["https://...csv"],
-            "format": "csv"
-        }
-    ],
-    "contact_points": [{ "name": "Datasupport", "email": "data@example.org" }]
+  "uri": "https://example.org/data/roads",
+  "context_id": "50",
+  "entry_id": "28672",
+
+  "title": "Vägtrafiknät",
+  "description": "Nationell vägdatabas ...",
+  "keywords": ["vägnät", "trafik"],
+  "identifier": "NVDB-2020",
+  "landing_page": "https://example.org/roads",
+
+  "themes": ["transport"],
+  "license": "cc_by_4_0",
+  "access_rights": "public",
+  "accrual_periodicity": "annual",
+  "languages": ["swedish"],
+  "spatial": ["kingdom_of_sweden"],
+
+  "issued": "2020-03-04",
+  "modified": "2024-05-06T09:00:00+02:00",
+  "temporal": {"start": "2015-01-01", "end": "2024-12-31"},
+
+  "publisher": {
+    "name": "Trafikverket",
+    "type": "national_authority",
+    "identifiers": ["2021006297"],
+    "email": "data@trafikverket.se",
+    "homepage": "https://trafikverket.se",
+    "uri": "http://dataportal.se/organisation/SE2021006297",
+    "context_id": "1", "entry_id": "5"
+  },
+  "creator_uris": [],
+  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}],
+
+  "distributions": [
+    {"title": "Vägnät CSV",
+     "download_url": ["https://...csv"],
+     "access_url": [],
+     "format": "csv",
+     "license": "cc_by_4_0",
+     "availability": "stable"}
+  ]
 }
 ```
 
-Strings are strings — in the language you asked the client for.
+Anything the publisher left out is `null` or `[]`, never missing. Measured
+over the whole catalogue, how often each is actually filled: `title`,
+`publisher` and `license` 100%, `keywords` 95%, `distributions` 93%,
+`modified` 89%, `themes` 78%, `contact_points` 64%, `identifier` 61%,
+`landing_page` 56%, `issued` 42%, `spatial` and `temporal` 19%.
 
-Two things worth knowing:
+Four things worth knowing:
 
-**Everything from a fixed list of options is one short English word.** `themes`,
-`license`, `access_rights`, `languages`, the publisher's `type` — these come
-from standard vocabularies, and this package gives you `"transport"` rather than
-the web address the registry actually publishes. The same word works as a
-filter, which is the point. They stay English whatever language you chose,
-because `"annual"` is more useful to build on than _årligen_.
+**The filter is singular, the field is plural.** You search `theme="transport"`
+and read `dataset["themes"]`. Four of them differ this way:
+
+| Filter | Field on the dataset |
+| --- | --- |
+| `theme=` | `themes` |
+| `language=` | `languages` |
+| `place=` | `spatial` |
+| `updated=` | `accrual_periodicity` |
+
+The rest — `publisher`, `license`, `access_rights`, `format`, `keyword` — read
+as you would guess. A breakdown is keyed by the *filter* name, because that is
+what you feed back in.
+
+**Everything from a fixed list of options is one short English word.**
+`themes`, `license`, `access_rights`, `languages`, the publisher's `type` —
+these come from standard vocabularies, and you get `"transport"` rather than
+the web address the registry publishes. The same word works as a filter, which
+is the point. They stay English whatever language you chose, because
+`"annual"` is more useful to build on than _årligen_.
 
 **The files live under `distributions`.** One entry per download the publisher
-offers, each with its own format and URL. `download_url` is the file itself;
-`access_url` is a page or service you go through to get it.
+offers. `download_url` is the file itself; `access_url` is a page or service
+you go through to get it. Both are lists, because publishers give more than
+one often enough that a scalar would lie.
+
+**`modified` is the publisher's date**, matching the `updated_after` filter —
+useful for "what changed since I last looked". `issued` is first publication.
 
 It is a plain dictionary, so `json.dumps` it, put a list of them in a
 dataframe, or pull out what you need.
@@ -416,27 +456,15 @@ catalog.datasets().breakdown["keyword"]   # what the registry cannot count
 `download=False` is for a program that must not reach the network: a missing
 file then raises instead of fetching 58 MB.
 
-### Where local and live results differ
-
-Two small differences, both in the file's favour:
-
-- `text=` is a plain substring match here, so it finds a few more than the
-  registry's word-based index does.
-- `published_after=` compares the dataset's own date. The registry's index
-  covers every date in the entry including each distribution's, so it returns
-  datasets whose *distributions* are recent even when the dataset is from 2013.
-
-Everything else matches: transport 545 either way, `access_rights="public"`
-17,682, `publisher="trafikverket"` 338.
-
 ## Other things in the registry
 
-**Who publishes what.** `dp.organisations()` lists every publisher with its
-dataset count, biggest first:
+**Every publisher, with the registry's own count.** `dp.publishers()` is the
+one list the file cannot give you, because the registry counts differently
+from your copy:
 
 ```python
-for org in dp.organisations()[:3]:
-    print(org.dataset_count, org.publisher, "-", org.name)
+for row in dp.publishers()[:3]:
+    print(row.dataset_count, row.publisher, "-", row.name)
 ```
 
 ```text
@@ -445,41 +473,28 @@ for org in dp.organisations()[:3]:
 2248 goteborgs_universitet - Göteborgs universitet
 ```
 
-`org.publisher` is the value you filter with, so a listing leads straight into a
-search:
+`row.publisher` is the value you filter with, so a listing leads straight into
+a search. The counts come from a chart the registry rebuilds nightly, so they
+run slightly ahead of your copy — `dp.datasets(limit=0).breakdown["publisher"]`
+is the same list counted over the file. `dp.registry_totals()` gives the
+whole-registry numbers.
+
+**The other entity types.** Datasets are what the catalogue holds; these are
+searched live, take the same filters, and return the same dicts:
 
 ```python
-biggest = dp.organisations()[0]
-page = dp.datasets(publisher=biggest.publisher)
-```
-
-The counts come from a chart the registry rebuilds nightly, so they can be a
-little ahead of what a search returns today. `org.to_dict()` gives you the same
-four fields as a dictionary, and `dp.organisation_summary()` gives registry-wide
-totals.
-
-```python
-dataset["publisher"]        # the organisation behind one dataset, inline
-```
-
-Beyond datasets, the registry publishes catalogues (a publisher's collection),
-data services (APIs rather than files), and dataset series. Each has its own
-search, taking the same filters:
-
-```python
-dp.catalogs()
-dp.data_services()
-dp.dataset_series()
-dp.distributions()
+dp.distributions()          # the files, as entries in their own right
+dp.data_services()          # APIs rather than files
+dp.catalogs()               # one per harvested source
 dp.agents()                 # organisations and people
 ```
 
-And some housekeeping data the registry produces about itself:
+**What the registry says about itself:**
 
 ```python
 dp.catalog_statistics(limit=30)  # dataset counts per night, newest first
-dp.link_check_reports()          # which download links still work
-dp.metadata_quality()           # the registry's own quality scores
+dp.link_check_reports()          # which download links still resolve
+dp.metadata_quality()            # the registry's own DCAT-AP quality scores
 ```
 
 ## Settings
@@ -536,28 +551,6 @@ index nightly, so data can be up to a day behind what a publisher has actually
 published; and result counts are estimates, as described under
 [how much comes back](#how-much-comes-back).
 
-## Async
-
-If your program is already async, use `AsyncDataportal`. Same method names,
-same arguments:
-
-```python
-import asyncio
-from dataportalen import AsyncDataportal
-
-async def main():
-    async with AsyncDataportal() as dp:
-        page = await dp.datasets(theme="transport", limit=10)
-        async for dataset in dp.iter_datasets(limit=100):
-            print(dataset["title"])
-
-asyncio.run(main())
-```
-
-Requests are awaited and the loops are `async for`; the results are the same
-dicts. The async client always asks the registry — a local catalogue is a
-file, and reading a file is not what `await` is for.
-
 ## Going deeper
 
 Skip this section unless a plain dictionary is genuinely not enough.
@@ -595,8 +588,8 @@ from dataportalen import Q
 dp.search(Q.text("cykel") & ~Q.tag("historisk"))   # returns model objects
 ```
 
-`search()` is the only search that hands back models rather than dicts, and it
-always asks the registry.
+`search()` is the only search that hands back model objects rather than dicts,
+and it always asks the registry.
 
 Combine with `&` (and), `|` (or) and `~` (not). `Q.raw("...")` passes a
 fragment through untouched if you know the query language.
@@ -610,17 +603,14 @@ dp.datasets(query="title.en:*")      # a raw index query, as above
 
 dp.lookup("https://...")             # any entry, whatever type it turns out to be
 dp.lookup_many([...])                # several at once, batched into few requests
-dp.standards()                       # the standards datasets declare conformance to
-dp.context_names()                   # catalogue number -> catalogue title
-dp.context_publishers()              # catalogue number -> publisher
-dp.download_dump("all.rdf")          # the registry's nightly RDF file, streamed
+dp.count(Q.rdf_type(DCAT.Dataset))   # count anything Q can express
+dp.download_catalog("mine.jsonl")    # a copy where you want it
 
 Dataportal(
-    base_url="https://admin.dataportal.se",  # point at another EntryStore registry
+    base_url="https://admin.dataportal.se",  # another EntryStore registry
     public_only=True,                        # only entries the public can read
-    default_sort="modified desc",            # default ordering for searches
     cache_size=512,                          # how many lookups to remember
-    transport=None,                          # the HTTP library to use
+    transport=None,                          # your own BaseTransport
 )
 ```
 

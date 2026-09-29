@@ -61,16 +61,13 @@ from .models import (
     ContactPoint,
     DataService,
     Dataset,
-    DatasetSeries,
     Distribution,
     Entry,
-    Facet,
     LinkCheckReport,
     MetadataQuality,
-    OrganisationStats,
+    Publisher,
     Results,
     SearchPage,
-    Standard,
     ValueCount,
     language_preference,
     wrap_entry,
@@ -101,8 +98,6 @@ from .rdf import (
 #: The registry that backs dataportal.se.
 DEFAULT_BASE_URL = "https://admin.dataportal.se"
 
-#: Nightly RDF/XML dump of every dataset, per DCAT-AP-SE 2.0.0.
-DUMP_URL = "https://admin.dataportal.se/all.rdf"
 
 #: The Solr index caps a page at 100 entries.
 MAX_LIMIT = 100
@@ -453,13 +448,11 @@ class Dataportal:
             wrap_entry(child, client=self, languages=self.languages, default=model)
             for child in children
         ]
-        facets = [Facet.from_json(f) for f in (data.get("facetFields") or [])]
         return SearchPage(
             entries=entries,
             total=int(data.get("results", len(entries)) or 0),
             offset=int(data.get("offset", 0) or 0),
             limit=int(data.get("limit", len(entries)) or 0),
-            facets=facets,
             raw=data,
             client=self,
             params=params,
@@ -517,29 +510,6 @@ class Dataportal:
         """Estimated number of matches (Solr's count, see the docs' caveat)."""
         data = self.search_raw(query, limit=1, offset=0, sort=None, **kwargs)
         return int(data.get("results", 0) or 0)
-
-    def facet(
-        self,
-        field: str,
-        query: Union[str, Q, None] = None,
-        *,
-        limit: int = 100,
-        min_count: int = 1,
-        matches: Optional[str] = None,
-        **kwargs: Any,
-    ) -> Facet:
-        """Count distinct values of one indexed field."""
-        page = self.search(
-            query,
-            limit=1,
-            sort=None,
-            facet_fields=[field],
-            facet_limit=limit,
-            facet_min_count=min_count,
-            facet_matches=matches,
-            **kwargs,
-        )
-        return page.facet(field) or Facet(field, [])
 
     # -- single entries ----------------------------------------------------
 
@@ -879,16 +849,6 @@ class Dataportal:
         found = self.entry(context_id, entry_id, recursive=recursive, model=Dataset)
         return found.to_dict() if found is not None else None
 
-    def datasets_in_context(
-        self,
-        context_id: Union[str, int],
-        *,
-        limit: Optional[int] = None,
-        page_size: int = MAX_LIMIT,
-    ) -> Iterator[Dataset]:
-        """Every dataset harvested into one catalog context."""
-        return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
-
     def distributions(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
     ) -> Results:
@@ -903,17 +863,6 @@ class Dataportal:
             model=Distribution, limit=limit, offset=offset,
         ))
 
-    def iter_distributions(
-        self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Dict[str, Any]]:
-        """Every match, as dicts, across as many pages as it takes."""
-        return (
-            entry.to_dict()
-            for entry in self.iter_search(
-                self._entity_query(DCAT.Distribution, **filters), model=Distribution, limit=limit
-            )
-        )
-
     def data_services(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
     ) -> Results:
@@ -926,31 +875,6 @@ class Dataportal:
         return _as_results(self.search(
             self._entity_query(DCAT.DataService, **filters),
             model=DataService, limit=limit, offset=offset,
-        ))
-
-    def iter_data_services(
-        self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Dict[str, Any]]:
-        """Every match, as dicts, across as many pages as it takes."""
-        return (
-            entry.to_dict()
-            for entry in self.iter_search(
-                self._entity_query(DCAT.DataService, **filters), model=DataService, limit=limit
-            )
-        )
-
-    def dataset_series(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search dataset series (``dcat:DatasetSeries``). Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(DCAT.DatasetSeries, **filters),
-            model=DatasetSeries, limit=limit, offset=offset,
         ))
 
     def catalogs(
@@ -969,17 +893,6 @@ class Dataportal:
             model=Catalog, limit=limit, offset=offset,
         ))
 
-    def iter_catalogs(
-        self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Dict[str, Any]]:
-        """Every match, as dicts, across as many pages as it takes."""
-        return (
-            entry.to_dict()
-            for entry in self.iter_search(
-                self._entity_query(DCAT.Catalog, **filters), model=Catalog, limit=limit
-            )
-        )
-
     def agents(
         self, *, limit: int = 50, offset: int = 0, **filters: Any
     ) -> Results:
@@ -994,55 +907,37 @@ class Dataportal:
             model=Agent, limit=limit, offset=offset,
         ))
 
-    def iter_agents(
-        self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Dict[str, Any]]:
-        """Every match, as dicts, across as many pages as it takes."""
-        return (
-            entry.to_dict()
-            for entry in self.iter_search(
-                self._entity_query(FOAF.Agent, **filters), model=Agent, limit=limit
-            )
-        )
-
     def agent(self, uri: str) -> Optional[Agent]:
         """Look up one agent (e.g. a dataset's ``dcterms:publisher``)."""
         return self.lookup(uri, model=Agent)  # type: ignore[return-value]
 
-    def standards(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search standards datasets declare conformance to. Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(Types.STANDARD, **filters),
-            model=Standard, limit=limit, offset=offset,
-        ))
-
     # -- registry-wide statistics -----------------------------------------
 
-    def organisations(self) -> List[OrganisationStats]:
-        """Dataset counts per publishing organisation (``/charts/orgData.json``).
+    def publishers(self) -> List[Publisher]:
+        """Every publisher, with the registry's own dataset count.
 
-        Sorted by dataset count, descending, as the endpoint returns them.
+        Sorted biggest first. ``row.publisher`` is the value to filter with::
+
+            biggest = dp.publishers()[0]
+            dp.datasets(publisher=biggest.publisher)
+
+        The counts come from a chart the registry rebuilds nightly, so they
+        can run slightly ahead of what a search returns. For counts over your
+        own copy, use ``dp.datasets(limit=0).breakdown["publisher"]``.
         """
         data = self.get_json("/charts/orgData.json")
         labels = data.get("labels") or []
         values = data.get("values") or []
         series = (data.get("series") or [[]])[0]
-        out: List[OrganisationStats] = []
+        out: List[Publisher] = []
         for index, uri in enumerate(values):
             name = labels[index] if index < len(labels) else ""
             count = int(series[index]) if index < len(series) else 0
-            out.append(OrganisationStats(uri, name, count))
+            out.append(Publisher(uri, name, count))
         return out
 
-    def organisation_summary(self) -> Dict[str, int]:
-        """Registry totals that accompany the organisation chart."""
+    def registry_totals(self) -> Dict[str, int]:
+        """How many datasets, data services and publishers the registry holds."""
         data = self.get_json("/charts/orgData.json")
         return {
             "datasets": int(data.get("datasetCount", 0) or 0),
@@ -1105,46 +1000,6 @@ class Dataportal:
         )
         return list(page.entries)  # type: ignore[arg-type]
 
-    def context_names(self, *, limit: Optional[int] = None) -> Dict[str, str]:
-        """Map ``contextId`` to the catalog's title.
-
-        Each harvested organisation gets one context, so this is how a
-        ``contextId`` -- on any entry, or in
-        :attr:`~dataportalen.models.CatalogStatistics.datasets_per_context` --
-        becomes a readable name. For the publishing organisation itself,
-        follow a catalog's ``publisher_uri`` to an
-        :class:`~dataportalen.models.Agent`.
-        """
-        out: Dict[str, str] = {}
-        for catalog in self.iter_catalogs(limit=limit):
-            if catalog.get("context_id") and catalog.get("title"):
-                out[str(catalog["context_id"])] = catalog["title"]
-        return out
-
-    def context_publishers(self, *, limit: Optional[int] = None) -> Dict[str, str]:
-        """Map ``contextId`` to the publishing organisation's URI."""
-        out: Dict[str, str] = {}
-        for catalog in self.iter_catalogs(limit=limit):
-            publisher = (catalog.get("publisher") or {}).get("uri")
-            if catalog.get("context_id") and publisher:
-                out[str(catalog["context_id"])] = publisher
-        return out
-
-    def datasets_per_organisation(self, *, day: int = 0) -> List[Tuple[str, str, int]]:
-        """``(contextId, organisation name, dataset count)`` for one day.
-
-        ``day=0`` is the newest snapshot, ``day=1`` the one before it, and so
-        on. Contexts with no known name keep an empty name.
-        """
-        stats = self.catalog_statistics(limit=1, offset=day)
-        if not stats:
-            return []
-        names = self.context_names()
-        counts = stats[0].datasets_per_context
-        rows = [(ctx, names.get(ctx, ""), count) for ctx, count in counts.items()]
-        rows.sort(key=lambda row: row[2], reverse=True)
-        return rows
-
     # -- the whole catalogue -----------------------------------------------
 
     def download_catalog(
@@ -1154,55 +1009,16 @@ class Dataportal:
         workers: int = 8,
         limit: Optional[int] = None,
         progress: Any = "auto",
-    ) -> Any:
+    ) -> "CatalogSummary":
         """Download every dataset to ``path`` as JSONL; returns a summary.
 
-        One self-contained JSON object per line, distributions, publisher and
-        contact points nested. See :func:`dataportalen.download_catalog`.
+        One self-contained JSON object per line. This is what the client does
+        for itself on a first search; call it directly to put a copy
+        somewhere of your own. See :func:`dataportalen.download_catalog`.
         """
         return download_catalog(
             path, workers=workers, limit=limit, progress=progress, client=self
         )
-
-    # -- the nightly dump --------------------------------------------------
-
-    def iter_dump(self, *, chunk_size: int = 1 << 20, url: str = DUMP_URL) -> Iterator[bytes]:
-        """Stream the nightly RDF/XML dump of every dataset.
-
-        The dump is the only place where related entities (distributions,
-        publishers, contacts) arrive alongside their datasets in one document.
-        It is large -- hundreds of megabytes -- so this never buffers it.
-        """
-        status, headers, chunks = self._transport.stream(
-            "GET", url, headers=self._headers("application/rdf+xml"), timeout=self.timeout,
-            chunk_size=chunk_size,
-        )
-        if not 200 <= status < 300:
-            body = b"".join(chunks)[:2048].decode("utf-8", "replace")
-            raise HTTPError("dump download failed", status=status, url=url, body=body,
-                            headers=headers)
-        return chunks
-
-    def download_dump(
-        self,
-        destination: str,
-        *,
-        chunk_size: int = 1 << 20,
-        url: str = DUMP_URL,
-        progress: Optional[Callable[[int], None]] = None,
-    ) -> str:
-        """Save the nightly dump to ``destination``; returns the path.
-
-        ``progress`` is called with the cumulative byte count after each chunk.
-        """
-        total = 0
-        with open(destination, "wb") as handle:
-            for chunk in self.iter_dump(chunk_size=chunk_size, url=url):
-                handle.write(chunk)
-                total += len(chunk)
-                if progress is not None:
-                    progress(total)
-        return destination
 
 
 def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
@@ -1666,7 +1482,6 @@ __all__ = [
     "LocalCatalog",
     "Dataportal",
     "DEFAULT_BASE_URL",
-    "DUMP_URL",
     "download_catalog",
     "CatalogSummary",
 ]

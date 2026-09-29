@@ -226,11 +226,6 @@ class Q:
         return cls("", atomic=True)
 
     @classmethod
-    def all(cls) -> "Q":
-        """Match everything."""
-        return cls("*:*", atomic=True)
-
-    @classmethod
     def term(cls, field: str, value: Any, escape_value: bool = True) -> "Q":
         """``field:value`` with escaping."""
         text = value if isinstance(value, str) else str(value)
@@ -290,11 +285,6 @@ class Q:
         return cls("public:%s" % ("true" if value else "false"))
 
     @classmethod
-    def uri(cls, *uris: str) -> "Q":
-        """Match on the entry URI."""
-        return cls.any_of("uri", uris) if len(uris) != 1 else cls("uri:%s" % escape_uri(uris[0]))
-
-    @classmethod
     def resource(cls, *uris: str) -> "Q":
         """Match on the resource URI -- how you look up a dataset by its own URI."""
         if len(uris) == 1:
@@ -307,10 +297,6 @@ class Q:
         if len(context_uris) == 1:
             return cls("context:%s" % escape_uri(context_uris[0]))
         return cls.any_of("context", context_uris)
-
-    @classmethod
-    def context_name(cls, name: str) -> "Q":
-        return cls("contextname:%s" % escape(name))
 
     @classmethod
     def title(cls, value: str, lang: Optional[str] = None) -> "Q":
@@ -327,60 +313,6 @@ class Q:
         """Match a literal keyword (``dcat:keyword``, ``dcterms:subject``, ...)."""
         field = "tag.literal.%s" % lang if lang else "tag.literal"
         return cls("%s:%s" % (field, escape(value)))
-
-    @classmethod
-    def tag_uri(cls, *uris: str) -> "Q":
-        """Match a keyword given as a URI (e.g. a EuroVoc concept)."""
-        if len(uris) == 1:
-            return cls("tag.uri:%s" % escape_uri(uris[0]))
-        return cls.any_of("tag.uri", uris)
-
-    @classmethod
-    def creator(cls, uri: str) -> "Q":
-        return cls("creator:%s" % escape_uri(uri))
-
-    @classmethod
-    def contributor(cls, uri: str) -> "Q":
-        return cls("contributors:%s" % escape_uri(uri))
-
-    @classmethod
-    def graph_type(cls, value: str) -> "Q":
-        """``Context``, ``List``, ``PipelineResult``, ``None``, ...
-
-        The index stores these capitalised and matches exactly, so
-        ``graph_type("list")`` would otherwise silently find nothing.
-        """
-        return cls("graphType:%s" % escape(_envelope_value(value, _GRAPH_TYPES)))
-
-    @classmethod
-    def entry_type(cls, value: str) -> "Q":
-        """``Local``, ``Link``, ``LinkReference`` or ``Reference``."""
-        return cls("entryType:%s" % escape(_envelope_value(value, _ENTRY_TYPES)))
-
-    @classmethod
-    def resource_type(cls, value: str) -> "Q":
-        """``InformationResource``, ``NamedResource``, ``Unknown``, ..."""
-        return cls("resourceType:%s" % escape(_envelope_value(value, _RESOURCE_TYPES)))
-
-    @classmethod
-    def created(cls, start: Optional[_DateLike] = None, end: Optional[_DateLike] = None) -> "Q":
-        return cls.range("created", start, end)
-
-    @classmethod
-    def modified(cls, start: Optional[_DateLike] = None, end: Optional[_DateLike] = None) -> "Q":
-        return cls.range("modified", start, end)
-
-    @classmethod
-    def object_literal(cls, value: str) -> "Q":
-        """Any string literal anywhere in the metadata."""
-        return cls("metadata.object.literal:%s" % escape(value))
-
-    @classmethod
-    def object_uri(cls, uri: str) -> "Q":
-        """Any object URI anywhere in the metadata (e.g. the publisher)."""
-        return cls("metadata.object.uri:%s" % escape_uri(uri))
-
-    # -- predicate/object pairs -------------------------------------------
 
     @classmethod
     def predicate(
@@ -417,13 +349,6 @@ class Q:
     ) -> "Q":
         """Range query over a predicate's ``date``/``integer``/``decimal`` index."""
         return cls.range(predicate_field(predicate, kind), start, end)
-
-    @classmethod
-    def predicate_exists(cls, predicate: str, kind: str = "literal") -> "Q":
-        """Entries that have the predicate at all."""
-        return cls("%s:[* TO *]" % predicate_field(predicate, kind), atomic=True)
-
-    # -- DCAT-AP-SE conveniences ------------------------------------------
 
     @classmethod
     def publisher(cls, *uris: str) -> "Q":
@@ -465,23 +390,8 @@ class Q:
         return cls.join(parts, "OR")
 
     @classmethod
-    def media_type(cls, *uris: str) -> "Q":
-        field = predicate_field("http://www.w3.org/ns/dcat#mediaType", "uri")
-        if len(uris) == 1:
-            return cls("%s:%s" % (field, escape_uri(uris[0])))
-        return cls.any_of(field, uris)
-
-    @classmethod
     def accrual_periodicity(cls, *uris: str) -> "Q":
         field = predicate_field("http://purl.org/dc/terms/accrualPeriodicity", "uri")
-        if len(uris) == 1:
-            return cls("%s:%s" % (field, escape_uri(uris[0])))
-        return cls.any_of(field, uris)
-
-    @classmethod
-    def hvd_category(cls, *uris: str) -> "Q":
-        """High-value dataset category (``dcatap:hvdCategory``)."""
-        field = predicate_field("http://data.europa.eu/r5r/hvdCategory", "uri")
         if len(uris) == 1:
             return cls("%s:%s" % (field, escape_uri(uris[0])))
         return cls.any_of(field, uris)

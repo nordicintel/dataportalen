@@ -12,8 +12,8 @@ import json
 import pytest
 
 from conftest import load_fixture
-from dataportalen import Dataset, Distribution
-from dataportalen.models import wrap_entry
+from dataportalen import Dataset
+from dataportalen.models import Distribution, wrap_entry
 
 
 @pytest.fixture
@@ -166,7 +166,6 @@ def test_search_page_serializes_whole(client, transport, search_response):
     assert out["total"] == search_response["results"]
     assert out["count"] == len(page)
     assert len(out["results"]) == len(page)
-    assert isinstance(out["facets"], dict)
     assert json.loads(page.to_json())["total"] == out["total"]
 
 
@@ -202,9 +201,9 @@ def test_near_empty_fields_are_dropped(dataset):
                  "source_uris", "in_series_uris", "is_part_of_uris",
                  "temporal_resolution", "spatial_resolution_in_meters"):
         assert gone not in out, gone
-    # The ones worth keeping are still there.
-    for kept in ("applicable_legislation", "documentation", "conforms_to"):
-        assert kept in out, kept
+    # These went the same way: ~97% empty, by the rule the docstring states.
+    for gone in ("applicable_legislation", "documentation", "conforms_to"):
+        assert gone not in out, gone
 
 
 def test_the_dropped_fields_are_still_on_the_model(dataset):

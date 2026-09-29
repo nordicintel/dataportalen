@@ -20,7 +20,7 @@ classifiers = [
   "Topic :: Internet :: WWW/HTTP",
   "Typing :: Typed",
 ]
-dependencies = ["httpx>=0.24", "requests>=2.25"]
+dependencies = ["requests>=2.25"]
 
 [project.optional-dependencies]
 # Only tooling. Everything a user needs is a hard dependency.

@@ -1,36 +1,30 @@
-"""A Python wrapper for the Sveriges dataportal registry API.
+"""Sweden's open-data catalogue as plain Python dictionaries.
 
-``admin.dataportal.se`` runs EntryScape Registry on top of EntryStore and
-serves every dataset visible on dataportal.se, described with DCAT-AP-SE
-2.0.0. This package wraps its three shapes of access:
+The registry at ``dataportal.se`` describes its datasets in RDF, where every
+value is a web address. This package downloads the catalogue once and serves
+searches from that copy, in short lowercase names::
 
-* **Search** -- a Solr index over all entries (:meth:`Dataportal.search`,
-  :meth:`Dataportal.datasets`, ...).
-* **Single entries** -- by registry id or by the publisher's own URI
-  (:meth:`Dataportal.entry`, :meth:`Dataportal.lookup`).
-* **Operational data** -- nightly statistics, link checks, metadata quality
-  scores and the full RDF dump.
-
-Quick start::
-
-    from dataportalen import Dataportal, AsyncDataportal
+    from dataportalen import Dataportal
 
     with Dataportal() as dp:
-        page = dp.datasets(title="bidrag", limit=10)
-        print(page.total)
+        page = dp.datasets(theme="transport", format="csv")
+        print(page.total)                    # 72
+        print(page.breakdown["publisher"])   # who publishes them
         for dataset in page:
-            print(dataset.to_dict())
+            print(dataset["title"], dataset["distributions"])
+
+The first search downloads about 58 MB, once; every search after that is
+local and immediate. The registry itself is asked only for what the file
+does not hold: single entries as RDF, link checks, quality scores, nightly
+statistics.
 
 See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 """
 
 from __future__ import annotations
 
-from .aio import AsyncDataportal
 from .client import (
     DEFAULT_BASE_URL,
-    DUMP_URL,
-    MAX_LIMIT,
     CatalogSummary,
     Dataportal,
     LocalCatalog,
@@ -38,11 +32,9 @@ from .client import (
     download_catalog,
 )
 from .core import (
-    AsyncHttpxTransport,
     BaseTransport,
     DataportalError,
     HTTPError,
-    HttpxTransport,
     NotFoundError,
     ParseError,
     QueryError,
@@ -52,166 +44,43 @@ from .core import (
     ServerError,
     TimeoutError,
     TransportError,
-    UrllibTransport,
     enable_logging,
     logger,
 )
 from .core import __version__ as _version
 from .models import (
-    Agent,
     Breakdown,
-    Catalog,
-    CatalogStatistics,
-    Checksum,
-    ContactPoint,
-    DataService,
     Dataset,
-    DatasetSeries,
-    Distribution,
     Entry,
-    Facet,
-    FacetValue,
-    LinkCheckReport,
-    MetadataQuality,
-    OrganisationStats,
-    PeriodOfTime,
+    Publisher,
     Results,
-    SearchPage,
-    Standard,
     ValueCount,
-    register_model,
-    wrap_entry,
+    ValueList,
 )
-from .models import (
-    PeriodOfTime as Temporal,
-)
-from .query import Q, escape, escape_uri, predicate_field
-from .rdf import (
-    ADMS,
-    DCAT,
-    DCATAP,
-    DCTERMS,
-    ES,
-    ESCAPE,
-    FOAF,
-    OWL,
-    PROV,
-    RDF,
-    SKOS,
-    VCARD,
-    VOCABULARY,
-    BNode,
-    Graph,
-    Literal,
-    Node,
-    Resource,
-    Types,
-    URIRef,
-    Vocabulary,
-    expand,
-    known_publishers,
-    known_values,
-    label,
-    labels,
-    shorten,
-    slug_for,
-    slugify,
-    term,
-    terms,
-)
+from .query import Q
+from .rdf import Graph, known_publishers, known_values, slug_for
 
-#: Defined in _version.py so packaging and the User-Agent cannot drift.
 __version__ = _version
 
 __all__ = [
-    "__version__",
-    # clients
+    # the client
     "Dataportal",
-    "AsyncDataportal",
-    "DEFAULT_BASE_URL",
-    "DUMP_URL",
-    "MAX_LIMIT",
-    # whole-catalogue export
+    "LocalCatalog",
     "download_catalog",
     "CatalogSummary",
-    "LocalCatalog",
     "default_catalog_path",
-    # logging
-    "enable_logging",
-    "logger",
-    # query
-    "Q",
-    "escape",
-    # vocabulary labels
-    "Vocabulary",
-    "VOCABULARY",
-    "label",
-    "labels",
-    "term",
-    "terms",
-    "escape_uri",
-    "predicate_field",
+    "DEFAULT_BASE_URL",
+    # what a search gives you
+    "Results",
+    "Breakdown",
+    "ValueList",
+    "ValueCount",
+    "Publisher",
     # short values
     "known_values",
     "known_publishers",
     "slug_for",
-    "slugify",
-    # models
-    "Entry",
-    "Dataset",
-    "DatasetSeries",
-    "Distribution",
-    "DataService",
-    "Catalog",
-    "Agent",
-    "ContactPoint",
-    "Standard",
-    "LinkCheckReport",
-    "MetadataQuality",
-    "CatalogStatistics",
-    "OrganisationStats",
-    "ValueCount",
-    "PeriodOfTime",
-    "Temporal",
-    "Checksum",
-    "Breakdown",
-    "Results",
-    "SearchPage",
-    "Facet",
-    "FacetValue",
-    "wrap_entry",
-    "register_model",
-    # rdf
-    "Graph",
-    "Resource",
-    "Node",
-    "Literal",
-    "URIRef",
-    "BNode",
-    # namespaces
-    "Types",
-    "expand",
-    "shorten",
-    "RDF",
-    "DCAT",
-    "DCATAP",
-    "DCTERMS",
-    "FOAF",
-    "VCARD",
-    "SKOS",
-    "ADMS",
-    "OWL",
-    "PROV",
-    "ES",
-    "ESCAPE",
-    # transport
-    "BaseTransport",
-    "UrllibTransport",
-    "RequestsTransport",
-    "HttpxTransport",
-    "AsyncHttpxTransport",
-    "Response",
-    # exceptions
+    # errors
     "DataportalError",
     "TransportError",
     "TimeoutError",
@@ -221,4 +90,17 @@ __all__ = [
     "ServerError",
     "ParseError",
     "QueryError",
+    # logging
+    "logger",
+    "enable_logging",
+    # the escape hatch: raw index queries and the RDF underneath
+    "Q",
+    "Entry",
+    "Dataset",
+    "Graph",
+    # transport, for a custom HTTP stack
+    "BaseTransport",
+    "RequestsTransport",
+    "Response",
+    "__version__",
 ]
