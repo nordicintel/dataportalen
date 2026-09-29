@@ -282,6 +282,36 @@ def dereference(uris: Iterable[str]) -> Dict[str, Dict[str, str]]:
 #: (report name, model property) for the fields whose values are controlled
 #: vocabulary URIs. Measured from the URIs rather than from ``to_dict()``,
 #: which now returns short names and no longer says whether a label was found.
+#: Values publishers use that no authority table labels. Without these the
+#: name falls back to the URI's tail -- "vnd_iso_19139_xml", a bare GeoNames
+#: id -- and two spellings of one format (application/ld+json and
+#: application/json-ld) come out as two different values. The label decides
+#: the short name, so giving both the same label merges them.
+EXTRA_LABELS = {
+    "application/ld+json": "JSON-LD",
+    "application/json-ld": "JSON-LD",
+    "application/parquet": "Parquet",
+    "application/vnd.iso.19139+xml": "ISO 19139 XML",
+    "image/png": "PNG",
+    "application/atom+xml": "Atom XML",
+    "application/octet-stream": "Octet stream",
+    "application/gpx+xml": "GPX",
+    "application/geopackage+vnd.sqlite3": "GeoPackage",
+    "application/geopackage+sqlite3": "GeoPackage",
+    "geopackage": "GeoPackage",
+    "application/x-zip-compressed": "ZIP",
+    "application/x-shp": "Shapefile",
+    "https://www.geonames.org/6695072/european-union.html": "European Union",
+    "http://sws.geonames.org/6695072": "European Union",
+    "https://sws.geonames.org/6695072": "European Union",
+    "https://www.geonames.org/6255148": "Europe",
+    "http://sws.geonames.org/6255148": "Europe",
+    "https://sws.geonames.org/6255148": "Europe",
+    "https://www.geonames.org/6295630": "Earth",
+    "http://sws.geonames.org/6295630": "Earth"
+}
+
+
 COVERAGE_FIELDS = (
     ("themes", "theme_uris"),
     ("languages", "language_uris"),
@@ -427,6 +457,8 @@ def main(argv: Optional[list] = None) -> int:
 
     vocabulary.update(dereference(missing))
 
+    for uri, label in EXTRA_LABELS.items():      # ours, and they win
+        vocabulary.setdefault(uri, {})["en"] = label
     still_missing = sorted(uri for uri in used if uri not in vocabulary)
 
     print("[4/4] writing %s" % os.path.normpath(OUTPUT))

@@ -54,7 +54,6 @@ from .core import (
 from .models import (
     BREAKDOWN_FILTERS,
     DEFAULT_LANGUAGE,
-    FILTER_PREDICATES,
     Agent,
     Breakdown,
     Catalog,
@@ -81,6 +80,7 @@ from .rdf import (
     DCAT,
     DCTERMS,
     FOAF,
+    SUPPORTED_LANGUAGES,
     VCARD,
     Graph,
     Types,
@@ -149,19 +149,24 @@ class _LRU:
         return len(self._data)
 
 
-def default_catalog_path() -> str:
+def default_catalog_path(language: str = DEFAULT_LANGUAGE) -> str:
     """Where the catalogue is kept when no path is given.
 
     One copy per machine rather than per project, out of the way of any
     repository: ``%LOCALAPPDATA%\\dataportalen`` on Windows, ``$XDG_CACHE_HOME``
     or ``~/.cache/dataportalen`` elsewhere.
+
+    The language is part of the name, because it is baked into the file: a
+    catalogue written for ``language="sv"`` holds Swedish strings, and a
+    client reading in English, or in ``all``, needs its own copy rather than
+    silently getting someone else's.
     """
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     else:
         base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache")
-    return os.path.join(base, "dataportalen", "catalog.jsonl")
+    return os.path.join(base, "dataportalen", "catalog-%s.jsonl" % language)
 
 
 #: A copy older than this is reported as stale. Nothing is re-downloaded on
@@ -200,7 +205,6 @@ class Dataportal:
         transport: Optional[BaseTransport] = None,
         timeout: float = 30.0,
         language: str = DEFAULT_LANGUAGE,
-        local: bool = True,
         catalog_path: Optional[str] = None,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
@@ -214,8 +218,7 @@ class Dataportal:
         self.timeout = timeout
         self.language = language
         self.languages = language_preference(language)
-        self.local = local
-        self.catalog_path = catalog_path or default_catalog_path()
+        self.catalog_path = catalog_path or default_catalog_path(language)
         self._catalog: Optional[LocalCatalog] = None
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
@@ -507,10 +510,8 @@ class Dataportal:
                 return
 
     def count_datasets(self, **filters: Any) -> int:
-        """How many datasets match -- from the local catalogue when local."""
-        if self._serve_locally(**filters):
-            return self.catalog.count(**filters)
-        return self.count(self._entity_query(DCAT.Dataset, **filters))
+        """How many datasets match, without building the list."""
+        return self.catalog.count(**filters)
 
     def count(self, query: Union[str, Q, None] = None, **kwargs: Any) -> int:
         """Estimated number of matches (Solr's count, see the docs' caveat)."""
@@ -700,6 +701,7 @@ class Dataportal:
         description: Optional[str] = None,
         keyword: Optional[Union[str, Sequence[str]]] = None,
         publisher: Optional[Union[str, Sequence[str]]] = None,
+        publisher_type: Optional[Union[str, Sequence[str]]] = None,
         theme: Optional[Union[str, Sequence[str]]] = None,
         format: Optional[Union[str, Sequence[str]]] = None,
         license: Optional[Union[str, Sequence[str]]] = None,
@@ -739,6 +741,11 @@ class Dataportal:
         # Short names -> the URIs publishers actually used.
         if publisher:
             parts.append(Q.publisher(*_flatten(publisher, resolve_publisher)))
+        if publisher_type:
+            parts.append(_any_uri(
+                DCTERMS.type,
+                _flatten(publisher_type, resolve, "publisher_type"),
+                kind="related.uri"))
         if theme:
             parts.append(Q.theme(*_flatten(theme, resolve, "theme")))
         if format:
@@ -791,24 +798,8 @@ class Dataportal:
         """
         if self._catalog is None:
             self._catalog = LocalCatalog(
-                self.catalog_path, client=self._api(), progress="auto")
+                self.catalog_path, client=self, progress="auto")
         return self._catalog
-
-    def _api(self) -> "Dataportal":
-        """A view of this client that always talks to the registry.
-
-        Used for the searches a local catalogue cannot answer, and to fetch
-        the catalogue itself without asking it to fetch itself.
-        """
-        if not self.local:
-            return self
-        if self.__dict__.get("_api_twin") is None:
-            twin = object.__new__(Dataportal)
-            twin.__dict__.update(self.__dict__)
-            twin.local = False
-            twin._catalog = None
-            self.__dict__["_api_twin"] = twin
-        return self.__dict__["_api_twin"]
 
     def refresh_catalog(self) -> "CatalogSummary":
         """Download the catalogue again."""
@@ -820,78 +811,35 @@ class Dataportal:
         *,
         limit: Optional[int] = 50,
         offset: int = 0,
-        sort: Optional[str] = ...,  # type: ignore[assignment]
-        facet_fields: Optional[Sequence[str]] = None,
+        breakdown_limit: Optional[int] = None,
         **filters: Any,
     ) -> Results:
         """Search datasets. Returns a list of dicts that knows the total.
 
-        Runs against the local catalogue, which is downloaded the first time
-        (about six minutes, once) and then answers in milliseconds. Pass
-        ``local=False`` when constructing the client to search the registry
-        instead; the filters, the values and the dicts are the same either
-        way.
+        Runs against the local catalogue -- downloaded the first time, about
+        six minutes once, then milliseconds a search. Every filter, every
+        value and the whole breakdown come from that file.
 
             >>> page = dp.datasets(theme="transport")     # doctest: +SKIP
             >>> page.total, page[0]["title"]              # doctest: +SKIP
             (545, 'Farthinder')
+
+        ``limit`` caps the rows you hold (``None`` for all of them, ``0`` for
+        the breakdown alone); ``breakdown_limit`` caps each list in the
+        breakdown, and what it cuts is counted in
+        :attr:`~dataportalen.Breakdown.omitted`.
         """
-        if self._serve_locally(facet_fields=facet_fields, **filters):
-            found = self.catalog.datasets(**filters)
-            window = found[offset:] if limit is None else found[offset:offset + limit]
-            return Results(window, total=found.total, offset=offset, limit=limit,
-                           breakdown=found.breakdown)
-        page = self.search(
-            self._entity_query(DCAT.Dataset, **filters),
-            model=Dataset,
-            # The registry answers limit=0 with one row rather than none, so
-            # ask for one and drop it: limit=0 means "just the breakdown".
-            limit=MAX_LIMIT if limit is None else max(limit, 1),
-            offset=offset,
-            sort=sort,
-            facet_fields=list(facet_fields or []) + BREAKDOWN_FIELDS,
-            facet_limit=1000,
-        )
-        results = _as_results(page, breakdown=breakdown_from_facets(page.facets))
-        if limit == 0:
-            del results[:]
-        return results
+        found = self.catalog.datasets(breakdown_limit=breakdown_limit, **filters)
+        window = found[offset:] if limit is None else found[offset:offset + limit]
+        return Results(window, total=found.total, offset=offset, limit=limit,
+                       breakdown=found.breakdown)
 
     def iter_datasets(
-        self,
-        *,
-        limit: Optional[int] = None,
-        page_size: int = MAX_LIMIT,
-        sort: Optional[str] = ...,  # type: ignore[assignment]
-        **filters: Any,
+        self, *, limit: Optional[int] = None, **filters: Any
     ) -> Iterator[Dict[str, Any]]:
-        """Every matching dataset, as dicts, however many pages that takes."""
-        if self._serve_locally(**filters):
-            found = self.catalog.datasets(**filters)
-            return iter(found[:limit] if limit else found)
-        return (
-            entry.to_dict()
-            for entry in self.iter_search(
-                self._entity_query(DCAT.Dataset, **filters),
-                model=Dataset,
-                limit=limit,
-                page_size=page_size,
-                sort=sort,
-            )
-        )
-
-    def _serve_locally(self, facet_fields: Any = None, **filters: Any) -> bool:
-        """Whether the local catalogue can answer this search.
-
-        It holds datasets, so a dataset search is local; a raw index query or
-        a facet request is not something a file can answer, and goes to the
-        registry instead.
-        """
-        if not self.local:
-            return False
-        if facet_fields or "query" in filters:
-            return False
-        return True
+        """Every matching dataset, one at a time, out of the catalogue."""
+        found = self.catalog.datasets(**filters)
+        return iter(found if limit is None else found[:limit])
 
     def dataset(
         self,
@@ -910,12 +858,11 @@ class Dataportal:
 
         For the RDF behind it, use :meth:`lookup`, which returns the model.
         """
-        if uri and self.local:
+        if uri:
             record = self.catalog.get(uri)
             if record is not None:
                 return record
             logger.debug("%s is not in the local catalogue; asking the registry", uri)
-        if uri:
             found = self.lookup(uri, model=Dataset)
             if found is None:
                 return None
@@ -1285,36 +1232,9 @@ def _as_results(page: SearchPage, breakdown: Optional[Breakdown] = None) -> Resu
     )
 
 
-#: The index fields behind the breakdown, requested with every dataset search
-#: so the counts arrive in the same response rather than costing a request.
-BREAKDOWN_FIELDS = [
-    predicate_field(predicate, kind)
-    for predicate, kind in (FILTER_PREDICATES[name] for name in BREAKDOWN_FILTERS
-                            if name in FILTER_PREDICATES)
-]
-_BREAKDOWN_BY_FIELD = {
-    predicate_field(*FILTER_PREDICATES[name]): name
-    for name in BREAKDOWN_FILTERS if name in FILTER_PREDICATES
-}
-
-#: Why a breakdown is missing rather than empty.
-_NO_KEYWORDS = ("the registry indexes keywords by fragment, so it can only "
-                "count pieces of words; a local catalogue counts them properly")
-
-
-def breakdown_from_facets(facets: Sequence[Any]) -> Breakdown:
-    """A breakdown from the facets the registry returned with a search."""
-    counts: Dict[str, List[ValueCount]] = {}
-    for facet in facets:
-        name = _BREAKDOWN_BY_FIELD.get(facet.name)
-        if name is None:
-            continue
-        short = publisher_for if name == "publisher" else slug_for
-        counts[name] = _counted(facet.values, 1000, short=short)
-    return Breakdown(counts, unavailable={"keyword": _NO_KEYWORDS})
-
-
-def local_breakdown(records: Sequence[Dict[str, Any]]) -> Breakdown:
+def local_breakdown(
+    records: Sequence[Dict[str, Any]], limit: Optional[int] = None
+) -> Breakdown:
     """A breakdown counted over records in hand -- one pass, every filter."""
     tallies: Dict[str, Dict[str, int]] = {name: {} for name in BREAKDOWN_FILTERS}
     for record in records:
@@ -1325,30 +1245,18 @@ def local_breakdown(records: Sequence[Dict[str, Any]]) -> Breakdown:
         name: [ValueCount(value, count) for value, count in
                sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
         for name, counts in tallies.items()
-    })
+    }, limit=limit)
 
 
-def _counted(values: Any, limit: int, short: Any = None) -> List[ValueCount]:
-    """Facet values as short names, merging the ones that share a name.
+def _any_uri(predicate: str, uris: List[str], kind: str = "uri") -> Q:
+    """Match a predicate against any of several object URIs.
 
-    Several URIs slug to the same name -- two GeoNames entries for Sweden,
-    a file-type URI and its media type -- and a caller filtering on that name
-    matches all of them, so the counts belong together.
+    ``kind="related.uri"`` looks in the graphs of related entries instead of
+    this one's -- how a dataset is matched on something that lives on its
+    publisher.
     """
-    totals: Dict[str, int] = {}
-    for value in values:
-        name = (short or slug_for)(value.name)
-        if name:
-            totals[name] = totals.get(name, 0) + value.count
-    ordered = sorted(totals.items(), key=lambda pair: (-pair[1], pair[0]))
-    return [ValueCount(name, count) for name, count in ordered[:limit]]
 
-
-def _any_uri(predicate: str, uris: List[str]) -> Q:
-    """Match a predicate against any of several object URIs."""
-    from .query import predicate_field
-
-    field = predicate_field(predicate, "uri")
+    field = predicate_field(predicate, kind)
     if len(uris) == 1:
         return Q.term(field, uris[0])
     return Q.any_of(field, uris)
@@ -1804,6 +1712,7 @@ class LocalCatalog:
         self._progress = progress
         self._client = client
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
+        self._seen: Dict[str, set] = {}
         if not os.path.exists(path):
             if not download:
                 raise FileNotFoundError(
@@ -1817,11 +1726,17 @@ class LocalCatalog:
     # -- the file ----------------------------------------------------------
 
     def refresh(self) -> CatalogSummary:
-        """Download the catalogue again, replacing what is loaded."""
+        """Download the catalogue again, replacing what is loaded.
+
+        Also how a copy picks up a newer package's vocabulary: short names
+        are resolved when the file is written, so a file downloaded by an
+        older version keeps that version's names until it is refreshed.
+        """
         summary = download_catalog(
             self.path, progress=self._progress, client=self._client)
         self._records = _read_jsonl(self.path)
         self._by_uri = None
+        self._seen = {}
         return summary
 
     def _warn_if_stale(self) -> None:
@@ -1851,6 +1766,21 @@ class LocalCatalog:
         """Whether the copy is older than a week."""
         age = self.age_days
         return age is not None and age >= STALE_AFTER_DAYS
+
+    def _observed(self, filter: str) -> Optional[set]:
+        """Every value this file actually contains for one filter.
+
+        What makes "the breakdown reports it, so you can filter on it" true
+        even where the vocabulary table has no entry.
+        """
+        if filter not in BREAKDOWN_FILTERS:
+            return None
+        if filter not in self._seen:
+            self._seen[filter] = {
+                value for record in self._records
+                for value in _local_values(record, filter)
+            }
+        return self._seen[filter]
 
     def get(self, uri: str) -> Optional[Dict[str, Any]]:
         """One dataset by its URI, or ``None`` if this copy has no such thing."""
@@ -1886,14 +1816,16 @@ class LocalCatalog:
         paging arguments (you get the whole result).
         """
         limit = filters.pop("limit", None)   # None means every match
+        breakdown_limit = filters.pop("breakdown_limit", None)
         for unsupported in ("offset", "sort", "page_size", "query"):
             if unsupported in filters:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue returns "
                     "every match at once" % unsupported)
-        tests = [_local_test(name, value) for name, value in filters.items()]
+        tests = [_local_test(name, value, self._observed(name))
+                 for name, value in filters.items()]
         out = [r for r in self._records if all(test(r) for test in tests)]
-        breakdown = local_breakdown(out)
+        breakdown = local_breakdown(out, limit=breakdown_limit)
         matched = len(out)
         if limit is not None:
             out = out[:limit]
@@ -1916,7 +1848,10 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
     if filter in ("theme", "themes"):
         return list(record.get("themes") or [])
     if filter == "language":
-        return list(record.get("languages") or [])
+        # Only the two the filter supports: the rest is a long tail of
+        # corpora languages, still present on the record itself.
+        return [lang for lang in (record.get("languages") or [])
+                if lang in SUPPORTED_LANGUAGES]
     if filter == "place":
         return list(record.get("spatial") or [])
     if filter == "keyword":
@@ -1937,9 +1872,12 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
         publisher = record.get("publisher") or {}
         name = publisher_for(publisher.get("uri"))
         return [name] if name else []
+    if filter == "publisher_type":
+        kind = (record.get("publisher") or {}).get("type")
+        return [kind] if kind else []
     raise QueryError(
-        "cannot count values for %r; try one of: access_rights, format, "
-        "keyword, language, license, place, publisher, theme, updated" % (filter,))
+        "cannot count values for %r; try one of: %s"
+        % (filter, ", ".join(BREAKDOWN_FILTERS)))
 
 
 def _iso_stamp(value: Any) -> str:
@@ -1957,7 +1895,25 @@ def _iso_stamp(value: Any) -> str:
     return text[:19]
 
 
-def _local_test(name: str, value: Any) -> Any:
+def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
+    """The short names a filter value stands for, in a local catalogue.
+
+    A vocabulary term resolves as usual. A value that is not in the table but
+    *is* in the file resolves to itself: the breakdown reports whatever the
+    data contains -- ``parquet``, a bare GeoNames id -- and everything it
+    reports has to be usable as a filter. Only a value that is neither known
+    nor present is an error, and then the suggestions come from the file.
+    """
+    slugs = {slugify(value)}
+    try:
+        slugs.update(slug_for(uri) for uri in resolve(value, name))
+    except QueryError:
+        if observed is None or not (slugs & set(observed)):
+            raise
+    return slugs
+
+
+def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
     if name in ("text", "title", "description"):
         needle = str(value).lower()
@@ -2014,11 +1970,10 @@ def _local_test(name: str, value: Any) -> Any:
             wanted & set(_local_values(record, "publisher")))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
-                "language", "place"):
+                "language", "place", "publisher_type"):
         wanted = set()
         for item in _as_list(value):
-            wanted.update(slug_for(uri) for uri in resolve(item, name))
-            wanted.add(slugify(item))
+            wanted.update(_local_slugs(item, name, observed))
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     raise QueryError(

@@ -91,16 +91,63 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
-@pytest.fixture
-def client(transport: FakeTransport):
-    """A client wired to the fake transport.
+#: Two datasets, enough to exercise every filter and the breakdown.
+CATALOG_RECORDS = [
+    {
+        "uri": "https://example.org/roads",
+        "context_id": "50",
+        "title": "Vägtrafiknät",
+        "description": "Nationellt vägnät med cykelvägar",
+        "keywords": ["vägnät", "Geodata"],
+        "themes": ["transport"],
+        "license": "cc_by_4_0",
+        "access_rights": "public",
+        "accrual_periodicity": "annual",
+        "languages": ["swedish"],
+        "spatial": ["kingdom_of_sweden"],
+        "issued": "2020-03-04",
+        "modified": "2024-05-06T09:00:00+02:00",
+        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
+                      "name": "Trafikverket", "type": "national_authority"},
+        "distributions": [{"format": "csv"}, {"format": "json"}],
+    },
+    {
+        "uri": "https://example.org/budget",
+        "context_id": "51",
+        "title": "Kommunalt bidrag",
+        "description": "Utbetalda bidrag per kommun",
+        "keywords": ["ekonomi"],
+        "themes": ["economy_and_finance"],
+        "license": "cc0_1_0",
+        "access_rights": "non_public",
+        "accrual_periodicity": "monthly",
+        "languages": ["swedish", "english"],
+        "spatial": [],
+        "issued": "2014-01-01",
+        "modified": "2019-01-01",
+        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
+                      "name": "Försäkringskassan", "type": "national_authority"},
+        "distributions": [{"format": "xlsx"}],
+    },
+]
 
-    ``local=False`` because these tests are about what goes over the wire;
-    the local path is covered in test_local_catalog.py and test_local_first.py.
+
+@pytest.fixture
+def client(transport: FakeTransport, tmp_path):
+    """A client wired to the fake transport, with a tiny catalogue on disk.
+
+    Dataset search reads that file; everything else goes to the transport.
     """
+    import json
+
     from dataportalen import Dataportal
 
-    with Dataportal(transport=transport, max_retries=0, local=False) as dp:
+    path = tmp_path / "catalog.jsonl"
+    path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in CATALOG_RECORDS) + "\n",
+        encoding="utf-8")
+    with Dataportal(transport=transport, max_retries=0,
+                    catalog_path=str(path)) as dp:
         yield dp
 
 

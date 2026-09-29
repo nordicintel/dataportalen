@@ -24,7 +24,7 @@ def catalog_file(tmp_path):
 
 @pytest.fixture
 def dp(transport, catalog_file):
-    """Local-first, with a catalogue on disk and a transport that would fail."""
+    """A client with a catalogue on disk and a transport that would fail."""
     with Dataportal(transport=transport, catalog_path=catalog_file,
                     max_retries=0) as client:
         yield client
@@ -66,14 +66,13 @@ def test_the_breakdown_and_counts_come_from_the_file(dp, transport):
     assert transport.requests == []
 
 
-def test_a_raw_query_or_a_facet_goes_to_the_registry(dp, transport, search_response):
-    transport.push(search_response)
-    dp.datasets(query="title.en:*")
-    assert len(transport.requests) == 1
+def test_an_index_only_argument_is_refused(dp):
+    """`query=` is a raw index expression; a file cannot answer one."""
+    from dataportalen import QueryError
 
-    transport.push(search_response)
-    dp.datasets(facet_fields=["rdfType"])
-    assert len(transport.requests) == 2
+    with pytest.raises(QueryError) as info:
+        dp.datasets(query="title.en:*")
+    assert "query" in str(info.value)
 
 
 def test_other_entity_searches_go_to_the_registry(dp, transport, search_response):
@@ -82,15 +81,6 @@ def test_other_entity_searches_go_to_the_registry(dp, transport, search_response
         transport.push(search_response)
         getattr(dp, method)(limit=1)
     assert len(transport.requests) == 4
-
-
-def test_local_false_searches_the_registry(transport, catalog_file, search_response):
-    transport.push(search_response)
-    with Dataportal(transport=transport, catalog_path=catalog_file,
-                    local=False) as client:
-        page = client.datasets(theme="transport")
-    assert transport.requests, "local=False must not read the file"
-    assert all(isinstance(record, dict) for record in page)
 
 
 def test_the_file_is_only_read_once(dp, transport):
@@ -113,7 +103,9 @@ def test_a_stale_copy_warns_and_is_not_refreshed(tmp_path, transport, caplog,
 
 def test_the_default_path_is_a_cache_directory():
     path = default_catalog_path()
-    assert path.endswith(os.path.join("dataportalen", "catalog.jsonl"))
+    assert path.endswith(os.path.join("dataportalen", "catalog-sv.jsonl"))
+    # The language is in the name: it is baked into the file's contents.
+    assert default_catalog_path("all").endswith("catalog-all.jsonl")
     assert os.path.isabs(path)
     # Never the working directory: it must not land in someone's repository.
     assert os.path.dirname(path) != os.getcwd()

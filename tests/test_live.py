@@ -33,12 +33,13 @@ if not os.environ.get("DATAPORTAL_LIVE"):
 
 @pytest.fixture(scope="module")
 def dp():
-    """Talks to the registry: these tests are about what it returns.
+    """A real client against the real registry.
 
-    The local path is covered offline; `local_dp` below exercises the real
-    download once.
+    Dataset search reads the catalogue in the usual cache directory, so the
+    first run downloads it (~6 minutes, once) and later runs reuse it. That
+    is the supported path, so this is what the live suite exercises.
     """
-    with Dataportal(local=False) as client:
+    with Dataportal() as client:
         yield client
 
 
@@ -62,9 +63,11 @@ def test_free_text_and_title_filters_narrow_the_result(dp):
 def test_paging_yields_distinct_entries(dp):
     """Under the sort the package uses for crawling, pages must not overlap."""
     from dataportalen.client import STABLE_SORT
+    from dataportalen.models import Dataset
 
-    seen = [d["uri"] for d in dp.iter_datasets(
-        limit=300, page_size=100, sort=STABLE_SORT)]
+    seen = [e.resource_uri for e in dp.iter_search(
+        Q.rdf_type(DCAT.Dataset), model=Dataset, limit=300, page_size=100,
+        sort=STABLE_SORT)]
     assert len(seen) == 300
     assert len(set(seen)) == 300
 
@@ -75,8 +78,11 @@ def test_a_uri_can_belong_to_two_entries(dp):
     Worth pinning: it is why `uri` is not a key in an export, and why a
     duplicate URI is not evidence that paging lost something.
     """
-    rows = [(d["context_id"], d["entry_id"], d["uri"])
-            for d in dp.iter_datasets(limit=2000, page_size=100, sort="created asc")]
+    from dataportalen.models import Dataset
+
+    rows = [(e.context_id, e.entry_id, e.resource_uri) for e in dp.iter_search(
+        Q.rdf_type(DCAT.Dataset), model=Dataset, limit=2000, page_size=100,
+        sort="created asc")]
     assert len({(c, e) for c, e, _ in rows}) == len(rows)
     assert len({u for _, _, u in rows}) < len(rows)
 
@@ -310,7 +316,7 @@ def test_organisations_lead_into_a_search(dp):
 def test_language_shapes_the_output(dp):
     uri = dp.datasets(limit=1)[0]["uri"]
     assert isinstance(dp.dataset(uri=uri)["title"], str)
-    with Dataportal(language="all", local=False) as every:
+    with Dataportal(language="all") as every:
         assert isinstance(every.dataset(uri=uri)["title"], dict)
 
 
@@ -333,15 +339,6 @@ def test_the_breakdown_describes_the_match_not_the_page(dp):
     assert page.total > 100
     published = dict(page.breakdown["publisher"])
     assert published["trafikverket"] == page.total
-
-
-def test_the_registry_cannot_break_down_keywords(dp):
-    """It indexes them by fragment; the error has to say so."""
-    from dataportalen import QueryError
-
-    with pytest.raises(QueryError) as info:
-        dp.datasets(limit=1).breakdown["keyword"]
-    assert "fragment" in str(info.value)
 
 
 def test_the_page_size_cap_is_the_registrys(dp):

@@ -1028,6 +1028,11 @@ def resolve(value: str, what: str = "value") -> List[str]:
     if not isinstance(value, str) or not value.strip():
         raise QueryError("%s must be a non-empty string, got %r" % (what, value))
     slug = slugify(value)
+    if what == "language" and slug not in SUPPORTED_LANGUAGES:
+        raise QueryError(
+            "language filters on %s; %r is one of the long tail this package "
+            "does not index (it is still on the dataset's own `languages`)"
+            % (" and ".join(SUPPORTED_LANGUAGES), value))
     found = _BY_SLUG.get(slug)
     if not found:
         raise _suggest(slug, list(_BY_SLUG), what)
@@ -1069,10 +1074,22 @@ FILTER_VOCABULARIES: Dict[str, Tuple[str, ...]] = {
     "language": ("http://publications.europa.eu/resource/authority/language/",
                  "http://id.loc.gov/vocabulary/iso639-1/",
                  "http://lexvo.org/id/iso639-3/"),
+    "publisher_type": ("http://purl.org/adms/publishertype/",),
     "place": ("http://sws.geonames.org/", "https://sws.geonames.org/",
               "http://publications.europa.eu/resource/authority/place/",
               "http://publications.europa.eu/resource/authority/country/"),
 }
+
+
+#: The only languages this package lets you filter or break down by.
+#:
+#: The registry carries 66 distinct ``dcterms:language`` values, but 62 of
+#: them cover ~106 datasets between them -- multilingual dictionaries and
+#: language corpora. Offering all of them made the breakdown long and the
+#: filter unreliable. A dataset's own ``languages`` list still reports
+#: whatever the publisher stated, so nothing is hidden; only the filter and
+#: the breakdown are restricted.
+SUPPORTED_LANGUAGES = ("swedish", "english")
 
 
 def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
@@ -1090,7 +1107,9 @@ def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
     if filter is not None and filter not in FILTER_VOCABULARIES:
         raise _suggest(str(filter), sorted(FILTER_VOCABULARIES), "filter")
     slug = slugify(prefix) if prefix else ""
-    if filter is None:
+    if filter == "language":
+        found = set(SUPPORTED_LANGUAGES)
+    elif filter is None:
         found = set(_BY_SLUG)
     else:
         wanted = FILTER_VOCABULARIES[filter]
@@ -1159,5 +1178,6 @@ __all__ = [
     "resolve_publisher",
     "known_values",
     "FILTER_VOCABULARIES",
+    "SUPPORTED_LANGUAGES",
     "known_publishers",
 ]

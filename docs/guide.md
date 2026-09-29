@@ -26,7 +26,8 @@ dp = Dataportal()
 
 The first search downloads the whole catalogue — about six minutes and 58 MB,
 once — and every search after that runs against that copy in milliseconds.
-This is the normal way to use the package.
+**That copy is how this package searches.** The registry is asked only for
+what the file does not hold.
 
 It is done that way because the registry is slow: it answers about two
 requests a second and does not go faster with more of them in flight, at 100
@@ -35,7 +36,6 @@ every time; reading it once and keeping it takes minutes once.
 
 ```python
 dp = Dataportal(language="en")   # English where the publisher wrote it
-dp = Dataportal(local=False)     # search the registry instead, no download
 ```
 
 Swedish is the default because the registry is Swedish: most datasets are
@@ -60,8 +60,9 @@ dp.refresh_catalog()    # download it again
 ```
 
 The file lives in the usual cache directory —
-`%LOCALAPPDATA%\dataportalen\catalog.jsonl` on Windows,
-`~/.cache/dataportalen/catalog.jsonl` elsewhere — so one copy serves every
+`%LOCALAPPDATA%\dataportalen\catalog-sv.jsonl` on Windows,
+`~/.cache/dataportalen/catalog-sv.jsonl` elsewhere (the language is in the
+name, because it is baked into the file) — so one copy serves every
 project and nothing lands in a repository. Pass `catalog_path=` to put it
 somewhere of your choosing.
 
@@ -69,6 +70,10 @@ The registry re-harvests nightly. After a week the client logs a warning
 saying how old the copy is; it never re-downloads on its own, because a
 script that answered in a second yesterday should not block for six minutes
 today.
+
+Short names are resolved when the file is written, so a copy also keeps the
+vocabulary of the package that downloaded it. `dp.refresh_catalog()` after
+upgrading picks up any renamed or newly labelled values.
 
 ## Find datasets
 
@@ -105,17 +110,16 @@ field of any result. It comes out of the local copy when it is there, and off
 the registry when it is not. A URI nothing matches gives you `None` rather
 than an error.
 
-### What runs locally, and what does not
+### What the registry is still for
 
 | | |
 | --- | --- |
-| Local | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()` |
-| Registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `standards()`, statistics, link checks, quality scores, and any search using `query=` or `facet_fields=` |
+| The catalogue | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()`, and every breakdown |
+| The registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `standards()`, statistics, link checks, quality scores, `lookup()`/`entry()` for RDF, and `search(Q...)` for a raw index query |
 
 The file holds datasets with their distributions, publisher and contacts
-nested inside them, so a dataset search never needs the network and anything
-else still does. You do not have to remember which is which — the results are
-the same dicts either way.
+nested inside them — so dataset search, and everything counted from it, never
+touches the network.
 
 ## Narrow the search
 
@@ -141,13 +145,24 @@ Values are short and lowercase. You never type a web address.
 | Filter                      | What it matches                      |
 | --------------------------- | ------------------------------------ |
 | `publisher="trafikverket"`  | the organisation that published it   |
+| `publisher_type="local_authority"` | what kind of organisation that is |
 | `theme="transport"`         | the subject it is filed under        |
 | `format="csv"`              | a file format you can download it in |
 | `license="cc_by_4_0"`       | the licence it is released under     |
 | `access_rights="public"`    | whether it is open to everyone       |
 | `updated="annual"`          | how often the publisher refreshes it |
-| `language="swedish"`        | the language of the data itself      |
+| `language="swedish"`        | the language of the data: `swedish` or `english` |
 | `place="kingdom_of_sweden"` | the area it covers                   |
+
+`publisher_type` takes `national_authority`, `local_authority`,
+`regional_authority`, `academia_scientific_organisation`,
+`non_governmental_organisation`, `company` and a few more —
+`known_values("publisher_type")` lists them.
+
+`language` is `swedish` or `english` and nothing else. The registry holds 66
+distinct language values, but 62 of them cover about 106 datasets between
+them (multilingual dictionaries, language corpora); they stayed on each
+dataset's own `languages` list and out of the filter.
 
 Give a list instead of one value and any of them will do:
 
@@ -229,9 +244,16 @@ Counts are per dataset — a dataset with three CSV files counts once under
 `format` → `csv`. `page.breakdown.to_dict()` gives `{filter: {value: count}}`
 for JSON, and `page.breakdown.top("theme")` the commonest value.
 
-Against the registry (`local=False`) the counts arrive with the search in the
-same request, except `keyword`: the index stores keywords by fragment, so it
-can only count pieces of words. Locally there is no such limit.
+Some of these lists are long: 12,968 distinct keywords, 541 places. Cap them
+with `breakdown_limit`, and what was cut is counted rather than dropped
+silently:
+
+```python
+page = dp.datasets(limit=0, breakdown_limit=10)
+page.breakdown["keyword"]           # the top 10
+page.breakdown["keyword"].omitted   # 12958
+page.breakdown.omitted              # {'keyword': 12958, 'place': 531, ...}
+```
 
 ### Before you search
 
@@ -275,13 +297,10 @@ for dataset in dp.iter_datasets(theme="transport"):
     print(dataset["title"])
 ```
 
-Against the registry (`local=False`) the same two calls page for you, 100 at a
-time — that is the registry's cap, not this package's; ask for 1000 and it
-answers with 100. There `total` is the index's estimate and can be slightly
-optimistic, and the underlying data shifts as publishers update it: add
-`sort="uri asc"` if you are walking a large result and need each entry
-exactly once: it is unique per entry, so a page boundary cannot move. Locally neither caveat applies — the file does not move while
-you read it.
+There is no paging and no estimate: `total` is exactly how many matched, and
+the file does not move while you read it. (The registry itself caps a page at
+100 and reports an estimate, which is one more reason searches run against
+the file.)
 
 ## What a dataset looks like
 

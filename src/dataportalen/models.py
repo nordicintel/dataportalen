@@ -77,6 +77,7 @@ __all__ = [
     "PeriodOfTime",
     "Checksum",
     "Breakdown",
+    "ValueList",
     "BREAKDOWN_FILTERS",
     "Results",
     "SearchPage",
@@ -1614,6 +1615,9 @@ def _known_publisher(name: str) -> Optional[str]:
 #: values actually in use -- see :meth:`~dataportalen.Dataportal.values`.
 FILTER_PREDICATES = {
     "publisher": (DCTERMS.publisher, "uri"),
+    # The type is on the publisher, not on the dataset, so it is matched
+    # through the related entry: `related.uri` reaches the agent's graph.
+    "publisher_type": (DCTERMS.type, "related.uri"),
     "theme": (DCAT.theme, "uri"),
     "license": (DCTERMS.license, "uri"),
     "access_rights": (DCTERMS.accessRights, "uri"),
@@ -1734,8 +1738,32 @@ class Facet:
 
 #: The order a breakdown reports its filters in: who published it, what it is
 #: about, then how you can get it.
-BREAKDOWN_FILTERS = ("publisher", "theme", "keyword", "format", "license",
-                     "access_rights", "updated", "language", "place")
+BREAKDOWN_FILTERS = ("publisher", "publisher_type", "theme", "keyword",
+                     "format", "license", "access_rights", "updated",
+                     "language", "place")
+
+
+class ValueList(list):
+    """The values for one filter, with a count of any left out.
+
+    A plain list of ``(value, dataset_count)`` pairs::
+
+        for value, count in page.breakdown["publisher"]:
+            ...
+
+    ``omitted`` is how many further values there were, above whatever
+    ``breakdown_limit`` the search was given -- 0 when nothing was cut.
+    """
+
+    __slots__ = ("omitted",)
+
+    def __init__(self, values: Sequence["ValueCount"] = (), omitted: int = 0) -> None:
+        super().__init__(values)
+        self.omitted = omitted
+
+    def __repr__(self) -> str:                            # pragma: no cover
+        more = " +%d more" % self.omitted if self.omitted else ""
+        return "<ValueList %d%s>" % (len(self), more)
 
 
 class Breakdown(_Mapping):
@@ -1757,25 +1785,35 @@ class Breakdown(_Mapping):
     ``format`` -> ``csv``.
     """
 
-    __slots__ = ("_counts", "_unavailable")
+    __slots__ = ("_counts",)
 
     def __init__(
         self,
         counts: Mapping[str, Sequence["ValueCount"]],
-        unavailable: Optional[Mapping[str, str]] = None,
+        limit: Optional[int] = None,
     ) -> None:
-        self._counts = {
-            name: list(counts[name])
-            for name in BREAKDOWN_FILTERS if name in counts
-        }
-        self._unavailable = dict(unavailable or {})
+        self._counts = {}
+        for name in BREAKDOWN_FILTERS:
+            if name not in counts:
+                continue
+            values = list(counts[name])
+            if limit is not None and len(values) > limit:
+                self._counts[name] = ValueList(values[:limit], len(values) - limit)
+            else:
+                self._counts[name] = ValueList(values)
 
-    def __getitem__(self, filter: str) -> List["ValueCount"]:
+    @property
+    def omitted(self) -> Dict[str, int]:
+        """``{filter: how many values were cut}``, for the ones that were.
+
+        Empty unless the search was given a ``breakdown_limit``.
+        """
+        return {name: values.omitted
+                for name, values in self._counts.items() if values.omitted}
+
+    def __getitem__(self, filter: str) -> "ValueList":
         if filter in self._counts:
             return self._counts[filter]
-        if filter in self._unavailable:
-            raise QueryError("no %s breakdown here: %s"
-                             % (filter, self._unavailable[filter]))
         raise QueryError(
             "nothing is broken down by %r; this result knows: %s"
             % (filter, ", ".join(self._counts)))
@@ -1786,13 +1824,17 @@ class Breakdown(_Mapping):
     def __len__(self) -> int:
         return len(self._counts)
 
-    def top(self, filter: str) -> Optional["ValueCount"]:
+    def top(self, filter: str) -> Optional["ValueCount"]:  # noqa: D401
         """The commonest value for one filter, or ``None`` if there is none."""
         found = self[filter]
         return found[0] if found else None
 
     def to_dict(self) -> Dict[str, Dict[str, int]]:
-        """``{filter: {value: count}}``, JSON-serializable and still ordered."""
+        """``{filter: {value: count}}``, JSON-serializable and still ordered.
+
+        Any values cut by a ``breakdown_limit`` are counted in
+        :attr:`omitted` rather than here.
+        """
         return {
             name: {value: count for value, count in values}
             for name, values in self._counts.items()

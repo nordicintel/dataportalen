@@ -46,12 +46,10 @@ from typing import (
 from .client import (
     _LRU,
     _RETRY_STATUSES,
-    BREAKDOWN_FIELDS,
     DEFAULT_BASE_URL,
     DUMP_URL,
     MAX_LIMIT,
     _as_results,
-    breakdown_from_facets,
 )
 from .core import (
     DEFAULT_USER_AGENT,
@@ -506,18 +504,17 @@ class AsyncDataportal:
     ) -> Results:
         """Search datasets. Returns a list of dicts that knows the total.
 
-        The async client always asks the registry: a local catalogue is a
-        file, and reading a file is not what ``await`` is for. For the local
-        path use :class:`~dataportalen.Dataportal`, whose results are the
-        same dicts.
+        The async client asks the registry: a local catalogue is a file, and
+        reading a file is not what ``await`` is for. Use it to fetch many
+        things at once; use :class:`~dataportalen.Dataportal` to search,
+        which is what the catalogue is for. Results here carry no breakdown --
+        that is counted over the catalogue.
         """
-        page = await self.search(
+        return _as_results(await self.search(
             self._entity_query(DCAT.Dataset, **filters),
             model=Dataset, limit=limit, offset=offset, sort=sort,
-            facet_fields=list(facet_fields or []) + BREAKDOWN_FIELDS,
-            facet_limit=1000,
-        )
-        return _as_results(page, breakdown=breakdown_from_facets(page.facets))
+            facet_fields=facet_fields,
+        ))
 
     def iter_datasets(
         self,

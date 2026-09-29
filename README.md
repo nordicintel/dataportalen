@@ -37,9 +37,11 @@ with Dataportal() as dp:
 
 The first search downloads the whole catalogue — about six minutes and 58 MB,
 once — and every search after that runs against that copy in milliseconds.
-The registry answers about two requests a second and does not go faster with
-more of them in flight, so reading it once beats reading it every time.
-`Dataportal(local=False)` searches the registry instead.
+That copy is how the package searches: the registry answers about two
+requests a second and does not go faster with more of them in flight, so
+reading it once beats reading it every time. The registry is still asked for
+what the file does not hold — distributions and agents as entities, RDF,
+statistics, link checks.
 
 Results are plain dictionaries:
 
@@ -66,7 +68,10 @@ page.total                     # 388
 page.breakdown["publisher"]    # [('trafikverket', 51), ...]
 page.breakdown["theme"]        # [('population_and_society', 233), ...]
 page.breakdown["format"]       # [('json', 246), ('html', 51), ...]
+page.breakdown["publisher_type"]  # [('national_authority', 201), ...]
 ```
+
+`breakdown_limit=10` caps each list and counts what it cut.
 
 Counted over everything that matched, biggest first, for every filter at
 once — and every value goes straight back in to narrow the search:

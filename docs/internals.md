@@ -124,19 +124,25 @@ So the ceiling is roughly 200 datasets a second whatever you do, which is why
 `download_catalog` takes ~6 minutes — and why the client reads the whole
 catalogue once and searches it locally by default.
 
-### How the client decides
+### Where each call goes
 
-`Dataportal(local=True)` (the default) serves a dataset search from the file
-and sends everything else to the registry. `_serve_locally()` holds the rule
-in one place: local unless `local=False`, unless the call uses `query=` (a
-raw index expression) or `facet_fields=` (counting the index). A client also
-keeps an API-only twin of itself, so downloading the catalogue cannot recurse
-into the catalogue it is downloading.
+`Dataportal` searches datasets in the catalogue file, always. `datasets()`,
+`iter_datasets()`, `dataset(uri=...)`, `count_datasets()` and every breakdown
+read it; the registry is asked only for what the file does not hold —
+distributions and agents as entities, statistics, link checks, quality
+scores, `lookup()`/`entry()` for RDF, and `search(Q...)` for a raw index
+query. There is no mode switch: one path, so there is nothing to get wrong.
 
 Searches return `Results`, a `list` of dicts carrying `total`, `offset`,
-`limit` and `has_more`, so local and live results are the same type. The
-model objects (`Dataset`, `Entry`) are still there behind `lookup()`,
-`entry()` and `search()`, which is where the RDF lives.
+`limit`, `has_more` and `breakdown`. The model objects (`Dataset`, `Entry`)
+are still there behind `lookup()`, `entry()` and `search()`, which is where
+the RDF lives.
+
+A value that the vocabulary table does not know but the file does contain --
+`parquet`, a bare GeoNames id -- is still a valid filter value: `_local_slugs`
+falls back to what the catalogue actually holds, so everything a breakdown
+reports can be filtered on. A value that is neither known nor present is
+still an error, with suggestions.
 
 ## Development
 
