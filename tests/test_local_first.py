@@ -59,8 +59,9 @@ def test_a_dataset_the_file_lacks_falls_back_to_the_registry(dp, transport):
     assert len(transport.requests) == 1
 
 
-def test_values_and_counts_come_from_the_file(dp, transport):
-    assert dp.values("theme") == [("economy_and_finance", 1), ("transport", 1)]
+def test_the_breakdown_and_counts_come_from_the_file(dp, transport):
+    page = dp.datasets()
+    assert page.breakdown["theme"] == [("economy_and_finance", 1), ("transport", 1)]
     assert dp.count_datasets(theme="transport") == 1
     assert transport.requests == []
 
@@ -116,3 +117,15 @@ def test_the_default_path_is_a_cache_directory():
     assert os.path.isabs(path)
     # Never the working directory: it must not land in someone's repository.
     assert os.path.dirname(path) != os.getcwd()
+
+
+def test_limit_zero_gives_the_breakdown_and_no_rows(dp):
+    """The idiom for "just tell me what is in the catalogue"."""
+    page = dp.datasets(limit=0)
+    assert len(page) == 0
+    assert page.total == 2
+    assert page.breakdown["theme"]
+
+
+def test_limit_none_gives_every_match(dp):
+    assert len(dp.datasets(limit=None)) == 2

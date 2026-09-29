@@ -58,14 +58,22 @@ Results are plain dictionaries:
 }
 ```
 
-## See what you can filter on
+## Every result knows what it is made of
 
 ```python
-dp.values("theme")       # [('population_and_society', 6455), ...]
-dp.values("publisher")   # every publisher, biggest first
+page = dp.datasets(text="cykel")
+page.total                     # 388
+page.breakdown["publisher"]    # [('trafikverket', 51), ...]
+page.breakdown["theme"]        # [('population_and_society', 233), ...]
+page.breakdown["format"]       # [('json', 246), ('html', 51), ...]
 ```
 
-Every value it returns is one you can pass straight back as a filter.
+Counted over everything that matched, biggest first, for every filter at
+once — and every value goes straight back in to narrow the search:
+
+```python
+dp.datasets(text="cykel", publisher="trafikverket")
+```
 
 ## The catalogue file
 

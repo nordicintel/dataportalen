@@ -526,57 +526,101 @@ def test_published_filters_dcterms_issued(client, transport, search_response):
     assert predicate_field("dcterms:issued", "date") in query_of(transport.requests[-1])
 
 
-# -- discovering what a filter accepts ---------------------------------------
+# -- what a result is made of -----------------------------------------------
 
 
-def _facet_page(field, pairs):
+def _facet_page(fields, total=2):
+    """A search response carrying facets, as the registry returns them."""
     return {
-        "results": 0, "offset": 0, "limit": 1,
+        "results": total, "offset": 0, "limit": 1,
         "resource": {"children": []},
-        "facetFields": [{
-            "name": field,
-            "values": [{"name": name, "count": count} for name, count in pairs],
-        }],
+        "facetFields": [
+            {"name": field,
+             "values": [{"name": name, "count": count} for name, count in pairs]}
+            for field, pairs in fields.items()
+        ],
     }
 
 
-def test_values_returns_short_names_with_counts(client, transport):
+def _field(filter_name):
     from dataportalen.models import FILTER_PREDICATES
     from dataportalen.query import predicate_field
 
-    predicate, kind = FILTER_PREDICATES["theme"]
-    field = predicate_field(predicate, kind)
-    transport.push(_facet_page(field, [
-        ("http://publications.europa.eu/resource/authority/data-theme/TRAN", 545),
-        ("http://publications.europa.eu/resource/authority/data-theme/ENVI", 2964),
-    ]))
-    assert client.values("theme") == [("environment", 2964), ("transport", 545)]
+    return predicate_field(*FILTER_PREDICATES[filter_name])
 
 
-def test_values_merges_uris_that_share_a_name(client, transport):
+def test_a_search_is_broken_down_by_every_filter(client, transport):
+    """The registry counts the facets over the whole match, in the same request."""
+    transport.push(_facet_page({
+        _field("theme"): [
+            ("http://publications.europa.eu/resource/authority/data-theme/TRAN", 545),
+            ("http://publications.europa.eu/resource/authority/data-theme/ENVI", 2964),
+        ],
+        _field("publisher"): [
+            ("http://dataportal.se/organisation/SE2021006297", 338),
+        ],
+        _field("format"): [("text/csv", 1226), ("application/json", 14118)],
+    }, total=23580))
+    page = client.datasets(limit=1)
+
+    assert page.breakdown["theme"] == [("environment", 2964), ("transport", 545)]
+    assert page.breakdown["publisher"] == [("trafikverket", 338)]
+    assert page.breakdown["format"] == [("json", 14118), ("csv", 1226)]
+    assert page.breakdown.top("theme") == ("environment", 2964)
+
+
+def test_the_breakdown_rides_along_with_the_search(client, transport):
+    """No second request: the facets come back with the results."""
+    transport.push(_facet_page({_field("theme"): [("x", 1)]}))
+    client.datasets(limit=1)
+    assert len(transport.requests) == 1
+    assert "facetFields" in transport.requests[0]
+
+
+def test_values_that_share_a_name_are_added_together(client, transport):
     """Two GeoNames entries for Sweden are one value to anyone filtering."""
-    from dataportalen.models import FILTER_PREDICATES
-    from dataportalen.query import predicate_field
-
-    field = predicate_field(*FILTER_PREDICATES["place"])
-    transport.push(_facet_page(field, [
+    transport.push(_facet_page({_field("place"): [
         ("http://sws.geonames.org/2661886/", 2193),
         ("https://sws.geonames.org/2661886/", 505),
-    ]))
-    assert client.values("place")[0] == ("kingdom_of_sweden", 2698)
+    ]}))
+    page = client.datasets(limit=1)
+    assert page.breakdown["place"] == [("kingdom_of_sweden", 2698)]
 
 
-def test_values_uses_the_organisation_chart_for_publishers(client, transport, org_data):
-    transport.routes["/charts/orgData.json"] = org_data
-    top = client.values("publisher", limit=2)
-    assert len(top) == 2
-    assert top[0].value == "radet_for_framjande_av_kommunala_analyser_kolada"
-    assert top[0].dataset_count > 0
-
-
-def test_values_says_what_it_can_count(client):
+def test_keywords_say_why_the_registry_cannot_count_them(client, transport):
     from dataportalen import QueryError
 
+    transport.push(_facet_page({_field("theme"): [("x", 1)]}))
+    page = client.datasets(limit=1)
     with pytest.raises(QueryError) as info:
-        client.values("keyword")          # n-grammed upstream: counts fragments
+        page.breakdown["keyword"]
+    assert "fragment" in str(info.value)
+
+
+def test_an_unknown_breakdown_key_lists_what_there_is(client, transport):
+    from dataportalen import QueryError
+
+    transport.push(_facet_page({_field("theme"): [("x", 1)]}))
+    page = client.datasets(limit=1)
+    with pytest.raises(QueryError) as info:
+        page.breakdown["publishers"]
     assert "theme" in str(info.value)
+
+
+def test_a_breakdown_serializes(client, transport):
+    transport.push(_facet_page({_field("access_rights"): [
+        ("http://publications.europa.eu/resource/authority/access-right/PUBLIC", 9),
+    ]}))
+    page = client.datasets(limit=1)
+    assert page.breakdown.to_dict() == {"access_rights": {"public": 9}}
+
+
+def test_limit_zero_asks_for_one_row_and_returns_none(client, transport,
+                                                      search_response):
+    """The registry answers limit=0 with a row anyway, so it is dropped."""
+    payload = dict(search_response, facetFields=[])
+    transport.push(payload)
+    page = client.datasets(limit=0)
+    assert len(page) == 0
+    assert page.total == search_response["results"]
+    assert "limit=1" in transport.requests[-1]

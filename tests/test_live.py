@@ -18,11 +18,7 @@ import pytest
 
 from dataportalen import (
     Agent,
-    Catalog,
     Dataportal,
-    DataService,
-    Dataset,
-    Distribution,
     Q,
 )
 from dataportalen.rdf import DCAT
@@ -37,19 +33,24 @@ if not os.environ.get("DATAPORTAL_LIVE"):
 
 @pytest.fixture(scope="module")
 def dp():
-    with Dataportal() as client:
+    """Talks to the registry: these tests are about what it returns.
+
+    The local path is covered offline; `local_dp` below exercises the real
+    download once.
+    """
+    with Dataportal(local=False) as client:
         yield client
 
 
-def test_dataset_search_returns_typed_datasets(dp):
+def test_dataset_search_returns_dicts(dp):
     page = dp.datasets(limit=5)
     assert page.total > 1000
     assert len(page) == 5
     for dataset in page:
-        assert isinstance(dataset, Dataset)
-        assert dataset.resource_uri
-        assert dataset.context_id and dataset.entry_id
-        assert DCAT.Dataset in dataset.types
+        assert isinstance(dataset, dict)
+        assert dataset["uri"]
+        assert dataset["context_id"] and dataset["entry_id"]
+        assert dataset["title"] is not None
 
 
 def test_free_text_and_title_filters_narrow_the_result(dp):
@@ -59,26 +60,41 @@ def test_free_text_and_title_filters_narrow_the_result(dp):
 
 
 def test_paging_yields_distinct_entries(dp):
-    seen = [d.entry_uri for d in dp.iter_datasets(limit=25, page_size=10, sort="created asc")]
-    assert len(seen) == 25
-    assert len(set(seen)) == 25
+    """Under the sort the package uses for crawling, pages must not overlap."""
+    from dataportalen.client import STABLE_SORT
+
+    seen = [d["uri"] for d in dp.iter_datasets(
+        limit=300, page_size=100, sort=STABLE_SORT)]
+    assert len(seen) == 300
+    assert len(set(seen)) == 300
+
+
+def test_a_uri_can_belong_to_two_entries(dp):
+    """A dataset published into two catalogues is two entries, one URI.
+
+    Worth pinning: it is why `uri` is not a key in an export, and why a
+    duplicate URI is not evidence that paging lost something.
+    """
+    rows = [(d["context_id"], d["entry_id"], d["uri"])
+            for d in dp.iter_datasets(limit=2000, page_size=100, sort="created asc")]
+    assert len({(c, e) for c, e, _ in rows}) == len(rows)
+    assert len({u for _, _, u in rows}) < len(rows)
 
 
 def test_recursive_fetch_brings_distributions_and_publisher(dp):
     hit = dp.datasets(limit=1)[0]
-    full = dp.dataset(context_id=hit.context_id, entry_id=hit.entry_id)
+    full = dp.dataset(context_id=hit["context_id"], entry_id=hit["entry_id"])
     assert full is not None
-    assert full.title
-    distributions = full.distributions()
-    if full.distribution_uris:
-        assert distributions
-        assert all(isinstance(d, Distribution) for d in distributions)
+    assert full["title"]
+    for distribution in full["distributions"]:
+        assert distribution["access_url"] or distribution["download_url"]
 
 
 def test_lookup_by_publisher_uri_returns_an_agent(dp):
     for dataset in dp.iter_datasets(limit=10):
-        if dataset.publisher_uri:
-            agent = dp.agent(dataset.publisher_uri)
+        publisher = (dataset.get("publisher") or {}).get("uri")
+        if publisher:
+            agent = dp.agent(publisher)
             if agent is not None:
                 assert isinstance(agent, Agent)
                 assert agent.name
@@ -87,15 +103,15 @@ def test_lookup_by_publisher_uri_returns_an_agent(dp):
 
 
 def test_lookup_many_resolves_a_batch(dp):
-    uris = [d.resource_uri for d in dp.datasets(limit=5)]
+    uris = [d["uri"] for d in dp.datasets(limit=5)]
     found = dp.lookup_many(uris)
     assert {e.resource_uri for e in found} <= set(uris)
     assert found
 
 
 def test_catalogs_and_data_services_are_typed(dp):
-    assert all(isinstance(c, Catalog) for c in dp.catalogs(limit=3))
-    assert all(isinstance(s, DataService) for s in dp.data_services(limit=3))
+    assert all(isinstance(c, dict) and c["uri"] for c in dp.catalogs(limit=3))
+    assert all(isinstance(s, dict) and s["uri"] for s in dp.data_services(limit=3))
 
 
 def test_facets_report_the_known_rdf_types(dp):
@@ -129,7 +145,7 @@ def test_context_names_map_ids_to_organisations(dp):
 
 def test_entry_raw_serves_turtle(dp):
     hit = dp.datasets(limit=1)[0]
-    response = dp.entry_raw(hit.context_id, hit.entry_id, format="text/turtle")
+    response = dp.entry_raw(hit["context_id"], hit["entry_id"], format="text/turtle")
     assert response.status == 200
     assert "@prefix" in response.text
 
@@ -238,8 +254,7 @@ def test_catalog_export_gzips(dp, tmp_path):
 def test_vocabulary_labels_resolve_on_live_data(dp):
     """The label table must actually hit what publishers use."""
     total = labelled = 0
-    for dataset in dp.iter_datasets(limit=200):
-        doc = dataset.to_dict(distributions=False)
+    for doc in dp.iter_datasets(limit=200):
         for field in ("themes", "languages"):
             for value in doc[field]:
                 total += 1
@@ -293,22 +308,40 @@ def test_organisations_lead_into_a_search(dp):
 
 
 def test_language_shapes_the_output(dp):
-    uri = next(iter(dp.datasets(limit=1))).resource_uri
-    swedish = dp.dataset(uri=uri).to_dict()
-    assert isinstance(swedish["title"], str)
-    with Dataportal(language="all") as every:
-        assert isinstance(every.dataset(uri=uri).to_dict()["title"], dict)
+    uri = dp.datasets(limit=1)[0]["uri"]
+    assert isinstance(dp.dataset(uri=uri)["title"], str)
+    with Dataportal(language="all", local=False) as every:
+        assert isinstance(every.dataset(uri=uri)["title"], dict)
 
 
-def test_values_lists_what_a_filter_accepts(dp):
-    """Every value it reports must work as a filter."""
+def test_a_search_is_broken_down_by_every_filter(dp):
+    """Every value the breakdown reports must work as a filter."""
+    page = dp.datasets(limit=1)
     for name in ("theme", "license", "access_rights", "updated", "language",
                  "place", "format", "publisher"):
-        rows = dp.values(name, limit=3)
+        rows = page.breakdown[name]
         assert rows, name
         top = rows[0]
         assert top.dataset_count > 0
         assert dp.datasets(limit=1, **{name: top.value}).total > 0, (name, top)
+
+
+def test_the_breakdown_describes_the_match_not_the_page(dp):
+    """Counts are over everything that matched, and come with the search."""
+    page = dp.datasets(publisher="trafikverket", limit=1)
+    assert len(page) == 1
+    assert page.total > 100
+    published = dict(page.breakdown["publisher"])
+    assert published["trafikverket"] == page.total
+
+
+def test_the_registry_cannot_break_down_keywords(dp):
+    """It indexes them by fragment; the error has to say so."""
+    from dataportalen import QueryError
+
+    with pytest.raises(QueryError) as info:
+        dp.datasets(limit=1).breakdown["keyword"]
+    assert "fragment" in str(info.value)
 
 
 def test_the_page_size_cap_is_the_registrys(dp):
@@ -318,3 +351,21 @@ def test_the_page_size_cap_is_the_registrys(dp):
     payload = response.json()
     assert payload["limit"] == 100
     assert len(payload["resource"]["children"]) == 100
+
+
+# -- the local path, against the real file -----------------------------------
+
+
+def test_the_local_catalogue_answers_the_same_as_the_registry(tmp_path):
+    """A small real download, then the same search both ways."""
+    from dataportalen import LocalCatalog, download_catalog
+
+    path = tmp_path / "catalog.jsonl"
+    download_catalog(str(path), limit=300, progress=None)
+    catalog = LocalCatalog(str(path), download=False)
+
+    page = catalog.datasets()
+    assert len(page) == 300
+    assert page.breakdown["publisher"], "a local breakdown covers publishers"
+    assert page.breakdown["keyword"], "and keywords, which the registry cannot"
+    assert sum(count for _, count in page.breakdown["access_rights"]) <= 300

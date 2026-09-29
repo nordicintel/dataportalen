@@ -6,7 +6,7 @@ Everything here is ordinary Python. You ask for datasets, you get dictionaries.
 2. [Find datasets](#find-datasets)
 3. [Narrow the search](#narrow-the-search)
 4. [Filter by date](#filter-by-date)
-5. [See what a filter accepts](#see-what-a-filter-accepts)
+5. [What is in a result](#what-is-in-a-result)
 6. [How much comes back](#how-much-comes-back)
 7. [What a dataset looks like](#what-a-dataset-looks-like)
 8. [The catalogue file](#the-catalogue-file)
@@ -109,7 +109,7 @@ than an error.
 
 | | |
 | --- | --- |
-| Local | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()`, `values()` |
+| Local | `datasets()`, `iter_datasets()`, `dataset(uri=...)`, `count_datasets()` |
 | Registry | `distributions()`, `data_services()`, `catalogs()`, `agents()`, `standards()`, statistics, link checks, quality scores, and any search using `query=` or `facet_fields=` |
 
 The file holds datasets with their distributions, publisher and contacts
@@ -178,39 +178,65 @@ dataset in, but that happens nightly for nearly everything, so filtering on it
 would tell you about the registry's schedule rather than about the data. It is
 deliberately not offered.
 
-## See what a filter accepts
+## What is in a result
 
-`dp.values(...)` answers "what can I put in `theme=`?", counted against the
-live registry so you see what publishers actually use:
+Every search comes back knowing what it is made of. `page.breakdown` counts
+each filter over **everything that matched**, not just the rows you are
+holding, biggest first:
 
 ```python
-for value, count in dp.values("theme"):
+page = dp.datasets(text="cykel")
+page.total                      # 388
+
+for value, count in page.breakdown["publisher"][:3]:
     print(count, value)
 ```
 
 ```text
-6455 population_and_society
-6343 government_and_public_sector
-3811 education_culture_and_sport
-2964 environment
-2322 health
-...
+213 radet_for_framjande_av_kommunala_analyser_kolada
+51 trafikverket
+19 uppsala_universitet
 ```
 
-Every value it prints is one you can filter on directly:
+Every filter is there, keyed by the name you would search with:
 
 ```python
-dp.datasets(theme="population_and_society")
+page.breakdown["theme"]          # [('population_and_society', 233), ...]
+page.breakdown["format"]         # [('json', 246), ('html', 51), ...]
+page.breakdown["license"]        # [('cc0_1_0', 201), ...]
+page.breakdown["access_rights"]  # [('public', 366), ...]
+page.breakdown["updated"]        # [('annual', 140), ...]
+page.breakdown["language"]       # [('swedish', 388), ...]
+page.breakdown["place"]          # [('kingdom_of_sweden', 44), ...]
+page.breakdown["keyword"]        # [('Kommun', 213), ...]
 ```
 
-It works for `theme`, `format`, `license`, `access_rights`, `updated`,
-`language`, `place` and `publisher`, and takes one request. (Not `keyword` —
-the registry indexes keywords by fragment, so counting them returns pieces of
-words rather than keywords. A [local copy](#the-catalogue-file) can count
-those.)
+And every value is one you feed straight back in to narrow the search:
 
-Without the network, `known_values` lists the same names from the table
-shipped in the package:
+```python
+dp.datasets(text="cykel", publisher="trafikverket")
+```
+
+So a breakdown is both the answer to "what can I filter by?" and the answer
+to "what is in this result?". With no filters at all it describes the whole
+catalogue:
+
+```python
+dp.datasets(limit=0).breakdown["theme"]   # every theme in the registry
+```
+
+Counts are per dataset — a dataset with three CSV files counts once under
+`format` → `csv`. `page.breakdown.to_dict()` gives `{filter: {value: count}}`
+for JSON, and `page.breakdown.top("theme")` the commonest value.
+
+Against the registry (`local=False`) the counts arrive with the search in the
+same request, except `keyword`: the index stores keywords by fragment, so it
+can only count pieces of words. Locally there is no such limit.
+
+### Before you search
+
+`known_values` lists the names the package knows without a search or a
+network call:
 
 ```python
 from dataportalen import known_values, known_publishers
@@ -253,8 +279,8 @@ Against the registry (`local=False`) the same two calls page for you, 100 at a
 time — that is the registry's cap, not this package's; ask for 1000 and it
 answers with 100. There `total` is the index's estimate and can be slightly
 optimistic, and the underlying data shifts as publishers update it: add
-`sort="created asc"` if you are walking a large result and need each dataset
-exactly once. Locally neither caveat applies — the file does not move while
+`sort="uri asc"` if you are walking a large result and need each entry
+exactly once: it is unique per entry, so a page boundary cannot move. Locally neither caveat applies — the file does not move while
 you read it.
 
 ## What a dataset looks like
@@ -365,7 +391,7 @@ from dataportalen import LocalCatalog
 
 catalog = LocalCatalog("catalog.jsonl", download=False)
 catalog.datasets(publisher="trafikverket", updated_after="2024-01-01")
-catalog.values("keyword")     # what the registry's index cannot count
+catalog.datasets().breakdown["keyword"]   # what the registry cannot count
 ```
 
 `download=False` is for a program that must not reach the network: a missing

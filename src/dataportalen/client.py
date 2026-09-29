@@ -52,9 +52,11 @@ from .core import (
     progress_reporter,
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
+    BREAKDOWN_FILTERS,
     DEFAULT_LANGUAGE,
     FILTER_PREDICATES,
     Agent,
+    Breakdown,
     Catalog,
     CatalogStatistics,
     ContactPoint,
@@ -836,17 +838,24 @@ class Dataportal:
         """
         if self._serve_locally(facet_fields=facet_fields, **filters):
             found = self.catalog.datasets(**filters)
-            window = found[offset:offset + limit] if limit else found[offset:]
-            return Results(window, total=len(found), offset=offset, limit=limit)
+            window = found[offset:] if limit is None else found[offset:offset + limit]
+            return Results(window, total=found.total, offset=offset, limit=limit,
+                           breakdown=found.breakdown)
         page = self.search(
             self._entity_query(DCAT.Dataset, **filters),
             model=Dataset,
-            limit=limit or MAX_LIMIT,
+            # The registry answers limit=0 with one row rather than none, so
+            # ask for one and drop it: limit=0 means "just the breakdown".
+            limit=MAX_LIMIT if limit is None else max(limit, 1),
             offset=offset,
             sort=sort,
-            facet_fields=facet_fields,
+            facet_fields=list(facet_fields or []) + BREAKDOWN_FIELDS,
+            facet_limit=1000,
         )
-        return _as_results(page)
+        results = _as_results(page, breakdown=breakdown_from_facets(page.facets))
+        if limit == 0:
+            del results[:]
+        return results
 
     def iter_datasets(
         self,
@@ -891,11 +900,15 @@ class Dataportal:
         context_id: Optional[Union[str, int]] = None,
         entry_id: Optional[Union[str, int]] = None,
         recursive: bool = True,
-    ) -> Optional[Dataset]:
-        """Fetch a single dataset, by its own URI or by registry ids.
+    ) -> Optional[Dict[str, Any]]:
+        """One dataset as a dict, by its own URI or by registry ids.
 
-        With ``recursive`` (the default for the id form) the distributions,
-        publisher and contact points come along in the same request.
+        Comes out of the local catalogue when it is there, and off the
+        registry when it is not. ``None`` if nothing matches. With
+        ``recursive`` (the default) a fetched dataset brings its
+        distributions, publisher and contact points with it.
+
+        For the RDF behind it, use :meth:`lookup`, which returns the model.
         """
         if uri and self.local:
             record = self.catalog.get(uri)
@@ -909,14 +922,15 @@ class Dataportal:
             if recursive and found.context_id and found.entry_id:
                 # The search hit already carries the envelope; reuse it so the
                 # recursive fetch costs exactly one extra request.
-                return self.entry(
+                found = self.entry(
                     found.context_id, found.entry_id, recursive=True,
                     model=Dataset, info=found.info, rights=found.rights,
-                )  # type: ignore[return-value]
-            return found  # type: ignore[return-value]
+                )
+            return found.to_dict() if found is not None else None
         if context_id is None or entry_id is None:
             raise TypeError("pass either uri= or both context_id= and entry_id=")
-        return self.entry(context_id, entry_id, recursive=recursive, model=Dataset)  # type: ignore[return-value]
+        found = self.entry(context_id, entry_id, recursive=recursive, model=Dataset)
+        return found.to_dict() if found is not None else None
 
     def datasets_in_context(
         self,
@@ -1064,36 +1078,6 @@ class Dataportal:
 
     # -- registry-wide statistics -----------------------------------------
 
-    def values(self, filter: str, *, limit: int = 100) -> List[ValueCount]:
-        """The values a filter accepts, with how many datasets carry each.
-
-        The answer to "what can I put in ``theme=``?", counted against the
-        live registry rather than against the package's table, so it shows
-        what publishers really use::
-
-            >>> dp.values("theme")[:3]                     # doctest: +SKIP
-            [ValueCount(value='population_and_society', dataset_count=6455),
-             ValueCount(value='government_and_public_sector', dataset_count=6343),
-             ValueCount(value='education_culture_and_sport', dataset_count=3811)]
-
-        One request. Use :func:`~dataportalen.known_values` for the offline
-        list, and :meth:`organisations` for publishers, which the registry
-        counts for us.
-        """
-        if self.local:
-            return self.catalog.values(filter, limit=limit)
-        if filter == "publisher":
-            return [ValueCount(o.publisher, o.dataset_count)
-                    for o in self.organisations() if o.publisher][:limit]
-        if filter not in FILTER_PREDICATES:
-            raise QueryError(
-                "cannot count values for %r; try one of: %s"
-                % (filter, ", ".join(sorted(FILTER_PREDICATES) + ["publisher"])))
-        predicate, kind = FILTER_PREDICATES[filter]
-        facet = self.facet(predicate_field(predicate, kind),
-                           Q.rdf_type(DCAT.Dataset), limit=max(limit * 4, 100))
-        return _counted(facet.values, limit)
-
     def organisations(self) -> List[OrganisationStats]:
         """Dataset counts per publishing organisation (``/charts/orgData.json``).
 
@@ -1186,16 +1170,17 @@ class Dataportal:
         """
         out: Dict[str, str] = {}
         for catalog in self.iter_catalogs(limit=limit):
-            if catalog.context_id and catalog.title:
-                out[str(catalog.context_id)] = catalog.title
+            if catalog.get("context_id") and catalog.get("title"):
+                out[str(catalog["context_id"])] = catalog["title"]
         return out
 
     def context_publishers(self, *, limit: Optional[int] = None) -> Dict[str, str]:
         """Map ``contextId`` to the publishing organisation's URI."""
         out: Dict[str, str] = {}
         for catalog in self.iter_catalogs(limit=limit):
-            if catalog.context_id and catalog.publisher_uri:
-                out[str(catalog.context_id)] = catalog.publisher_uri
+            publisher = (catalog.get("publisher") or {}).get("uri")
+            if catalog.get("context_id") and publisher:
+                out[str(catalog["context_id"])] = publisher
         return out
 
     def datasets_per_organisation(self, *, day: int = 0) -> List[Tuple[str, str, int]]:
@@ -1288,7 +1273,7 @@ def _one(value: Any, resolver: Any, what: str) -> str:
     return found[0]
 
 
-def _as_results(page: SearchPage) -> Results:
+def _as_results(page: SearchPage, breakdown: Optional[Breakdown] = None) -> Results:
     """A page of models as the dicts every caller wanted anyway."""
     return Results(
         [entry.to_dict() for entry in page],
@@ -1296,10 +1281,54 @@ def _as_results(page: SearchPage) -> Results:
         offset=page.offset,
         limit=page.limit,
         facets=page.facets,
+        breakdown=breakdown,
     )
 
 
-def _counted(values: Any, limit: int) -> List[ValueCount]:
+#: The index fields behind the breakdown, requested with every dataset search
+#: so the counts arrive in the same response rather than costing a request.
+BREAKDOWN_FIELDS = [
+    predicate_field(predicate, kind)
+    for predicate, kind in (FILTER_PREDICATES[name] for name in BREAKDOWN_FILTERS
+                            if name in FILTER_PREDICATES)
+]
+_BREAKDOWN_BY_FIELD = {
+    predicate_field(*FILTER_PREDICATES[name]): name
+    for name in BREAKDOWN_FILTERS if name in FILTER_PREDICATES
+}
+
+#: Why a breakdown is missing rather than empty.
+_NO_KEYWORDS = ("the registry indexes keywords by fragment, so it can only "
+                "count pieces of words; a local catalogue counts them properly")
+
+
+def breakdown_from_facets(facets: Sequence[Any]) -> Breakdown:
+    """A breakdown from the facets the registry returned with a search."""
+    counts: Dict[str, List[ValueCount]] = {}
+    for facet in facets:
+        name = _BREAKDOWN_BY_FIELD.get(facet.name)
+        if name is None:
+            continue
+        short = publisher_for if name == "publisher" else slug_for
+        counts[name] = _counted(facet.values, 1000, short=short)
+    return Breakdown(counts, unavailable={"keyword": _NO_KEYWORDS})
+
+
+def local_breakdown(records: Sequence[Dict[str, Any]]) -> Breakdown:
+    """A breakdown counted over records in hand -- one pass, every filter."""
+    tallies: Dict[str, Dict[str, int]] = {name: {} for name in BREAKDOWN_FILTERS}
+    for record in records:
+        for name, counts in tallies.items():
+            for value in set(_local_values(record, name)):
+                counts[value] = counts.get(value, 0) + 1
+    return Breakdown({
+        name: [ValueCount(value, count) for value, count in
+               sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
+        for name, counts in tallies.items()
+    })
+
+
+def _counted(values: Any, limit: int, short: Any = None) -> List[ValueCount]:
     """Facet values as short names, merging the ones that share a name.
 
     Several URIs slug to the same name -- two GeoNames entries for Sweden,
@@ -1308,7 +1337,7 @@ def _counted(values: Any, limit: int) -> List[ValueCount]:
     """
     totals: Dict[str, int] = {}
     for value in values:
-        name = slug_for(value.name)
+        name = (short or slug_for)(value.name)
         if name:
             totals[name] = totals.get(name, 0) + value.count
     ordered = sorted(totals.items(), key=lambda pair: (-pair[1], pair[0]))
@@ -1369,9 +1398,14 @@ def _as_list(value: Any) -> List[str]:
 #: Entries per request. The registry caps this at 100.
 PAGE_SIZE = 100
 
-#: A stable sort, so concurrent pages tile the corpus without overlap.
-#: `modified desc` (the client default) shifts under a nightly re-harvest.
-STABLE_SORT = "created asc"
+#: The sort concurrent pages tile the corpus with. It must be a key with no
+#: ties, so a page boundary always falls in the same place: `modified desc`
+#: (the search default) shifts under the nightly re-harvest, and `created asc`
+#: ties whenever datasets are harvested in the same instant. Walking 2,000
+#: datasets returns 2,000 distinct entries under either `created asc` or
+#: `uri asc` today, so the ties do no harm in practice -- `uri asc` is unique
+#: per entry and removes the possibility.
+STABLE_SORT = "uri asc"
 
 
 class CatalogSummary:
@@ -1844,14 +1878,14 @@ class LocalCatalog:
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         return iter(self._records)
 
-    def datasets(self, **filters: Any) -> List[Dict[str, Any]]:
+    def datasets(self, **filters: Any) -> Results:
         """Every dataset matching the filters, as dicts.
 
         Takes the same filters as :meth:`Dataportal.datasets` with the same
         short values, minus ``query`` (there is no index to query) and the
         paging arguments (you get the whole result).
         """
-        limit = filters.pop("limit", None)
+        limit = filters.pop("limit", None)   # None means every match
         for unsupported in ("offset", "sort", "page_size", "query"):
             if unsupported in filters:
                 raise QueryError(
@@ -1859,20 +1893,11 @@ class LocalCatalog:
                     "every match at once" % unsupported)
         tests = [_local_test(name, value) for name, value in filters.items()]
         out = [r for r in self._records if all(test(r) for test in tests)]
-        return out[:limit] if limit else out
-
-    def values(self, filter: str, *, limit: int = 100) -> List[ValueCount]:
-        """The values in use in this copy, with a count each.
-
-        The same rows as :meth:`Dataportal.values`, counted over the file
-        rather than over the live index, and available for ``keyword`` too.
-        """
-        counts: Dict[str, int] = {}
-        for record in self._records:
-            for value in _local_values(record, filter):
-                counts[value] = counts.get(value, 0) + 1
-        ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
-        return [ValueCount(name, count) for name, count in ordered[:limit]]
+        breakdown = local_breakdown(out)
+        matched = len(out)
+        if limit is not None:
+            out = out[:limit]
+        return Results(out, total=matched, limit=limit, breakdown=breakdown)
 
     def __repr__(self) -> str:                            # pragma: no cover
         return "<LocalCatalog %s: %d datasets>" % (self.path, len(self._records))

@@ -117,6 +117,8 @@ Measured, because both numbers shape the package's design:
 | Throughput | ~2.2 requests/second, and **concurrency does not help** — 8, 16 and 32 workers all measure the same |
 | Rate limiting | none observed: no `Retry-After`, no rate-limit headers, no 429s in a 64-request burst |
 | Deep paging | flat — offset 23,000 costs the same as offset 0 |
+| Paging stability | walking 2,000 datasets gives 2,000 distinct entries under `created asc` and under `uri asc`. The crawl uses `uri asc` because it is unique per entry, so a page boundary cannot move |
+| Duplicate URIs | a few datasets are published into two catalogues, so one `uri` can appear twice with different `context_id`/`entry_id`. In a full export: 23,575 entries, 23,571 distinct URIs |
 
 So the ceiling is roughly 200 datasets a second whatever you do, which is why
 `download_catalog` takes ~6 minutes — and why the client reads the whole

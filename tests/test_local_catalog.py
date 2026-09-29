@@ -137,15 +137,25 @@ def test_index_only_arguments_say_so(catalog):
         assert argument in str(info.value)
 
 
-def test_values_counts_what_is_in_the_file(catalog):
-    assert catalog.values("theme") == [("economy_and_finance", 1), ("transport", 1)]
-    assert catalog.values("language")[0] == ("swedish", 2)
-    assert catalog.values("format") == [("csv", 1), ("json", 1), ("xlsx", 1)]
-    assert catalog.values("publisher")[0].dataset_count == 1
-    # Unlike the live index, keywords can be counted here.
-    assert ("Geodata", 1) in catalog.values("keyword")
+def test_a_local_search_is_broken_down_too(catalog):
+    """Same shape as the live one, counted over the file."""
+    page = catalog.datasets()
+    assert page.breakdown["theme"] == [("economy_and_finance", 1), ("transport", 1)]
+    assert page.breakdown["language"][0] == ("swedish", 2)
+    assert page.breakdown["format"] == [("csv", 1), ("json", 1), ("xlsx", 1)]
+    assert page.breakdown["publisher"][0].dataset_count == 1
+    # Unlike the registry, a file can count keywords.
+    assert ("Geodata", 1) in page.breakdown["keyword"]
 
 
-def test_values_rejects_a_field_it_cannot_count(catalog):
-    with pytest.raises(QueryError):
-        catalog.values("title")
+def test_the_breakdown_describes_the_match_not_the_page(catalog):
+    page = catalog.datasets(theme="transport")
+    assert page.total == 1
+    assert page.breakdown["publisher"] == [("trafikverket", 1)]
+    assert page.breakdown["theme"] == [("transport", 1)]
+
+
+def test_a_dataset_counts_once_per_value(catalog):
+    """Two CSV distributions on one dataset is one dataset under `csv`."""
+    page = catalog.datasets(uri="https://example.org/roads")
+    assert page.breakdown["format"] == [("csv", 1), ("json", 1)]

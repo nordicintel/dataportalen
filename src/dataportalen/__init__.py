@@ -59,6 +59,7 @@ from .core import (
 from .core import __version__ as _version
 from .models import (
     Agent,
+    Breakdown,
     Catalog,
     CatalogStatistics,
     Checksum,
@@ -173,6 +174,7 @@ __all__ = [
     "PeriodOfTime",
     "Temporal",
     "Checksum",
+    "Breakdown",
     "Results",
     "SearchPage",
     "Facet",

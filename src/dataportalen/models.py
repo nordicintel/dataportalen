@@ -15,6 +15,7 @@ import datetime as _dt
 import json as _json
 import re as _re
 from collections import namedtuple as _namedtuple
+from collections.abc import Mapping as _Mapping
 from collections.abc import Sequence as _ABCSequence
 from typing import (
     Any,
@@ -75,6 +76,8 @@ __all__ = [
     "FILTER_PREDICATES",
     "PeriodOfTime",
     "Checksum",
+    "Breakdown",
+    "BREAKDOWN_FILTERS",
     "Results",
     "SearchPage",
     "FacetValue",
@@ -1610,6 +1613,7 @@ def _known_publisher(name: str) -> Optional[str]:
 #: publishers state it as a URI or as a plain literal. Used to count the
 #: values actually in use -- see :meth:`~dataportalen.Dataportal.values`.
 FILTER_PREDICATES = {
+    "publisher": (DCTERMS.publisher, "uri"),
     "theme": (DCAT.theme, "uri"),
     "license": (DCTERMS.license, "uri"),
     "access_rights": (DCTERMS.accessRights, "uri"),
@@ -1728,6 +1732,77 @@ class Facet:
         return "<Facet %s values=%d>" % (self.name, len(self.values))
 
 
+#: The order a breakdown reports its filters in: who published it, what it is
+#: about, then how you can get it.
+BREAKDOWN_FILTERS = ("publisher", "theme", "keyword", "format", "license",
+                     "access_rights", "updated", "language", "place")
+
+
+class Breakdown(_Mapping):
+    """What a search result is made of, per filter, biggest first.
+
+    Every filter you can search by, counted over everything that matched --
+    not just the rows you are holding::
+
+        page = dp.datasets(text="cykel")
+        page.total                      # 388
+        page.breakdown["publisher"]     # [('trafikverket', 88), ...]
+        page.breakdown["theme"]         # [('transport', 201), ...]
+
+    Each value is one you can feed straight back in to narrow the search::
+
+        dp.datasets(text="cykel", publisher="trafikverket")
+
+    Counts are per dataset: a dataset with three CSV files counts once under
+    ``format`` -> ``csv``.
+    """
+
+    __slots__ = ("_counts", "_unavailable")
+
+    def __init__(
+        self,
+        counts: Mapping[str, Sequence["ValueCount"]],
+        unavailable: Optional[Mapping[str, str]] = None,
+    ) -> None:
+        self._counts = {
+            name: list(counts[name])
+            for name in BREAKDOWN_FILTERS if name in counts
+        }
+        self._unavailable = dict(unavailable or {})
+
+    def __getitem__(self, filter: str) -> List["ValueCount"]:
+        if filter in self._counts:
+            return self._counts[filter]
+        if filter in self._unavailable:
+            raise QueryError("no %s breakdown here: %s"
+                             % (filter, self._unavailable[filter]))
+        raise QueryError(
+            "nothing is broken down by %r; this result knows: %s"
+            % (filter, ", ".join(self._counts)))
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._counts)
+
+    def __len__(self) -> int:
+        return len(self._counts)
+
+    def top(self, filter: str) -> Optional["ValueCount"]:
+        """The commonest value for one filter, or ``None`` if there is none."""
+        found = self[filter]
+        return found[0] if found else None
+
+    def to_dict(self) -> Dict[str, Dict[str, int]]:
+        """``{filter: {value: count}}``, JSON-serializable and still ordered."""
+        return {
+            name: {value: count for value, count in values}
+            for name, values in self._counts.items()
+        }
+
+    def __repr__(self) -> str:                            # pragma: no cover
+        return "<Breakdown %s>" % " ".join(
+            "%s=%d" % (name, len(values)) for name, values in self._counts.items())
+
+
 class Results(list):
     """What a search gives you: a list of dataset dicts, and the total.
 
@@ -1739,12 +1814,13 @@ class Results(list):
         len(page)        # what you got, at most `limit`
         page.total       # how many matched altogether
         page.has_more    # whether anything follows
+        page.breakdown   # what all of them are made of, per filter
 
     The same type comes back whether the search ran against the local
     catalogue or the registry, so code does not care which it used.
     """
 
-    __slots__ = ("total", "offset", "limit", "facets")
+    __slots__ = ("total", "offset", "limit", "facets", "breakdown")
 
     def __init__(
         self,
@@ -1753,12 +1829,15 @@ class Results(list):
         offset: int = 0,
         limit: Optional[int] = None,
         facets: Sequence[Any] = (),
+        breakdown: Optional[Breakdown] = None,
     ) -> None:
         super().__init__(records)
         self.total = len(self) if total is None else int(total)
         self.offset = offset
         self.limit = len(self) if limit is None else limit
         self.facets = list(facets)
+        #: What everything that matched is made of -- see :class:`Breakdown`.
+        self.breakdown = breakdown if breakdown is not None else Breakdown({})
 
     @property
     def has_more(self) -> bool:
