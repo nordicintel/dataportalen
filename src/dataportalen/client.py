@@ -40,6 +40,7 @@ from .core import (
     HTTPError,
     NotFoundError,
     ParseError,
+    QueryError,
     RateLimitError,
     Response,
     ServerError,
@@ -52,6 +53,7 @@ from .core import (
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
     DEFAULT_LANGUAGE,
+    FILTER_PREDICATES,
     Agent,
     Catalog,
     CatalogStatistics,
@@ -67,10 +69,11 @@ from .models import (
     OrganisationStats,
     SearchPage,
     Standard,
+    ValueCount,
     language_preference,
     wrap_entry,
 )
-from .query import SORT_MODIFIED_DESC, Q
+from .query import SORT_MODIFIED_DESC, Q, predicate_field
 from .rdf import (
     DCAT,
     DCTERMS,
@@ -78,8 +81,11 @@ from .rdf import (
     VCARD,
     Graph,
     Types,
+    publisher_for,
     resolve,
     resolve_publisher,
+    slug_for,
+    slugify,
 )
 
 # ==========================================================================
@@ -887,6 +893,34 @@ class Dataportal:
 
     # -- registry-wide statistics -----------------------------------------
 
+    def values(self, filter: str, *, limit: int = 100) -> List[ValueCount]:
+        """The values a filter accepts, with how many datasets carry each.
+
+        The answer to "what can I put in ``theme=``?", counted against the
+        live registry rather than against the package's table, so it shows
+        what publishers really use::
+
+            >>> dp.values("theme")[:3]                     # doctest: +SKIP
+            [ValueCount(value='population_and_society', dataset_count=6455),
+             ValueCount(value='government_and_public_sector', dataset_count=6343),
+             ValueCount(value='education_culture_and_sport', dataset_count=3811)]
+
+        One request. Use :func:`~dataportalen.known_values` for the offline
+        list, and :meth:`organisations` for publishers, which the registry
+        counts for us.
+        """
+        if filter == "publisher":
+            return [ValueCount(o.publisher, o.dataset_count)
+                    for o in self.organisations() if o.publisher][:limit]
+        if filter not in FILTER_PREDICATES:
+            raise QueryError(
+                "cannot count values for %r; try one of: %s"
+                % (filter, ", ".join(sorted(FILTER_PREDICATES) + ["publisher"])))
+        predicate, kind = FILTER_PREDICATES[filter]
+        facet = self.facet(predicate_field(predicate, kind),
+                           Q.rdf_type(DCAT.Dataset), limit=max(limit * 4, 100))
+        return _counted(facet.values, limit)
+
     def organisations(self) -> List[OrganisationStats]:
         """Dataset counts per publishing organisation (``/charts/orgData.json``).
 
@@ -1079,6 +1113,22 @@ def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
 def _one(value: Any, resolver: Any, what: str) -> str:
     found = resolver(value, what)
     return found[0]
+
+
+def _counted(values: Any, limit: int) -> List[ValueCount]:
+    """Facet values as short names, merging the ones that share a name.
+
+    Several URIs slug to the same name -- two GeoNames entries for Sweden,
+    a file-type URI and its media type -- and a caller filtering on that name
+    matches all of them, so the counts belong together.
+    """
+    totals: Dict[str, int] = {}
+    for value in values:
+        name = slug_for(value.name)
+        if name:
+            totals[name] = totals.get(name, 0) + value.count
+    ordered = sorted(totals.items(), key=lambda pair: (-pair[1], pair[0]))
+    return [ValueCount(name, count) for name, count in ordered[:limit]]
 
 
 def _any_uri(predicate: str, uris: List[str]) -> Q:
@@ -1479,9 +1529,241 @@ def _report_missing(missing: Dict[str, None]) -> None:
 
 
 __all__ = [
+    "LocalCatalog",
     "Dataportal",
     "DEFAULT_BASE_URL",
     "DUMP_URL",
     "download_catalog",
     "CatalogSummary",
 ]
+
+
+# --- the catalogue on disk ---------------------------------------------------
+
+
+class LocalCatalog:
+    """The whole catalogue, downloaded once and searched locally.
+
+    The registry answers about two requests a second and does not go faster
+    with more of them in flight, so 100 datasets a request is the ceiling --
+    reading everything takes minutes. Anything that touches more than a few
+    thousand datasets is better done against a local copy::
+
+        from dataportalen import LocalCatalog
+
+        catalog = LocalCatalog("catalog.jsonl")     # downloads it the first time
+        len(catalog)                                # 23580
+        catalog.datasets(theme="transport", format="csv")
+
+    The filters and the values are the ones the client takes, and each result
+    is the same dict :meth:`Dataset.to_dict` returns -- what is in the file.
+    A whole-corpus filter is milliseconds instead of minutes.
+
+    :param path: the JSONL file; a ``.gz`` suffix is read as gzip.
+    :param download: fetch the file when it is missing (the default). ``False``
+        raises instead, for a program that must not reach the network.
+    :param progress: passed to :func:`download_catalog` when downloading.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        *,
+        download: bool = True,
+        progress: Any = "auto",
+        client: Any = None,
+    ) -> None:
+        self.path = path
+        self._progress = progress
+        self._client = client
+        if not os.path.exists(path):
+            if not download:
+                raise FileNotFoundError(
+                    "%s does not exist; call refresh() or pass download=True" % path)
+            self.refresh()
+        else:
+            self._records = _read_jsonl(path)
+            logger.info("read %s datasets from %s", f"{len(self._records):,}", path)
+
+    # -- the file ----------------------------------------------------------
+
+    def refresh(self) -> CatalogSummary:
+        """Download the catalogue again, replacing what is loaded."""
+        summary = download_catalog(
+            self.path, progress=self._progress, client=self._client)
+        self._records = _read_jsonl(self.path)
+        return summary
+
+    @property
+    def downloaded(self) -> Optional[_dt.datetime]:
+        """When the file was written, which is how old the data is."""
+        try:
+            return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
+        except OSError:                                   # pragma: no cover
+            return None
+
+    # -- reading -----------------------------------------------------------
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        return iter(self._records)
+
+    def datasets(self, **filters: Any) -> List[Dict[str, Any]]:
+        """Every dataset matching the filters, as dicts.
+
+        Takes the same filters as :meth:`Dataportal.datasets` with the same
+        short values, minus ``query`` (there is no index to query) and the
+        paging arguments (you get the whole result).
+        """
+        limit = filters.pop("limit", None)
+        for unsupported in ("offset", "sort", "page_size", "query"):
+            if unsupported in filters:
+                raise QueryError(
+                    "%r is a search-index argument; a local catalogue returns "
+                    "every match at once" % unsupported)
+        tests = [_local_test(name, value) for name, value in filters.items()]
+        out = [r for r in self._records if all(test(r) for test in tests)]
+        return out[:limit] if limit else out
+
+    def values(self, filter: str, *, limit: int = 100) -> List[ValueCount]:
+        """The values in use in this copy, with a count each.
+
+        The same rows as :meth:`Dataportal.values`, counted over the file
+        rather than over the live index, and available for ``keyword`` too.
+        """
+        counts: Dict[str, int] = {}
+        for record in self._records:
+            for value in _local_values(record, filter):
+                counts[value] = counts.get(value, 0) + 1
+        ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        return [ValueCount(name, count) for name, count in ordered[:limit]]
+
+    def __repr__(self) -> str:                            # pragma: no cover
+        return "<LocalCatalog %s: %d datasets>" % (self.path, len(self._records))
+
+
+def _read_jsonl(path: str) -> List[Dict[str, Any]]:
+    opener = gzip.open if path.endswith(".gz") else io.open
+    with opener(path, "rt", encoding="utf-8") as handle:    # type: ignore[operator]
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+#: How each filter reads out of a record. A dataset's format lives on its
+#: distributions, its publisher is only there as a URI, and the rest are
+#: plain fields.
+def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
+    if filter in ("theme", "themes"):
+        return list(record.get("themes") or [])
+    if filter == "language":
+        return list(record.get("languages") or [])
+    if filter == "place":
+        return list(record.get("spatial") or [])
+    if filter == "keyword":
+        keywords = record.get("keywords") or []
+        if isinstance(keywords, dict):                      # language="all"
+            return [k for values in keywords.values() for k in values]
+        return list(keywords)
+    if filter == "format":
+        return [d["format"] for d in (record.get("distributions") or [])
+                if d.get("format")]
+    if filter == "updated":
+        value = record.get("accrual_periodicity")
+        return [value] if value else []
+    if filter in ("license", "access_rights"):
+        value = record.get(filter)
+        return [value] if value else []
+    if filter == "publisher":
+        publisher = record.get("publisher") or {}
+        name = publisher_for(publisher.get("uri"))
+        return [name] if name else []
+    raise QueryError(
+        "cannot count values for %r; try one of: access_rights, format, "
+        "keyword, language, license, place, publisher, theme, updated" % (filter,))
+
+
+def _iso_stamp(value: Any) -> str:
+    """A date or timestamp as a comparable ``YYYY-MM-DDTHH:MM:SS`` string.
+
+    Publishers write all four of ``2020-03-04``, ``...T09:00:00``,
+    ``...T09:00:00+01:00`` and ``...T09:00:00.123456``; truncating to seconds
+    lets them sort against each other and against a filter's bound.
+    """
+    if not value:
+        return ""
+    text = str(value)
+    if len(text) == 10:
+        text += "T00:00:00"
+    return text[:19]
+
+
+def _local_test(name: str, value: Any) -> Any:
+    """One filter as a predicate over a record."""
+    if name in ("text", "title", "description"):
+        needle = str(value).lower()
+
+        def text_test(record: Dict[str, Any]) -> bool:
+            if name == "text":
+                parts = [record.get("title"), record.get("description")]
+                parts.extend(_local_values(record, "keyword"))
+            else:
+                parts = [record.get(name)]
+            for part in parts:
+                if isinstance(part, dict):                  # language="all"
+                    part = " ".join(str(v) for v in part.values())
+                if part and needle in str(part).lower():
+                    return True
+            return False
+
+        return text_test
+
+    if name in ("uri", "catalog"):
+        key = "uri" if name == "uri" else "context_id"
+        wanted = {str(v) for v in _as_list(value)}
+        return lambda record: str(record.get(key)) in wanted
+
+    if name.endswith("_after") or name.endswith("_before"):
+        field = {"updated": "modified", "published": "issued"}.get(
+            name.rsplit("_", 1)[0])
+        if field is None:
+            raise QueryError("unknown filter %r" % (name,))
+        bound = _iso_stamp(_date(value))
+        after = name.endswith("_after")
+
+        def date_test(record):
+            stamp = _iso_stamp(record.get(field))
+            if not stamp:
+                return False
+            return stamp >= bound if after else stamp <= bound
+
+        return date_test
+
+    if name == "keyword":
+        # The index matches a keyword on substrings, so this does too.
+        wanted = [str(v).lower() for v in _as_list(value)]
+        return lambda record: all(
+            any(w in k.lower() for k in _local_values(record, "keyword"))
+            for w in wanted)
+
+    if name == "publisher":
+        wanted = set()
+        for item in _as_list(value):
+            resolve_publisher(item)                        # raises with a hint
+            wanted.add(slugify(item))
+        return lambda record: bool(
+            wanted & set(_local_values(record, "publisher")))
+
+    if name in ("theme", "format", "license", "access_rights", "updated",
+                "language", "place"):
+        wanted = set()
+        for item in _as_list(value):
+            wanted.update(slug_for(uri) for uri in resolve(item, name))
+            wanted.add(slugify(item))
+        return lambda record: bool(wanted & set(_local_values(record, name)))
+
+    raise QueryError(
+        "unknown filter %r for a local catalogue; supported: access_rights, "
+        "catalog, description, format, keyword, language, license, place, "
+        "published_after, published_before, publisher, text, theme, title, "
+        "updated, updated_after, updated_before, uri" % (name,))

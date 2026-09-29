@@ -6,9 +6,10 @@ For working on the package. Using it is covered in [guide.md](guide.md).
 2. [Label coverage](#label-coverage)
 3. [Rebuilding the table](#rebuilding-the-table)
 4. [Module layout](#module-layout)
-5. [Development](#development)
-6. [Releasing](#releasing)
-7. [Attribution](#attribution)
+5. [What the registry can do](#what-the-registry-can-do)
+6. [Development](#development)
+7. [Releasing](#releasing)
+8. [Attribution](#attribution)
 
 ## Where the short values come from
 
@@ -102,9 +103,23 @@ Seven modules; callers import from the package root.
 | `rdf.py` | namespaces, the RDF/JSON parser, the label table, the short-name layer |
 | `models.py` | `Dataset`, `Distribution`, `Agent` and friends, and `to_dict()` |
 | `query.py` | the `Q` Solr query builder |
-| `client.py` | `Dataportal` and the catalogue export |
+| `client.py` | `Dataportal`, the catalogue export and `LocalCatalog` |
 | `aio.py` | `AsyncDataportal` |
 | `__init__.py` | the public surface |
+
+## What the registry can do
+
+Measured, because both numbers shape the package's design:
+
+| | |
+| --- | --- |
+| Page size | capped at 100 by the registry; asking for 1000 returns 100 |
+| Throughput | ~2.2 requests/second, and **concurrency does not help** — 8, 16 and 32 workers all measure the same |
+| Rate limiting | none observed: no `Retry-After`, no rate-limit headers, no 429s in a 64-request burst |
+| Deep paging | flat — offset 23,000 costs the same as offset 0 |
+
+So the ceiling is roughly 200 datasets a second whatever you do, which is why
+`download_catalog` takes ~6 minutes and why `LocalCatalog` exists.
 
 ## Development
 

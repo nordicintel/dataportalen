@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import json as _json
 import re as _re
+from collections import namedtuple as _namedtuple
 from collections.abc import Sequence as _ABCSequence
 from typing import (
     Any,
@@ -70,6 +71,8 @@ __all__ = [
     "MetadataQuality",
     "CatalogStatistics",
     "OrganisationStats",
+    "ValueCount",
+    "FILTER_PREDICATES",
     "PeriodOfTime",
     "Checksum",
     "SearchPage",
@@ -1600,6 +1603,34 @@ def _known_publisher(name: str) -> Optional[str]:
     """A name-derived filter value, but only if it really resolves."""
     slug = slugify(name)
     return slug if slug and slug in known_publishers(slug) else None
+
+
+#: Which predicate carries each filter's value in the metadata, and whether
+#: publishers state it as a URI or as a plain literal. Used to count the
+#: values actually in use -- see :meth:`~dataportalen.Dataportal.values`.
+FILTER_PREDICATES = {
+    "theme": (DCAT.theme, "uri"),
+    "license": (DCTERMS.license, "uri"),
+    "access_rights": (DCTERMS.accessRights, "uri"),
+    "updated": (DCTERMS.accrualPeriodicity, "uri"),
+    "language": (DCTERMS.language, "uri"),
+    "place": (DCTERMS.spatial, "uri"),
+    "format": (DCTERMS.format, "literal_s"),
+}
+#: `keyword` is deliberately absent: the index n-grams it, so counting its
+#: values returns fragments ("and", "ion") rather than keywords.
+
+
+class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
+    """One value a filter accepts, and how many datasets carry it.
+
+    A plain ``(value, dataset_count)`` pair, so it unpacks in a loop::
+
+        for value, count in dp.values("theme"):
+            ...
+    """
+
+    __slots__ = ()
 
 
 class OrganisationStats:

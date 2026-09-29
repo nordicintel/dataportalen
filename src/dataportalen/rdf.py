@@ -1049,15 +1049,56 @@ def resolve_publisher(value: str) -> List[str]:
     return list(found)
 
 
-def known_values(prefix: str = "") -> List[str]:
-    """Every short value this package knows, optionally filtered by prefix.
+#: Which vocabularies back each filter, as URI prefixes. Lets a caller ask
+#: "what can `theme=` be?" instead of searching one flat list of 918 names.
+FILTER_VOCABULARIES: Dict[str, Tuple[str, ...]] = {
+    "theme": ("http://publications.europa.eu/resource/authority/data-theme/",
+              "http://inspire.ec.europa.eu/theme/",
+              "http://inspire.ec.europa.eu/metadata-codelist/TopicCategory/"),
+    "format": ("http://publications.europa.eu/resource/authority/file-type/",
+               "application/", "text/", "image/", "video/", "audio/",
+               "multipart/", "message/", "model/", "chemical/", "font/"),
+    "license": ("http://creativecommons.org/", "https://creativecommons.org/",
+                "http://publications.europa.eu/resource/authority/licence/",
+                "https://dataportal.se/concepts/licensecategories/",
+                "http://opendefinition.org/", "https://opendefinition.org/"),
+    "access_rights": (
+        "http://publications.europa.eu/resource/authority/access-right/",),
+    "updated": ("http://publications.europa.eu/resource/authority/frequency/",
+                "http://purl.org/cld/freq/"),
+    "language": ("http://publications.europa.eu/resource/authority/language/",
+                 "http://id.loc.gov/vocabulary/iso639-1/",
+                 "http://lexvo.org/id/iso639-3/"),
+    "place": ("http://sws.geonames.org/", "https://sws.geonames.org/",
+              "http://publications.europa.eu/resource/authority/place/",
+              "http://publications.europa.eu/resource/authority/country/"),
+}
 
-    Handy at a prompt when you cannot remember a spelling::
 
-        known_values("trans")   -> ['transport', 'transport_networks', ...]
+def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
+    """The short values a filter accepts, or every value this package knows.
+
+    >>> known_values("access_rights")
+    ['non_public', 'public', 'restricted']
+    >>> known_values("theme", "trans")
+    ['transport', 'transport_networks', 'transportation']
+
+    With no argument it lists everything, which is long -- a filter name is
+    usually what you want. :meth:`~dataportalen.Dataportal.values` gives the
+    same list for the live registry, with a dataset count against each.
     """
+    if filter is not None and filter not in FILTER_VOCABULARIES:
+        raise _suggest(str(filter), sorted(FILTER_VOCABULARIES), "filter")
     slug = slugify(prefix) if prefix else ""
-    return sorted(s for s in _BY_SLUG if not slug or slug in s)
+    if filter is None:
+        found = set(_BY_SLUG)
+    else:
+        wanted = FILTER_VOCABULARIES[filter]
+        found = {
+            name for name, uris in _BY_SLUG.items()
+            if any(uri.startswith(wanted) for uri in uris)
+        }
+    return sorted(s for s in found if not slug or slug in s)
 
 
 def known_publishers(prefix: str = "") -> List[str]:
@@ -1117,5 +1158,6 @@ __all__ = [
     "resolve",
     "resolve_publisher",
     "known_values",
+    "FILTER_VOCABULARIES",
     "known_publishers",
 ]

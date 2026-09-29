@@ -523,3 +523,59 @@ def test_published_filters_dcterms_issued(client, transport, search_response):
     transport.push(search_response)
     client.datasets(published_after="2020-01-01")
     assert predicate_field("dcterms:issued", "date") in query_of(transport.requests[-1])
+
+
+# -- discovering what a filter accepts ---------------------------------------
+
+
+def _facet_page(field, pairs):
+    return {
+        "results": 0, "offset": 0, "limit": 1,
+        "resource": {"children": []},
+        "facetFields": [{
+            "name": field,
+            "values": [{"name": name, "count": count} for name, count in pairs],
+        }],
+    }
+
+
+def test_values_returns_short_names_with_counts(client, transport):
+    from dataportalen.models import FILTER_PREDICATES
+    from dataportalen.query import predicate_field
+
+    predicate, kind = FILTER_PREDICATES["theme"]
+    field = predicate_field(predicate, kind)
+    transport.push(_facet_page(field, [
+        ("http://publications.europa.eu/resource/authority/data-theme/TRAN", 545),
+        ("http://publications.europa.eu/resource/authority/data-theme/ENVI", 2964),
+    ]))
+    assert client.values("theme") == [("environment", 2964), ("transport", 545)]
+
+
+def test_values_merges_uris_that_share_a_name(client, transport):
+    """Two GeoNames entries for Sweden are one value to anyone filtering."""
+    from dataportalen.models import FILTER_PREDICATES
+    from dataportalen.query import predicate_field
+
+    field = predicate_field(*FILTER_PREDICATES["place"])
+    transport.push(_facet_page(field, [
+        ("http://sws.geonames.org/2661886/", 2193),
+        ("https://sws.geonames.org/2661886/", 505),
+    ]))
+    assert client.values("place")[0] == ("kingdom_of_sweden", 2698)
+
+
+def test_values_uses_the_organisation_chart_for_publishers(client, transport, org_data):
+    transport.routes["/charts/orgData.json"] = org_data
+    top = client.values("publisher", limit=2)
+    assert len(top) == 2
+    assert top[0].value == "radet_for_framjande_av_kommunala_analyser_kolada"
+    assert top[0].dataset_count > 0
+
+
+def test_values_says_what_it_can_count(client):
+    from dataportalen import QueryError
+
+    with pytest.raises(QueryError) as info:
+        client.values("keyword")          # n-grammed upstream: counts fragments
+    assert "theme" in str(info.value)

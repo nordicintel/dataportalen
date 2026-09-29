@@ -360,3 +360,38 @@ def test_labels_exist_in_both_languages_for_the_data_themes():
     for uri in themes:
         found = VOCABULARY.labels(uri)
         assert "sv" in found and "en" in found, uri
+
+
+# -- discovering values offline ----------------------------------------------
+
+
+def test_known_values_can_be_scoped_to_one_filter():
+    """A flat list of 900+ names does not answer "what can theme= be?"."""
+    from dataportalen import known_values
+
+    themes = known_values("theme")
+    assert "transport" in themes
+    assert "csv" not in themes
+    assert len(themes) < len(known_values())
+
+    assert known_values("access_rights") == ["non_public", "public", "restricted"]
+    assert known_values("theme", "trans") == [
+        "transport", "transport_networks", "transportation"]
+
+
+def test_known_values_rejects_an_unknown_filter():
+    from dataportalen import QueryError, known_values
+
+    with pytest.raises(QueryError) as info:
+        known_values("themes")
+    assert "theme" in str(info.value)
+
+
+def test_publisher_for_is_the_reverse_of_the_filter_value():
+    from dataportalen import known_publishers
+    from dataportalen.rdf import publisher_for, resolve_publisher
+
+    uri = resolve_publisher("trafikverket")[0]
+    assert publisher_for(uri) == "trafikverket"
+    assert publisher_for("https://example.org/nobody") is None
+    assert "trafikverket" in known_publishers("trafik")

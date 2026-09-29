@@ -50,6 +50,15 @@ with Dataportal(language="sv") as dp:      # "en", or "all" for every language
 }
 ```
 
+## See what you can filter on
+
+```python
+dp.values("theme")       # [('population_and_society', 6455), ...]
+dp.values("publisher")   # every publisher, biggest first
+```
+
+Every value it returns is one you can pass straight back as a filter.
+
 ## The whole catalogue in one file
 
 ```python
@@ -61,6 +70,17 @@ download_catalog("catalog.jsonl")
 
 One dataset per line, distributions and publisher already nested, with a live
 progress line while it runs.
+
+The registry answers about two requests a second and does not go faster with
+more of them in flight, so anything touching more than a few thousand datasets
+belongs on that file rather than on the API:
+
+```python
+from dataportalen import LocalCatalog
+
+catalog = LocalCatalog("catalog.jsonl")              # downloads it if missing
+catalog.datasets(theme="transport", format="csv")    # same filters, milliseconds
+```
 
 ## Documentation
 

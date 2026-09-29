@@ -43,18 +43,20 @@ from typing import (
     Union,
 )
 
-from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT
+from .client import _LRU, _RETRY_STATUSES, DEFAULT_BASE_URL, DUMP_URL, MAX_LIMIT, _counted
 from .core import (
     DEFAULT_USER_AGENT,
     AsyncHttpxTransport,
     HTTPError,
     ParseError,
+    QueryError,
     Response,
     TransportError,
     build_url,
 )
 from .models import (
     DEFAULT_LANGUAGE,
+    FILTER_PREDICATES,
     Agent,
     Catalog,
     CatalogStatistics,
@@ -69,10 +71,11 @@ from .models import (
     OrganisationStats,
     SearchPage,
     Standard,
+    ValueCount,
     language_preference,
     wrap_entry,
 )
-from .query import SORT_MODIFIED_DESC, Q
+from .query import SORT_MODIFIED_DESC, Q, predicate_field
 from .rdf import DCAT, DCTERMS, FOAF, Graph, Types
 
 __all__ = ["AsyncDataportal"]
@@ -595,6 +598,23 @@ class AsyncDataportal:
         return self.iter_datasets(catalog=context_id, limit=limit, page_size=page_size)
 
     # -- registry-wide statistics -----------------------------------------
+
+    async def values(self, filter: str, *, limit: int = 100) -> List[ValueCount]:
+        """The values a filter accepts, with a dataset count against each.
+
+        See :meth:`dataportalen.Dataportal.values`.
+        """
+        if filter == "publisher":
+            return [ValueCount(o.publisher, o.dataset_count)
+                    for o in await self.organisations() if o.publisher][:limit]
+        if filter not in FILTER_PREDICATES:
+            raise QueryError(
+                "cannot count values for %r; try one of: %s"
+                % (filter, ", ".join(sorted(FILTER_PREDICATES) + ["publisher"])))
+        predicate, kind = FILTER_PREDICATES[filter]
+        facet = await self.facet(predicate_field(predicate, kind),
+                                 Q.rdf_type(DCAT.Dataset), limit=max(limit * 4, 100))
+        return _counted(facet.values, limit)
 
     async def organisations(self) -> List[OrganisationStats]:
         """Dataset counts per publishing organisation."""

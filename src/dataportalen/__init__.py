@@ -33,6 +33,7 @@ from .client import (
     MAX_LIMIT,
     CatalogSummary,
     Dataportal,
+    LocalCatalog,
     download_catalog,
 )
 from .core import (
@@ -74,6 +75,7 @@ from .models import (
     PeriodOfTime,
     SearchPage,
     Standard,
+    ValueCount,
     register_model,
     wrap_entry,
 )
@@ -129,6 +131,7 @@ __all__ = [
     # whole-catalogue export
     "download_catalog",
     "CatalogSummary",
+    "LocalCatalog",
     # logging
     "enable_logging",
     "logger",
@@ -163,6 +166,7 @@ __all__ = [
     "MetadataQuality",
     "CatalogStatistics",
     "OrganisationStats",
+    "ValueCount",
     "PeriodOfTime",
     "Temporal",
     "Checksum",

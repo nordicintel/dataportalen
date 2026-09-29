@@ -6,15 +6,16 @@ Everything here is ordinary Python. You ask for datasets, you get dictionaries.
 2. [Find datasets](#find-datasets)
 3. [Narrow the search](#narrow-the-search)
 4. [Filter by date](#filter-by-date)
-5. [When you do not know the value](#when-you-do-not-know-the-value)
+5. [See what a filter accepts](#see-what-a-filter-accepts)
 6. [Read more than one page](#read-more-than-one-page)
 7. [What a dataset looks like](#what-a-dataset-looks-like)
 8. [Download the whole catalogue](#download-the-whole-catalogue)
-9. [Other things in the registry](#other-things-in-the-registry)
-10. [Settings](#settings)
-11. [When something goes wrong](#when-something-goes-wrong)
-12. [Async](#async)
-13. [Going deeper](#going-deeper)
+9. [Work from a local copy](#work-from-a-local-copy)
+10. [Other things in the registry](#other-things-in-the-registry)
+11. [Settings](#settings)
+12. [When something goes wrong](#when-something-goes-wrong)
+13. [Async](#async)
+14. [Going deeper](#going-deeper)
 
 ## Connect
 
@@ -78,25 +79,25 @@ Values are short and lowercase. You never type a web address.
 
 **Searching text**
 
-| Filter | What it matches |
-| --- | --- |
-| `text="cykel"` | anywhere in the title, description or keywords |
-| `title="bidrag"` | the title only |
-| `description="vägnät"` | the description only |
-| `keyword="geodata"` | one of the keywords the publisher attached |
+| Filter                 | What it matches                                |
+| ---------------------- | ---------------------------------------------- |
+| `text="cykel"`         | anywhere in the title, description or keywords |
+| `title="bidrag"`       | the title only                                 |
+| `description="vägnät"` | the description only                           |
+| `keyword="geodata"`    | one of the keywords the publisher attached     |
 
 **Picking a category**
 
-| Filter | What it matches |
-| --- | --- |
-| `publisher="trafikverket"` | the organisation that published it |
-| `theme="transport"` | the subject it is filed under |
-| `format="csv"` | a file format you can download it in |
-| `license="cc_by_4_0"` | the licence it is released under |
-| `access_rights="public"` | whether it is open to everyone |
-| `updated="annual"` | how often the publisher refreshes it |
-| `language="swedish"` | the language of the data itself |
-| `place="kingdom_of_sweden"` | the area it covers |
+| Filter                      | What it matches                      |
+| --------------------------- | ------------------------------------ |
+| `publisher="trafikverket"`  | the organisation that published it   |
+| `theme="transport"`         | the subject it is filed under        |
+| `format="csv"`              | a file format you can download it in |
+| `license="cc_by_4_0"`       | the licence it is released under     |
+| `access_rights="public"`    | whether it is open to everyone       |
+| `updated="annual"`          | how often the publisher refreshes it |
+| `language="swedish"`        | the language of the data itself      |
+| `place="kingdom_of_sweden"` | the area it covers                   |
 
 Give a list instead of one value and any of them will do:
 
@@ -114,10 +115,10 @@ other searches, wherever they make sense.
 dp.datasets(updated_after="2024-01-01")
 ```
 
-| Filter | Which date |
-| --- | --- |
-| `updated_after`, `updated_before` | when the publisher last changed the data |
-| `published_after`, `published_before` | when the publisher first released it |
+| Filter                                | Which date                               |
+| ------------------------------------- | ---------------------------------------- |
+| `updated_after`, `updated_before`     | when the publisher last changed the data |
+| `published_after`, `published_before` | when the publisher first released it     |
 
 Write the date however is convenient — `"2024-01-01"`, `"2024-01"`, `"2024"`,
 or Python's own `date` and `datetime` objects.
@@ -127,30 +128,60 @@ dataset in, but that happens nightly for nearly everything, so filtering on it
 would tell you about the registry's schedule rather than about the data. It is
 deliberately not offered.
 
-## When you do not know the value
+## See what a filter accepts
 
-Guess, and the error will correct you:
+`dp.values(...)` answers "what can I put in `theme=`?", counted against the
+live registry so you see what publishers actually use:
+
+```python
+for value, count in dp.values("theme"):
+    print(count, value)
+```
+
+```text
+6455 population_and_society
+6343 government_and_public_sector
+3811 education_culture_and_sport
+2964 environment
+2322 health
+...
+```
+
+Every value it prints is one you can filter on directly:
+
+```python
+dp.datasets(theme="population_and_society")
+```
+
+It works for `theme`, `format`, `license`, `access_rights`, `updated`,
+`language`, `place` and `publisher`, and takes one request. (Not `keyword` —
+the registry indexes keywords by fragment, so counting them returns pieces of
+words rather than keywords. A [local copy](#work-from-a-local-copy) can count
+those.)
+
+Without the network, `known_values` lists the same names from the table
+shipped in the package:
+
+```python
+from dataportalen import known_values, known_publishers
+
+known_values("access_rights")   # ['non_public', 'public', 'restricted']
+known_values("theme", "trans")  # ['transport', 'transport_networks', 'transportation']
+known_publishers("trafikv")     # ['trafikverket']
+```
+
+And if you just guess, the error corrects you:
 
 ```python
 dp.datasets(theme="transprot")
 # QueryError: unknown theme 'transprot'. Did you mean: transport?
 ```
 
-Or look through what exists:
-
-```python
-from dataportalen import known_values, known_publishers
-
-known_values("transport")     # ['transport', 'transport_networks', 'transportation']
-known_publishers("trafikv")   # ['trafikverket']
-```
-
-Called with no argument, both list everything.
-
 ## Read more than one page
 
-A search returns at most 100 datasets at a time. `page` tells you where you
-are:
+A search returns at most 100 datasets at a time. That is the registry's cap,
+not this package's — ask for 1000 and it answers with 100. `page` tells you
+where you are:
 
 ```python
 page = dp.datasets(theme="transport", limit=100)
@@ -180,27 +211,29 @@ dataset.to_dict()
 
 ```json
 {
-  "uri": "https://example.org/data/roads",
-  "title": "Vägtrafiknät",
-  "description": "Nationell vägdatabas ...",
-  "keywords": ["vägnät", "trafik"],
-  "themes": ["transport"],
-  "license": "cc_by_4_0",
-  "access_rights": "public",
-  "accrual_periodicity": "annual",
-  "languages": ["swedish"],
-  "publisher": {
-    "name": "Trafikverket",
-    "type": "national_authority",
-    "identifiers": ["2021006297"]
-  },
-  "issued": "2020-03-04",
-  "distributions": [
-    {"title": "Vägnät CSV",
-     "download_url": ["https://...csv"],
-     "format": "csv"}
-  ],
-  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}]
+    "uri": "https://example.org/data/roads",
+    "title": "Vägtrafiknät",
+    "description": "Nationell vägdatabas ...",
+    "keywords": ["vägnät", "trafik"],
+    "themes": ["transport"],
+    "license": "cc_by_4_0",
+    "access_rights": "public",
+    "accrual_periodicity": "annual",
+    "languages": ["swedish"],
+    "publisher": {
+        "name": "Trafikverket",
+        "type": "national_authority",
+        "identifiers": ["2021006297"]
+    },
+    "issued": "2020-03-04",
+    "distributions": [
+        {
+            "title": "Vägnät CSV",
+            "download_url": ["https://...csv"],
+            "format": "csv"
+        }
+    ],
+    "contact_points": [{ "name": "Datasupport", "email": "data@example.org" }]
 }
 ```
 
@@ -213,7 +246,7 @@ Two things worth knowing:
 from standard vocabularies, and this package gives you `"transport"` rather than
 the web address the registry actually publishes. The same word works as a
 filter, which is the point. They stay English whatever language you chose,
-because `"annual"` is more useful to build on than *årligen*.
+because `"annual"` is more useful to build on than _årligen_.
 
 **The files live under `distributions`.** One entry per download the publisher
 offers, each with its own format and URL. `download_url` is the file itself;
@@ -277,6 +310,52 @@ download_catalog("catalog.jsonl", progress=print)  # your own progress handler
 summary = download_catalog("catalog.jsonl")
 summary.datasets, summary.distributions, summary.elapsed
 ```
+
+## Work from a local copy
+
+The registry answers about **two requests a second**, and more requests in
+flight does not help — 8, 16 and 32 at once all come back at the same rate. At
+100 datasets a request that is a ceiling of roughly 200 datasets a second, so
+reading any large slice of the catalogue over the API takes minutes.
+
+If you are going to touch more than a few thousand datasets, work from the
+file instead:
+
+```python
+from dataportalen import LocalCatalog
+
+catalog = LocalCatalog("catalog.jsonl")     # downloads it the first time
+
+len(catalog)                                 # 23580
+catalog.datasets(theme="transport", format="csv")
+```
+
+Same filters, same short values, same dicts — and the whole corpus is scanned
+in milliseconds rather than minutes:
+
+| | over the API | over the file |
+| --- | --- | --- |
+| `theme="transport"` | ~1s for the first page, minutes for all 545 | 0.03s for all 545 |
+| `access_rights="public"` | ~90s for all 17,682 | 0.02s |
+| counting every keyword | not possible | 0.4s |
+
+```python
+catalog.datasets(publisher="trafikverket", updated_after="2024-01-01")
+catalog.values("keyword")        # what the live index cannot count
+catalog.downloaded               # when the file was written
+catalog.refresh()                # download it again
+```
+
+Two differences from the live search, both in your favour:
+
+- `text=` is a plain substring match here, so it finds a few more than the
+  registry's word-based index does.
+- `published_after=` compares the dataset's own date. The registry's index
+  covers every date in the entry, including each distribution's, so it returns
+  datasets whose distributions are recent even when the dataset is from 2013.
+
+Pass `download=False` to a program that must not reach the network; a missing
+file then raises instead of fetching 58 MB.
 
 ## Other things in the registry
 
@@ -370,15 +449,15 @@ except DataportalError as error:
 
 When you want to react differently to different failures:
 
-| Error | Means |
-| --- | --- |
-| `QueryError` | your filters were wrong — a value that does not exist, usually |
-| `NotFoundError` | there is no such entry (looking one up by URI gives `None` instead) |
-| `RateLimitError` | too many requests; the client already retried |
-| `TimeoutError` | the registry did not answer in time |
-| `TransportError` | the connection failed |
-| `ServerError` | the registry itself broke |
-| `ParseError` | the registry sent something unreadable |
+| Error            | Means                                                              |
+| ---------------- | ------------------------------------------------------------------ |
+| `QueryError`     | your filters were wrong — a value that does not exist, usually     |
+| `NotFoundError`  | there is no such entry (looking one up by URI gives`None` instead) |
+| `RateLimitError` | too many requests; the client already retried                      |
+| `TimeoutError`   | the registry did not answer in time                                |
+| `TransportError` | the connection failed                                              |
+| `ServerError`    | the registry itself broke                                          |
+| `ParseError`     | the registry sent something unreadable                             |
 
 Two things that are not bugs in this package: the registry rebuilds its search
 index nightly, so data can be up to a day behind what a publisher has actually

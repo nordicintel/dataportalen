@@ -298,3 +298,23 @@ def test_language_shapes_the_output(dp):
     assert isinstance(swedish["title"], str)
     with Dataportal(language="all") as every:
         assert isinstance(every.dataset(uri=uri).to_dict()["title"], dict)
+
+
+def test_values_lists_what_a_filter_accepts(dp):
+    """Every value it reports must work as a filter."""
+    for name in ("theme", "license", "access_rights", "updated", "language",
+                 "place", "format", "publisher"):
+        rows = dp.values(name, limit=3)
+        assert rows, name
+        top = rows[0]
+        assert top.dataset_count > 0
+        assert dp.datasets(limit=1, **{name: top.value}).total > 0, (name, top)
+
+
+def test_the_page_size_cap_is_the_registrys(dp):
+    """100 is upstream's limit, not ours: asking for more still returns 100."""
+    response = dp.request(
+        "/store/search", {"type": "solr", "query": "rdfType:*", "limit": 1000})
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert len(payload["resource"]["children"]) == 100
