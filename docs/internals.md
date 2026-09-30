@@ -264,7 +264,8 @@ re-uploads of a version even after deletion; bump the patch and release again.
 
 The numbers this design rests on, and where they came from. Everything here was
 measured against the live registry rather than estimated, because several of
-them overturned a guess.
+them overturned a guess. Counted on 2026-09-30; the registry gains a handful of
+datasets a day, so the absolute figures drift and the ratios do not.
 
 | Fact | Value |
 | --- | --- |

@@ -1500,7 +1500,7 @@ class Catalog:
         or a media type -- and returned as text. That is the only request this
         class makes outside a download.
 
-        Four of the 23,576 dataset URIs are shared by two records, because the
+        A handful of dataset URIs are shared by two records, because the
         same dataset was harvested into two catalogues; the first is returned.
         """
         if format == "dict":

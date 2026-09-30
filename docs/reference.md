@@ -3,8 +3,9 @@
 Everything the package exposes, as tables. [guide.md](guide.md) is the part
 you read; this is the part you look up.
 
-Percentages are measured over the whole corpus — all 23,576 datasets and all
-599 data services — not sampled.
+Percentages are measured over the whole corpus — every dataset and every data
+service, not a sample. The registry grows by a handful a day, so treat the
+absolute counts as "as of 2026-09-30" and the percentages as stable.
 
 1. [The five methods](#the-five-methods)
 2. [Building a Catalog](#building-a-catalog)
@@ -30,7 +31,7 @@ cat.close()                                                           -> None
 
 | | |
 | --- | --- |
-| `datasets()` | Search the 23,576 datasets. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
+| `datasets()` | Search the datasets — 23,581 of them today. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
 | `data_services()` | Search the 599 data services. Same signature; refuses `format`, `updated`, `place`, `language` and the date filters. |
 | `filters()` | Every dataset filter, every value present, count-descending, with labels. ~0.5 s over the whole corpus. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |

@@ -389,7 +389,8 @@ That leaves two designs: pay seven minutes once, or pay a slice of it on every
 question. This package pays once. The consequences are worth knowing:
 
 - Searching, counting and every breakdown are local and immediate. A
-  whole-corpus breakdown over 23,576 datasets takes half a second, which is not
+  whole-corpus breakdown over every one of the 23,500-odd datasets takes half
+  a second, which is not
   something the registry's index can do at all.
 - Your copy is a snapshot. The registry re-harvests nightly, so it drifts, and
   `cat.info()["stale"]` tells you when it has drifted more than a week.
