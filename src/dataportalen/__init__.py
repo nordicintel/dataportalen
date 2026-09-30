@@ -23,7 +23,7 @@ See https://docs.dataportal.se/registry/api/ for the upstream documentation.
 
 from __future__ import annotations
 
-from .client import Catalog, default_catalog_path
+from .client import Catalog, default_catalog_path, read_catalog
 from .core import (
     DataportalError,
     HTTPError,
@@ -46,6 +46,7 @@ __all__ = [
     # the catalogue
     "Catalog",
     "default_catalog_path",
+    "read_catalog",
     # reading a record
     "text",
     # what a search gives you

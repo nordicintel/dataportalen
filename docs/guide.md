@@ -30,15 +30,18 @@ Every search after that is local: hundredths of a second, no network, works on
 a plane. That is the whole design, and [why](#why-it-works-this-way) is worth
 two minutes if anything about it surprises you.
 
-The file goes in the usual cache directory — `%LOCALAPPDATA%\dataportalen\` on
-Windows, `~/.cache/dataportalen/` elsewhere — so one copy serves every project
-and nothing lands in a repository.
+The copy is a SQLite database in the usual cache directory —
+`%LOCALAPPDATA%\dataportalen\catalog.sqlite` on Windows,
+`~/.cache/dataportalen/catalog.sqlite` elsewhere — so one copy serves every
+project and nothing lands in a repository.
 
 ```python
 cat.info()
-# {'path': 'C:\\Users\\you\\AppData\\Local\\dataportalen\\catalog.jsonl',
-#  'downloaded': '2026-09-30T03:17:40', 'age_days': 0, 'stale': False,
-#  'bytes': 67527943, 'datasets': 23576, 'data_services': 599,
+# {'path': 'C:\\Users\\you\\AppData\\Local\\dataportalen\\catalog.sqlite',
+#  'first_retrieved': '2026-09-30T17:57:14',
+#  'last_refreshed': '2026-09-30T17:58:16',
+#  'downloaded': '2026-09-30T17:58:16', 'age_days': 0, 'stale': False,
+#  'bytes': 100212736, 'datasets': 23581, 'data_services': 599,
 #  'publishers': 356}
 ```
 
@@ -47,16 +50,29 @@ file may be rewritten is something you say when you build the `Catalog`:
 
 ```python
 Catalog(refresh="if_missing")   # the default: fetch it once, then leave it
-Catalog(refresh="if_stale")     # also refresh when it is over a week old
-Catalog(refresh="always")       # refresh now
-Catalog(refresh="never")        # never fetch; raise if the file is not there
-Catalog("my-copy.jsonl")        # somewhere of your own
+Catalog(refresh="if_stale")     # bring it up to date when it is over a week old
+Catalog(refresh="always")       # rebuild from scratch
+Catalog(refresh="never")        # never fetch; raise if the database is not there
+Catalog("my-copy.sqlite")       # somewhere of your own
 ```
+
+**A refresh only fetches what changed.** `refresh="if_stale"` asks the registry
+for the entries it has touched since your last refresh and replaces those rows —
+a day's churn is about 630 datasets, seven pages. Measured: **38 seconds against
+302 for a full rebuild.** `refresh="always"` does the whole thing.
+
+It uses the registry's own timestamp for an entry, not the publisher's
+`modified`, because a publisher can leave that empty or set it to 2100 and
+neither says whether the entry changed.
+
+One thing a refresh cannot see is a deletion: a dataset withdrawn from the
+registry keeps its row until `refresh="always"` rebuilds.
 
 The registry re-harvests nightly, so after a week you get a warning telling you
 how old your copy is. It is still used — a script that answered in a second
-yesterday should not block for seven minutes today. `cat.info()["stale"]` is
-the same fact without the log.
+yesterday should not block today. `cat.info()["stale"]` is the same fact without
+the log, and `first_retrieved` / `last_refreshed` are the database's own record
+of when it was built and when it last caught up.
 
 `refresh="never"` is what you want in CI, or anywhere that must not reach the
 network.
@@ -371,25 +387,29 @@ rows = [
 **In CI, or anywhere that must not reach the network**
 
 ```python
-cat = Catalog("catalog.jsonl", refresh="never")
+cat = Catalog("catalog.sqlite", refresh="never")
 ```
 
-Cache or commit the file, and a missing one raises instead of spending seven
-minutes. `Catalog("catalog.jsonl.gz")` reads and writes gzip from the suffix,
-which is about a third of the size.
+Cache or commit the database, and a missing one raises instead of spending seven
+minutes.
 
-**Read the file yourself**
+**Read the database yourself**
 
 ```python
-import json
+from dataportalen import read_catalog
 
-with open(cat.info()["path"], encoding="utf-8") as handle:
-    for line in handle:
-        record = json.loads(line)       # record["type"] says which kind
+for record in read_catalog(cat.info()["path"]):
+    record["type"]            # 'dataset' or 'data_service'
 ```
 
-It is ordinary JSONL: one record per line, complete on its own, both kinds of
-record in the one file.
+Or open it with anything that speaks SQLite — the records are JSON text in a
+`doc` column, keyed by the registry's own `context_id` and `entry_id`:
+
+```sql
+SELECT type, count(*) FROM record GROUP BY type;
+SELECT doc FROM record WHERE uri = 'https://example.org/data/roads';
+SELECT key, value FROM meta;     -- first_retrieved, last_refreshed, schema
+```
 
 ## What it does not do
 

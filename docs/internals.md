@@ -7,11 +7,12 @@ filter and record key is in [reference.md](reference.md).
 2. [Label coverage](#label-coverage)
 3. [Rebuilding the table](#rebuilding-the-table)
 4. [Module layout](#module-layout)
-5. [What the registry can do](#what-the-registry-can-do)
-6. [Development](#development)
-7. [Releasing](#releasing)
-8. [Measured, not assumed](#measured-not-assumed)
-9. [Attribution](#attribution)
+5. [The store](#the-store)
+6. [What the registry can do](#what-the-registry-can-do)
+7. [Development](#development)
+8. [Releasing](#releasing)
+9. [Measured, not assumed](#measured-not-assumed)
+10. [Attribution](#attribution)
 
 ## Where the short values come from
 
@@ -122,7 +123,7 @@ Six modules; callers import from the package root.
 | `rdf.py` | namespaces, the RDF/JSON parser, the label table, the short-name layer |
 | `models.py` | `Dataset`, `DataService`, `Distribution`, `Agent` and friends, `to_dict()`, and the result types |
 | `query.py` | the `Q` Solr query builder |
-| `client.py` | `Catalog` (the whole public surface), `_Registry` (HTTP and Solr), the download |
+| `client.py` | `Catalog` (the whole public surface), `_Registry` (HTTP and Solr), the store, the download |
 | `__init__.py` | 19 exports, and nothing else |
 
 ### Public and internal
@@ -249,6 +250,52 @@ second.** Dropping the fallback silently loses 13 of the 365 publishers and 98
 of the 146 creators, because they mint URIs the table never saw. Dropping the
 table and using only names would break every slug users have written down.
 
+**A row is keyed on `context_id`/`entry_id`, not on `uri`.** Four datasets in
+the corpus share a resource URI with another, because the same dataset was
+harvested into two catalogues. Keying on the URI merged those pairs and lost
+four records outright -- and context/entry is what the registry itself
+identifies an entry by, so it is also the right thing for a refresh to replace.
+
+## The store
+
+The catalogue is a SQLite database, because the point of it is to be brought up
+to date cheaply and an upsert does that with no bookkeeping:
+
+```sql
+CREATE TABLE meta   (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE record (
+    context_id TEXT NOT NULL,
+    entry_id   TEXT NOT NULL,
+    uri        TEXT,
+    type       TEXT NOT NULL,      -- dataset | data_service
+    harvested  TEXT,               -- the REGISTRY's timestamp for the entry
+    doc        TEXT NOT NULL,      -- the record, as JSON
+    PRIMARY KEY (context_id, entry_id)
+);
+```
+
+`harvested` is the registry's own `modified` from the entry envelope, not the
+publisher's `dcterms:modified`. The publisher's is 89% filled, and 63 datasets
+date themselves in the future, so it cannot answer "did this change since I
+looked". There is no index on it: the registry filters by it server-side and we
+never do.
+
+A refresh asks `modified:[<last_refreshed> TO *]` and upserts what comes back.
+Measured on the real registry: **38 s for a day's churn against 302 s for a
+rebuild**, 630 datasets instead of 23,581.
+
+`doc` is plain JSON text rather than a compressed blob. Measured over the whole
+corpus: plain is 94 MiB and loads in ~1.4 s, zlib is 36 MiB at ~2.1 s, and the
+JSONL this replaced was 70 MiB at ~1.4 s. `json.loads` accounts for ~1.2 s of
+every one of them, so the store itself barely moves the needle -- and plain text
+means the records are readable with any SQLite browser, which a blob would take
+away. The database costs 24 MiB more than the JSONL and no measurable time.
+
+What a refresh cannot see is a deletion. A withdrawn dataset keeps its row until
+`refresh="always"` rebuilds, and there is no cheap way to notice: the search
+returns full graphs, so listing the registry's URIs costs the same 236 pages as
+copying it.
+
 ## Development
 
 ```bash
@@ -296,10 +343,12 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Datasets / data services / distributions | 23,581 / 599 / 35,140 in the file |
 | Link verdicts: success / broken / excluded | 18,228 / 11,886 / 5,021 |
 | Link-check reports: requests / time | 165 / ~10 s |
+| Full build: requests / time / size | 856 / ~305 s / 94 MiB |
+| Incremental refresh, one day of churn | 630 datasets, ~38 s |
+| Loading the database | ~1.4 s (of which json.loads ~1.2 s) |
 | Full download | 673 requests, ~7 minutes, 64 MiB |
-| Loading the file | ~1.3 s |
-| A filtered search | 0.02-0.06 s |
-| `filters()` over the whole corpus | ~0.47 s |
+| A filtered search | ~0.06 s |
+| `filters()` over the whole corpus | ~0.5 s |
 | `data_services(limit=0)` | 0.005 s |
 | Distinct `rdfType` values in the registry | 42 (6 DCAT, 36 platform) |
 | Catalogs registered / holding a dataset | 656 / 157 |

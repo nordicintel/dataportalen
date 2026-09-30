@@ -15,13 +15,11 @@ machine rather than spending seven minutes, and skip if there is none.
 
 from __future__ import annotations
 
-import gzip
-import json
 import os
 
 import pytest
 
-from dataportalen import Catalog, default_catalog_path, text
+from dataportalen import Catalog, default_catalog_path, read_catalog, text
 from dataportalen.client import _Registry, download_catalog
 from dataportalen.models import Agent, DataService, Dataset
 from dataportalen.query import Q
@@ -107,12 +105,11 @@ def test_the_transport_reaches_the_registry():
 
 
 def test_a_small_export_is_complete_and_parseable(tmp_path):
-    out = tmp_path / "sample.jsonl"
+    out = tmp_path / "sample.sqlite"
     summary = download_catalog(str(out), limit=200, progress=None)
     assert summary.datasets == 200
 
-    records = [json.loads(line)
-               for line in out.read_text(encoding="utf-8").splitlines()]
+    records = read_catalog(str(out))
     assert len(records) == 200
     for record in records:
         assert record["type"] == "dataset"
@@ -129,12 +126,22 @@ def test_a_small_export_is_complete_and_parseable(tmp_path):
             assert dist["uri"]
 
 
-def test_an_export_gzips_from_the_suffix(tmp_path):
-    out = tmp_path / "sample.jsonl.gz"
+def test_an_export_is_a_usable_database(tmp_path):
+    """Not a stream of lines: it has to open as SQLite and carry its meta."""
+    import sqlite3
+
+    out = tmp_path / "sample.sqlite"
     download_catalog(str(out), limit=20, progress=None)
-    assert out.read_bytes()[:2] == b"\x1f\x8b"
-    with gzip.open(out, "rt", encoding="utf-8") as handle:
-        assert len(handle.read().splitlines()) == 20
+    assert out.read_bytes()[:15] == b"SQLite format 3"
+
+    db = sqlite3.connect(str(out))
+    try:
+        assert db.execute("SELECT count(*) FROM record").fetchone()[0] == 20
+        meta = dict(db.execute("SELECT key, value FROM meta"))
+    finally:
+        db.close()
+    assert meta["first_retrieved"] and meta["last_refreshed"]
+    assert meta["schema"]
 
 
 def test_creators_resolve_against_the_live_agent_index(registry):
@@ -244,3 +251,42 @@ def test_a_publisher_uri_resolves_to_an_agent(registry, cat):
                    if (r.get("publisher") or {}).get("uri"))
     found = registry._lookup_many([dataset["publisher"]["uri"]], model=Agent)
     assert found and found[0].name
+
+
+def test_the_registry_can_narrow_by_its_own_timestamp(registry):
+    """The whole incremental design rests on this range query working."""
+    from dataportalen.client import _solr_stamp
+
+    base = Q.rdf_type(DCAT.Dataset) & Q.public()
+    everything = registry._count(base)
+    recent = registry._count(
+        base & Q.raw("modified:[%s TO *]" % _solr_stamp("2026-09-01")))
+    assert 0 < recent < everything, (recent, everything)
+
+
+def test_an_incremental_refresh_replaces_rows_without_dropping_any(tmp_path):
+    """A refresh must leave the rows it did not ask about alone."""
+    import sqlite3
+
+    from dataportalen.client import _connect, _meta_get, _meta_set
+
+    out = str(tmp_path / "inc.sqlite")
+    download_catalog(out, limit=200, progress=None)
+    before = sqlite3.connect(out).execute(
+        "SELECT count(*) FROM record").fetchone()[0]
+    assert before == 200
+    built = _meta_get(_connect(out), "first_retrieved")
+
+    # Ask only for what the registry has touched very recently, so the refresh
+    # is small, then check nothing else was disturbed.
+    db = _connect(out)
+    with db:
+        _meta_set(db, last_refreshed="2026-09-29T00:00:00")
+    db.close()
+    download_catalog(out, progress=None, since="2026-09-29T00:00:00")
+
+    after = sqlite3.connect(out).execute(
+        "SELECT count(*) FROM record").fetchone()[0]
+    assert after >= before, "a refresh must not lose rows"
+    assert _meta_get(_connect(out), "first_retrieved") == built
+    assert _meta_get(_connect(out), "last_refreshed") > "2026-09-29T00:00:00"

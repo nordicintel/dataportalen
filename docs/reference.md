@@ -35,7 +35,7 @@ cat.close()                                                           -> None
 | `data_services()` | Search the 599 data services. Same signature; refuses `format`, `updated`, `place`, `language` and the date filters. |
 | `filters()` | Every dataset filter, every value present, count-descending, with labels. ~0.5 s over the whole corpus. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |
-| `info()` | The file: path, when it was written, how old, how big, and what it holds. |
+| `info()` | The database: path, `first_retrieved`, `last_refreshed`, age, size, and what it holds. |
 | `close()` | Release the HTTP connection. Never required; nothing leaks without it. |
 
 `len(cat)` and iterating a `Catalog` give the datasets. Data services come from
@@ -54,7 +54,7 @@ Catalog(path=None, *, refresh="if_missing", stale_after=7, progress="auto",
 
 | Argument | Default | |
 | --- | --- | --- |
-| `path` | the cache directory | The JSONL file. A `.gz` suffix reads and writes gzip. |
+| `path` | the cache directory | The SQLite database. |
 | `refresh` | `"if_missing"` | When the file may be written. See below. |
 | `exclude_broken_links` | `False` | Drop every file the registry's link check calls broken — 11,886 of 35,140. |
 | `stale_after` | `7` | Days before a copy counts as stale. |
@@ -72,10 +72,17 @@ Everything that writes the file is here. No method rewrites it.
 | `"always"` | Download now, whatever is there. |
 | `"never"` | Never download. A missing file raises `FileNotFoundError`. |
 
-Default path: `%LOCALAPPDATA%\dataportalen\catalog.jsonl` on Windows,
-`$XDG_CACHE_HOME/dataportalen/catalog.jsonl` or
-`~/.cache/dataportalen/catalog.jsonl` elsewhere. `default_catalog_path()`
+Default path: `%LOCALAPPDATA%\dataportalen\catalog.sqlite` on Windows,
+`$XDG_CACHE_HOME/dataportalen/catalog.sqlite` or
+`~/.cache/dataportalen/catalog.sqlite` elsewhere. `default_catalog_path()`
 returns it.
+
+| `refresh=` | What it fetches |
+| --- | --- |
+| `"if_missing"` | nothing, unless the database is absent |
+| `"if_stale"` | only entries the registry has touched since your last refresh — ~630 datasets a day, 38 s against 302 for a rebuild |
+| `"always"` | everything |
+| `"never"` | nothing; raises if the database is absent |
 
 ## Dataset filters
 
@@ -318,7 +325,8 @@ file is not there.
 | | |
 | --- | --- |
 | `Catalog` | the whole surface |
-| `default_catalog_path` | where the file goes by default |
+| `default_catalog_path` | where the database goes by default |
+| `read_catalog` | every record in a database, without building a `Catalog` |
 | `text` | read a language map |
 | `Results`, `Breakdown`, `ValueList`, `ValueCount` | what a search gives you |
 | `DataportalError` + the 7 subclasses above | errors |
