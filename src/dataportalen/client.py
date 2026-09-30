@@ -14,21 +14,20 @@ raw RDF on request -- nothing else reaches the network.
 from __future__ import annotations
 
 import concurrent.futures
-import contextlib
 import datetime as _dt
 import difflib
-import gzip
-import io
 import json
 import os
 import random
 import re
+import sqlite3
 import threading
 import time
 from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     Iterator,
     List,
     Mapping,
@@ -43,6 +42,7 @@ from urllib.parse import quote as _quote
 from .core import (
     DEFAULT_USER_AGENT,
     BaseTransport,
+    DataportalError,
     HTTPError,
     NotFoundError,
     ParseError,
@@ -51,6 +51,7 @@ from .core import (
     Response,
     ServerError,
     TransportError,
+    __version__,
     build_url,
     default_transport,
     enable_logging,
@@ -70,11 +71,13 @@ from .models import (
     Results,
     SearchPage,
     ValueCount,
+    _iso,
     wrap_entry,
 )
 from .query import SORT_MODIFIED_DESC, Q
 from .rdf import (
     DCAT,
+    DCTERMS,
     FOAF,
     PROV,
     SUPPORTED_LANGUAGES,
@@ -171,7 +174,7 @@ def default_catalog_path() -> str:
     else:
         base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache")
-    return os.path.join(base, "dataportalen", "catalog.jsonl")
+    return os.path.join(base, "dataportalen", "catalog.sqlite")
 
 
 #: A copy older than this is reported as stale. Nothing is re-downloaded on
@@ -751,40 +754,92 @@ class _Counter:
         return self._value
 
 
-@contextlib.contextmanager
-def _writing(path: str):
-    """Write ``path`` atomically: a partial download must not become the file.
+#: The database layout. `harvested` is the registry's own timestamp for the
+#: entry, not the publisher's `modified` -- it is what "changed since we last
+#: looked" means, and the only thing an incremental refresh can trust.
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+CREATE TABLE IF NOT EXISTS record (
+    context_id TEXT NOT NULL,
+    entry_id   TEXT NOT NULL,
+    uri        TEXT,
+    type       TEXT NOT NULL,
+    harvested  TEXT,
+    doc        TEXT NOT NULL,
+    PRIMARY KEY (context_id, entry_id)
+);
+CREATE INDEX IF NOT EXISTS record_uri ON record(uri);
+CREATE INDEX IF NOT EXISTS record_type ON record(type);
+-- No index on `harvested`: the registry filters by it, we never do.
+"""
 
-    Everything goes to ``<path>.part`` and is renamed only once the last line
-    is written. Without that, a connection dropping at minute six of seven
-    leaves a short -- or empty -- file where the catalogue should be, and the
-    default ``refresh="if_missing"`` then reads it as a perfectly valid
-    catalogue of no datasets, forever, because a file is there. Every search
-    would answer nothing and nothing would ever fetch it again.
+#: Bumped when the layout changes in a way an older file cannot satisfy.
+SCHEMA_VERSION = "1"
 
-    The directory is created if missing, because the default location is a
-    cache directory that may not exist yet and seven minutes of downloading
-    must not end in a FileNotFoundError.
-    """
+
+def _connect(path: str) -> Any:
+    """Open the catalogue database, creating the file and layout if needed."""
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    partial = path + ".part"
-    if path.endswith(".gz"):
-        handle = gzip.open(partial, "wt", encoding="utf-8", newline="\n")
-    else:
-        handle = io.open(partial, "w", encoding="utf-8", newline="\n")
-    try:
-        with handle:
-            yield handle
-    except BaseException:
-        # Leave nothing behind that could be mistaken for a catalogue.
-        try:
-            os.remove(partial)
-        except OSError:                                   # pragma: no cover
-            pass
-        raise
-    os.replace(partial, path)
+    db = sqlite3.connect(path)
+    db.row_factory = sqlite3.Row
+    db.executescript(_SCHEMA)
+    return db
+
+
+def _meta_get(db: Any, key: str) -> Optional[str]:
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def _meta_set(db: Any, **values: Any) -> None:
+    db.executemany(
+        "INSERT INTO meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [(k, None if v is None else str(v)) for k, v in values.items()])
+
+
+#: One upsert, keyed on the registry's own identity for an entry.
+_UPSERT = (
+    "INSERT INTO record (context_id, entry_id, uri, type, harvested, doc) "
+    "VALUES (?, ?, ?, ?, ?, ?) "
+    "ON CONFLICT(context_id, entry_id) DO UPDATE SET "
+    "uri = excluded.uri, type = excluded.type, "
+    "harvested = excluded.harvested, doc = excluded.doc"
+)
+
+
+def _write_records(db: Any, rows: Iterable[Dict[str, Any]],
+                   kinds: Any = None, harvested: Any = None) -> int:
+    """Insert or replace records. Returns how many were written.
+
+    The upsert is the whole reason this is a database: a changed dataset
+    overwrites its own row and a new one appends itself, with no index to
+    maintain and no file to rewrite.
+
+    ``rows`` yields ``(kind, harvested, record)``. The key is the record's
+    ``context_id``/``entry_id`` -- not its ``uri``, because four datasets in
+    the corpus share a URI with another and keying on that would merge them.
+    """
+    written = 0
+    batch = []
+    for kind, stamp, record in rows:
+        batch.append((
+            str(record.get("context_id")), str(record.get("entry_id")),
+            record.get("uri"), kind, stamp,
+            json.dumps(record, ensure_ascii=False, separators=(",", ":"))))
+        if len(batch) >= 1000:
+            db.executemany(_UPSERT, batch)
+            written += len(batch)
+            batch = []
+    if batch:
+        db.executemany(_UPSERT, batch)
+        written += len(batch)
+    return written
 
 
 def _pages(total: int, page_size: int = PAGE_SIZE) -> List[int]:
@@ -849,6 +904,106 @@ def _take(entries, count):
 #: for 2,073 creator references, a third of them, which a `foaf:Agent`-only
 #: crawl left as bare URIs.
 _AGENT_TYPES = (FOAF.Agent, FOAF.Organization, PROV.Agent)
+
+
+#: The nightly link check. Each catalogue publishes a report entry whose
+#: metadata is a set of counters and whose *resource* is the detail: one JSON
+#: object per link, naming the URL, the entry it belongs to, the verdict and
+#: when it was reached. 159 of them, ~29 MiB, about ten seconds -- against a
+#: 691-request crawl that is noise, and it is the only place the per-link
+#: result exists.
+LINK_CHECK_TYPE = "http://entryscape.com/terms/LinkCheckReport"
+
+
+def _link_checks(client, counter):
+    """``{url: check}`` from every catalogue's latest link-check report.
+
+    A catalogue keeps about three days of reports; only the newest is read.
+    The verdict is the registry's, passed through as it stands -- ``status``
+    is ``success``, ``broken`` or ``excluded``, and ``message`` is whatever
+    reason it gave, which is often none.
+    """
+    query = Q.rdf_type(LINK_CHECK_TYPE) & Q.public()
+    total = client._count(query)
+    counter.add()
+
+    newest: Dict[str, Tuple[str, str]] = {}
+    for offset in _pages(total):
+        raw = client._search_raw(query, limit=PAGE_SIZE, offset=offset,
+                                 sort=STABLE_SORT)
+        counter.add()
+        for child in (raw.get("resource") or {}).get("children") or []:
+            graphs = list((child.get("metadata") or {}).values())
+            if not graphs:
+                continue
+            created = (graphs[0].get(DCTERMS.created) or [{}])[0].get("value", "")
+            context = child.get("contextId")
+            if context and (context not in newest or created > newest[context][0]):
+                newest[context] = (created, child.get("entryId"))
+
+    checks: Dict[str, Dict[str, Any]] = {}
+    for context, (_, entry_id) in sorted(newest.items()):
+        try:
+            response = client._request(
+                "/store/%s/resource/%s" % (_quote(str(context), safe=""),
+                                           _quote(str(entry_id), safe="")),
+                {}, accept="application/json")
+            records = response.json()
+        except (DataportalError, ValueError):             # pragma: no cover
+            # One unreadable report must not cost the whole download.
+            logger.warning("link-check report for context %s is unreadable",
+                           context)
+            continue
+        counter.add()
+        if not isinstance(records, list):                 # pragma: no cover
+            continue
+        for record in records:
+            url = record.get("uri")
+            if not url:
+                continue
+            # A URL checked twice keeps the later verdict.
+            seen = checks.get(url)
+            if seen is None or (record.get("checkedAt") or "") >= (
+                    seen.get("checkedAt") or ""):
+                checks[url] = record
+    logger.info("link checks: %s URLs over %s catalogues",
+                f"{len(checks):,}", f"{len(newest):,}")
+    return checks
+
+
+def _link_of(check: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """One link check as it goes into a record."""
+    if not check:
+        return None
+    return {
+        "status": check.get("status"),
+        "message": check.get("statusMessage") or None,
+        "checked": (check.get("checkedAt") or "")[:19] or None,
+        "attempts": check.get("attempts"),
+    }
+
+
+def _attach_links(record: Dict[str, Any], checks: Dict[str, Dict[str, Any]]) -> None:
+    """Put the registry's verdict on a record and on each of its files."""
+    if not checks:
+        return
+    for dist in record.get("distributions") or []:
+        urls = (dist.get("download_url") or []) + (dist.get("access_url") or [])
+        found = [checks[u] for u in urls if u in checks]
+        dist["link"] = _link_of(_worst(found))
+    own = [checks[u] for u in [record.get("landing_page")] if u and u in checks]
+    record["link"] = _link_of(_worst(own))
+
+
+#: Worst first: a thing with one broken link and one working one is reported
+#: as broken, because the broken one is the part you would trip over.
+_LINK_ORDER = {"broken": 0, "excluded": 1, "success": 2}
+
+
+def _worst(checks: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not checks:
+        return None
+    return sorted(checks, key=lambda c: _LINK_ORDER.get(c.get("status"), 3))[0]
 
 
 def _bulk_indexes(client, workers, counter):
@@ -926,6 +1081,8 @@ def download_catalog(
     progress: Any = "auto",
     client: Any = None,
     base_url: Optional[str] = None,
+    links: bool = True,
+    since: Optional[str] = None,
 ) -> CatalogSummary:
     """Download the catalogue to ``path`` as JSONL and return a summary.
 
@@ -934,7 +1091,7 @@ def download_catalog(
     stands on its own -- distributions, publisher, creators and contact points
     are resolved and nested, so nothing needs a further lookup.
 
-    :param path: where to write; a ``.gz`` suffix gzips the output.
+    :param path: the SQLite database to fill.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
     :param limit: stop after this many datasets, for smoke tests. Data services
         are skipped entirely when it is set -- they are the small half, and a
@@ -945,6 +1102,14 @@ def download_catalog(
         silent; a callable is invoked as ``progress(done, total)``.
     :param client: an existing ``_Registry`` to reuse.
     :param base_url: registry root, when not passing ``client``.
+    :param links: also read the registry's nightly link check and record its
+        verdict on every file. 159 requests, about ten seconds. Skipped for a
+        partial export, where the reports would dwarf the work.
+    :param since: only fetch entries the registry has touched since this
+        timestamp, and leave the rest of the database alone. This is what makes
+        a refresh cheap: a day's churn is about 630 datasets -- seven pages
+        instead of 236. It cannot see deletions, so a row whose dataset has
+        been withdrawn stays until a full rebuild.
     """
     owned = client is None
     if owned:
@@ -961,59 +1126,81 @@ def download_catalog(
     bytes_written = 0
     distributions_written = 0
 
+    # A refresh only asks for what the registry has touched since we looked.
+    # It is the registry's own timestamp, not the publisher's `modified`:
+    # a publisher can leave that empty or set it to 2100, and neither tells
+    # us whether the entry changed.
+    scope = Q.rdf_type(DCAT.Dataset)
+    if since:
+        scope = scope & Q.raw("modified:[%s TO *]" % _solr_stamp(since))
+
     try:
-        dataset_total = client._count(Q.rdf_type(DCAT.Dataset))
+        dataset_total = client._count(scope)
         counter.add()
         if limit is not None:
             dataset_total = min(dataset_total, limit)
-        logger.info("exporting %s datasets to %s", f"{dataset_total:,}", path)
+        logger.info("%s %s datasets to %s",
+                    "refreshing" if since else "exporting",
+                    f"{dataset_total:,}", path)
 
-        datasets = _crawl(
-            client, Q.rdf_type(DCAT.Dataset), Dataset, dataset_total, workers, counter
-        )
+        datasets = _crawl(client, scope, Dataset, dataset_total, workers, counter)
         missing: Dict[str, None] = {}
 
-        if limit is None:
+        if limit is None and not since:
             # Full export: every distribution is needed anyway, so one bulk
             # crawl per referenced type beats resolving dataset by dataset.
             indexes = _bulk_indexes(client, workers, counter)
         else:
-            # Partial export: crawling 35k distributions to serve a few
-            # hundred datasets would dwarf the actual work, so resolve only
-            # what this batch references.
-            datasets = list(_take(datasets, limit))
+            # A refresh or a partial export touches a few hundred datasets, and
+            # crawling 35k distributions to serve them would dwarf the work.
+            datasets = list(_take(datasets, limit) if limit else datasets)
             indexes = _targeted_indexes(client, datasets, workers, counter)
+            if limit is not None:
+                links = False
 
         distributions, agents, contacts = indexes
+        checks = _link_checks(client, counter) if links else {}
 
-        with _writing(path) as handle:
+        def rows():
+            nonlocal written, services_written, distributions_written, bytes_written
             for dataset in datasets:
                 record, used = _assemble(
-                    dataset, distributions, agents, contacts, missing
-                )
-                line = json.dumps(record, ensure_ascii=False) + "\n"
-                handle.write(line)
+                    dataset, distributions, agents, contacts, missing)
+                _attach_links(record, checks)
                 written += 1
-                bytes_written += len(line.encode("utf-8"))
                 distributions_written += used
+                bytes_written += len(json.dumps(record, ensure_ascii=False).encode())
                 if report is not None:
                     report(written, dataset_total)
+                yield "dataset", _iso(dataset.modified), record
 
             if limit is None:
-                # 599 services in six pages: the one real DCAT class the file
-                # would otherwise lack, for about 1% of the dataset crawl.
-                for record in _service_records(client, workers, counter,
-                                               agents, contacts, missing):
-                    line = json.dumps(record, ensure_ascii=False) + "\n"
-                    handle.write(line)
+                # 599 services in six pages: the one real DCAT class the
+                # database would otherwise lack, for ~1% of the dataset crawl.
+                for entry, record in _service_records(
+                        client, workers, counter, agents, contacts, missing,
+                        since=since):
+                    _attach_links(record, checks)
                     services_written += 1
-                    bytes_written += len(line.encode("utf-8"))
+                    bytes_written += len(json.dumps(record, ensure_ascii=False).encode())
+                    yield "data_service", _iso(entry.modified), record
+
+        db = _connect(path)
+        try:
+            with db:
+                _write_records(db, rows())
+                now = _dt.datetime.now().replace(microsecond=0).isoformat()
+                _meta_set(db, schema=SCHEMA_VERSION, package=__version__,
+                          last_refreshed=now)
+                if not _meta_get(db, "first_retrieved"):
+                    _meta_set(db, first_retrieved=now)
+        finally:
+            db.close()
 
         if missing:
             # Anything the crawl did not cover -- a distribution in a
             # non-public context, say. Reported, never silently dropped.
             _report_missing(missing)
-
 
     finally:
         if owned:
@@ -1024,6 +1211,10 @@ def download_catalog(
                 path, f"{written:,}", f"{services_written:,}",
                 f"{distributions_written:,}",
                 bytes_written / (1 << 20), time.time() - started_all, counter.value)
+    try:
+        bytes_written = os.path.getsize(path)
+    except OSError:                                       # pragma: no cover
+        pass
     return CatalogSummary(
         path=path,
         datasets=written,
@@ -1035,16 +1226,24 @@ def download_catalog(
     )
 
 
-def _service_records(client, workers, counter, agents, contacts, missing):
-    """Every ``dcat:DataService``, assembled like a dataset and yielded."""
-    total = client._count(Q.rdf_type(DCAT.DataService))
+def _service_records(client, workers, counter, agents, contacts, missing,
+                     since=None):
+    """Every ``dcat:DataService``, assembled like a dataset.
+
+    Yields ``(entry, record)`` so the caller can store the registry's own
+    timestamp alongside the record, which is what a refresh filters on.
+    """
+    scope = Q.rdf_type(DCAT.DataService)
+    if since:
+        scope = scope & Q.raw("modified:[%s TO *]" % _solr_stamp(since))
+    total = client._count(scope)
     counter.add()
-    logger.info("exporting %s data services", f"{total:,}")
-    for service in _crawl(client, Q.rdf_type(DCAT.DataService), DataService,
-                          total, workers, counter):
+    logger.info("%s %s data services", "refreshing" if since else "exporting",
+                f"{total:,}")
+    for service in _crawl(client, scope, DataService, total, workers, counter):
         record, _ = _assemble(service, {}, agents, contacts, missing,
                               with_distributions=False)
-        yield record
+        yield service, record
 
 
 def _assemble(
@@ -1159,8 +1358,8 @@ class Catalog:
     Everything that creates or replaces the file is an argument here, so
     nothing downloads 58 MB behind a call that looked like a search.
 
-    :param path: the JSONL file; a ``.gz`` suffix is read and written as gzip.
-        Defaults to :func:`default_catalog_path`.
+    :param path: the SQLite database. Defaults to
+        :func:`default_catalog_path`.
     :param refresh: when to download.
 
         ``"if_missing"`` (the default)
@@ -1175,6 +1374,11 @@ class Catalog:
             :class:`FileNotFoundError`. For a program that must not reach the
             network.
 
+    :param exclude_broken_links: drop every file the registry's nightly link
+        check found broken. About a third of them: of 35,140 distributions,
+        11,871 have no working URL. A dataset whose every file is broken keeps
+        its metadata and an empty ``distributions`` list -- use
+        ``datasets(link="success")`` to leave those out of a search too.
     :param stale_after: days before a copy counts as stale. The registry
         re-harvests nightly, so a week is already behind.
     :param progress: ``"auto"`` draws a progress line on a terminal and logs
@@ -1190,6 +1394,7 @@ class Catalog:
         path: Optional[str] = None,
         *,
         refresh: str = "if_missing",
+        exclude_broken_links: bool = False,
         stale_after: int = STALE_AFTER_DAYS,
         progress: Any = "auto",
         workers: int = 8,
@@ -1201,6 +1406,7 @@ class Catalog:
                 "refresh must be one of %s; got %r"
                 % (", ".join(map(repr, _REFRESH_MODES)), refresh))
         self.path = path or default_catalog_path()
+        self.exclude_broken_links = bool(exclude_broken_links)
         self.stale_after = int(stale_after)
         self._progress = progress
         self._workers = workers
@@ -1210,12 +1416,14 @@ class Catalog:
         self._seen: Dict[str, set] = {}
         self._records: List[Dict[str, Any]] = []
         self._services: List[Dict[str, Any]] = []
+        self._first_retrieved: Optional[str] = None
+        self._last_refreshed: Optional[str] = None
         self._load(refresh)
 
     # -- the file ----------------------------------------------------------
 
     def _load(self, refresh: str) -> None:
-        """Read the file, downloading first if this mode says to."""
+        """Read the database, fetching first if this mode says to."""
         exists = os.path.exists(self.path)
         if refresh == "always" or not exists:
             if refresh == "never":
@@ -1223,12 +1431,17 @@ class Catalog:
                     "%s does not exist and refresh=\"never\" forbids downloading "
                     "it; use refresh=\"if_missing\" or point path= at a copy"
                     % self.path)
-            self._download()
+            self._download(full=True)
             return
         self._read()
         if refresh == "if_stale" and self.stale:
-            logger.info("%s is %d days old; refreshing", self.path, self.age_days)
-            self._download()
+            # Incremental: only what the registry has touched since we looked.
+            # A day of churn is about 630 datasets, seven pages -- so keeping a
+            # copy current costs seconds rather than the seven minutes a
+            # rebuild does.
+            logger.info("%s is %d days old; refreshing what changed",
+                        self.path, self.age_days)
+            self._download(full=False)
         elif self.stale:
             # Never on its own: a program that answered in a second yesterday
             # must not block for six minutes today. The age is reported so the
@@ -1238,18 +1451,36 @@ class Catalog:
                 "the Catalog with refresh=\"if_stale\" for current data.",
                 self.path, self.age_days)
 
-    def _download(self) -> None:
+    def _download(self, full: bool = True) -> None:
+        """Fill the database, or bring it up to date.
+
+        ``full=False`` asks the registry only for entries it has touched since
+        our last refresh, and every row it returns replaces its own by URI.
+        It cannot see a deletion: a dataset withdrawn from the registry keeps
+        its row until a full rebuild, which ``refresh="always"`` does.
+        """
+        since = None if full else self.last_refreshed
         download_catalog(self.path, progress=self._progress,
-                         workers=self._workers, client=self._registry)
+                         workers=self._workers, client=self._registry,
+                         since=since)
         self._read()
 
     def _read(self) -> None:
-        """Load the file and split it by ``type``.
-
-        One file holds both kinds of line. A record written before 0.7.0 has no
-        ``type`` at all, and is read as a dataset -- that is all the file held.
-        """
-        every = _read_jsonl(self.path)
+        """Load the database and split its rows by type."""
+        db = _connect(self.path)
+        try:
+            version = _meta_get(db, "schema")
+            if version is not None and version != SCHEMA_VERSION:
+                raise ParseError(
+                    "%s was written with catalogue schema %s and this is "
+                    "version %s. Build the Catalog with refresh=\"always\" to "
+                    "rebuild it." % (self.path, version, SCHEMA_VERSION))
+            self._first_retrieved = _meta_get(db, "first_retrieved")
+            self._last_refreshed = _meta_get(db, "last_refreshed")
+            every = [json.loads(row["doc"])
+                     for row in db.execute("SELECT doc FROM record")]
+        finally:
+            db.close()
         if not every:
             # A catalogue with nothing in it is not a catalogue. Writes are
             # atomic now, so this means the file was emptied by something
@@ -1259,6 +1490,17 @@ class Catalog:
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
                 "build the Catalog with refresh=\"always\" to fetch a fresh "
                 "one." % self.path)
+        if self.exclude_broken_links:
+            dropped = 0
+            for record in every:
+                keep = [d for d in record.get("distributions") or []
+                        if (d.get("link") or {}).get("status") != "broken"]
+                dropped += len(record.get("distributions") or []) - len(keep)
+                if "distributions" in record:
+                    record["distributions"] = keep
+            if dropped:
+                logger.info("dropped %s files the registry reports broken",
+                            f"{dropped:,}")
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None
@@ -1267,8 +1509,29 @@ class Catalog:
                     f"{len(self._records):,}", f"{len(self._services):,}", self.path)
 
     @property
+    def first_retrieved(self) -> Optional[str]:
+        """When this copy was first built, as the database recorded it."""
+        return self._first_retrieved
+
+    @property
+    def last_refreshed(self) -> Optional[str]:
+        """When it was last brought up to date. What a refresh asks from."""
+        return self._last_refreshed
+
+    @property
     def downloaded(self) -> Optional[_dt.datetime]:
-        """When the file was written, which is how old the data is."""
+        """When the copy was last refreshed, which is how old the data is.
+
+        The database's own record of it, not the file's mtime: an incremental
+        refresh touches the file for a few hundred rows, and that must not make
+        the whole copy look new.
+        """
+        stamp = self._last_refreshed
+        if stamp:
+            try:
+                return _dt.datetime.fromisoformat(stamp)
+            except ValueError:                            # pragma: no cover
+                pass
         try:
             return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
         except OSError:                                   # pragma: no cover
@@ -1308,6 +1571,8 @@ class Catalog:
             size = 0
         return {
             "path": self.path,
+            "first_retrieved": self._first_retrieved,
+            "last_refreshed": self._last_refreshed,
             "downloaded": when.isoformat() if when else None,
             "age_days": self.age_days,
             "stale": self.stale,
@@ -1530,15 +1795,18 @@ class Catalog:
         ).text
 
 
-def _read_jsonl(path: str) -> List[Dict[str, Any]]:
-    opener = gzip.open if path.endswith(".gz") else io.open
-    with opener(path, "rt", encoding="utf-8") as handle:    # type: ignore[operator]
-        return [json.loads(line) for line in handle if line.strip()]
+def read_catalog(path: str) -> List[Dict[str, Any]]:
+    """Every record in a catalogue database, in insertion order.
+
+    For reading a copy without building a :class:`Catalog` around it.
+    """
+    db = _connect(path)
+    try:
+        return [json.loads(row["doc"]) for row in db.execute("SELECT doc FROM record")]
+    finally:
+        db.close()
 
 
-#: How each filter reads out of a record. A dataset's format lives on its
-#: distributions, its publisher is only there as a URI, and the rest are
-#: plain fields.
 def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
     """Every value one filter reads out of one record, blanks excluded.
 
@@ -1589,9 +1857,38 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "service_type":
         value = record.get("service_type")
         return [value] if value else []
+    if filter == "link":
+        # Every verdict anywhere in the record: its own landing page and each
+        # of its files. So `link="broken"` finds a record with at least one
+        # broken link, the same way `format="csv"` finds one with at least one
+        # CSV file. The values are the registry's own -- success, broken,
+        # excluded -- not a judgement of ours.
+        out = []
+        own = (record.get("link") or {}).get("status")
+        if own:
+            out.append(own)
+        for dist in record.get("distributions") or []:
+            status = (dist.get("link") or {}).get("status")
+            if status:
+                out.append(status)
+        return out
     raise QueryError(
         "cannot count values for %r; try one of: %s"
         % (filter, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
+
+
+def _solr_stamp(value: Any) -> str:
+    """A timestamp the index will accept in a range, from anything date-ish."""
+    text = _iso(value) if not isinstance(value, str) else value
+    text = (text or "").strip()
+    if not text:
+        raise QueryError("since needs a timestamp, got %r" % (value,))
+    if len(text) == 10:
+        text += "T00:00:00Z"
+    elif not text.endswith("Z"):
+        text = text.split("+")[0].split(".")[0]
+        text += "Z"
+    return text
 
 
 def _require_date(value: Any, name: str) -> str:
@@ -1773,6 +2070,17 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     if name in ("publisher", "creator"):
         wanted = {_org_value(item, name, observed) for item in _as_list(value)}
         return lambda record: bool(wanted & set(_local_values(record, name)))
+
+    if name == "link":
+        # Passed through as the registry states it, so no vocabulary lookup.
+        wanted = {str(v).strip().lower() for v in _as_list(value)}
+        known = {"success", "broken", "excluded"}
+        unknown = wanted - known
+        if unknown:
+            raise QueryError(
+                "link takes %s; got %r"
+                % (", ".join(sorted(known)), sorted(unknown)[0]))
+        return lambda record: bool(wanted & set(_local_values(record, "link")))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
                 "language", "place", "publisher_type", "service_type"):

@@ -82,7 +82,7 @@ slices and goes straight into anything that takes records.
 cat.datasets(theme="transport", format="csv", publisher="trafikverket")
 ```
 
-Values are short and lowercase; you never type a web address. There are eleven,
+Values are short and lowercase; you never type a web address. There are twelve,
 and [reference.md](reference.md#dataset-filters) lists each with how much of the
 corpus it covers. The ones you will reach for:
 
@@ -94,6 +94,7 @@ cat.datasets(theme="transport")                # the subject
 cat.datasets(format="csv")                     # a format you can download
 cat.datasets(keyword="geodata")                # the publisher's own tags
 cat.datasets(updated_after="2024-01-01")       # changed since
+cat.datasets(link="success")                   # its files actually resolve
 ```
 
 `publisher` and `creator` are different questions — the publisher put it on the
@@ -224,6 +225,38 @@ and read `dataset["themes"]`. Four differ this way — `theme`/`themes`,
 `language`/`languages`, `place`/`spatial`, `updated`/`accrual_periodicity`. The
 rest read as you would guess, and a breakdown is keyed by the *filter* name,
 because that is what you feed back in.
+
+**A third of the files do not resolve, and the record says which.** The
+registry runs a link check nightly and publishes the result per URL; that
+verdict is on every file:
+
+```python
+for dist in dataset["distributions"]:
+    dist["link"]["status"]    # 'success', 'broken' or 'excluded'
+    dist["link"]["message"]   # 'OK', 'Not Found', 'Too Many Requests', ...
+    dist["link"]["checked"]   # when the registry last tried
+```
+
+Over the corpus: **18,228 success, 11,886 broken, 5,021 excluded** by the
+registry's own configuration. `link` is an ordinary filter, so it is in every
+breakdown with counts:
+
+```python
+cat.datasets(link="success")                 # 16,584 have a file that resolves
+cat.datasets(link="broken")                  # 6,069 have one that does not
+cat.datasets(limit=0).breakdown["link"]
+```
+
+The status is the registry's, passed through as it stands — `broken` means its
+checker could not fetch the URL, whatever the reason it gave. To drop those
+files entirely, say so when you build the `Catalog`:
+
+```python
+Catalog(exclude_broken_links=True)      # 23,254 files instead of 35,140
+```
+
+A dataset whose every file is broken keeps its metadata and an empty
+`distributions` list; `datasets(link="success")` leaves it out of a search too.
 
 **The files are under `distributions`, and `access_url` is the one to read.**
 

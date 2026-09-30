@@ -30,14 +30,17 @@ from dataportalen import Catalog, text
 cat = Catalog()          # downloads the catalogue the first time: ~7 min, 64 MB
 print(cat.info())        # {'datasets': 23576, 'data_services': 599, ...}
 
-page = cat.datasets(theme="transport", format="csv")
-print(page.total)                               # 67
+page = cat.datasets(theme="transport", format="csv", link="success")
+print(page.total)                               # 60
 
 for dataset in page:
     print(text(dataset["title"]), text(dataset["publisher"]["name"]))
     for dist in dataset["distributions"]:
         print("   ", dist["format"], dist["access_url"])
 ```
+
+`link="success"` keeps only the datasets whose files the registry's nightly
+check could actually fetch — a third of all files are broken.
 
 **That first line takes about seven minutes.** It downloads the whole catalogue
 once, and every search after that is local and takes hundredths of a second.

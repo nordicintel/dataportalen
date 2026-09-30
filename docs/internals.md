@@ -184,6 +184,30 @@ One asymmetry worth knowing if you join the two types: `servedByDataService`
 appears on **29% of datasets** while `servesDataset` appears on **8% of data
 services**. The link is recorded far more often from the dataset side.
 
+### The link check
+
+The registry checks every URL it holds, nightly, and publishes the result per
+catalogue as an `entryscape:LinkCheckReport`. The report's **metadata** is five
+counters; the detail is its **resource**, a JSON array with one object per link:
+the URL, the entry it belongs to, `status`, `statusMessage`, `checkedAt` and
+`attempts`. That resource is the only place the per-link verdict exists, and it
+is easy to miss if you only read the metadata graph.
+
+159 catalogues, one latest report each, ~29 MiB, about ten seconds -- 165
+requests on top of 691. The download reads them and puts the verdict on every
+distribution and on each record's landing page, so `link` is an ordinary local
+filter afterwards.
+
+The verdict is passed through exactly as stated. `broken` covers everything the
+checker could not fetch, and its `statusMessage` is whatever reason it gave --
+`Not Found`, `Too Many Requests`, `No Content`, or nothing at all for 5,990 of
+them. This package reports what the registry says; deciding whether a
+particular `broken` is worth acting on is the caller's, and the message is
+there so they can.
+
+A catalogue keeps about three days of reports; only the newest is read. Verdicts
+are current: of 12,718 broken records, 12,711 were checked this year.
+
 ### Where each call goes
 
 Everything but one reads the file. `datasets()`, `data_services()`, `filters()`,
@@ -269,7 +293,9 @@ datasets a day, so the absolute figures drift and the ratios do not.
 
 | Fact | Value |
 | --- | --- |
-| Datasets / data services / distributions | 23,576 / 599 / 35,133 in the file |
+| Datasets / data services / distributions | 23,581 / 599 / 35,140 in the file |
+| Link verdicts: success / broken / excluded | 18,228 / 11,886 / 5,021 |
+| Link-check reports: requests / time | 165 / ~10 s |
 | Full download | 673 requests, ~7 minutes, 64 MiB |
 | Loading the file | ~1.3 s |
 | A filtered search | 0.02-0.06 s |

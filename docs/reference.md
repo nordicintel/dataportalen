@@ -56,6 +56,7 @@ Catalog(path=None, *, refresh="if_missing", stale_after=7, progress="auto",
 | --- | --- | --- |
 | `path` | the cache directory | The JSONL file. A `.gz` suffix reads and writes gzip. |
 | `refresh` | `"if_missing"` | When the file may be written. See below. |
+| `exclude_broken_links` | `False` | Drop every file the registry's link check calls broken — 11,886 of 35,140. |
 | `stale_after` | `7` | Days before a copy counts as stale. |
 | `progress` | `"auto"` | Progress line on a terminal, periodic log otherwise. `None` is silent; a callable gets `(done, total)`. |
 | `workers` | `8` | Parallel requests while downloading. |
@@ -94,6 +95,7 @@ value means any of them will do, except `keyword`, where all must be present.
 | `updated=` | how often the publisher refreshes it | 63.3% |
 | `creator=` | the organisation that produced the data | 30.1% |
 | `place=` | the area it covers | 19.0% |
+| `link=` | `success`, `broken` or `excluded` — the registry's nightly link check, on the record's own landing page or any of its files | 100% |
 | `text=` | title, description or keywords, either language | — |
 
 | Date filter | Which date | On |
@@ -118,6 +120,7 @@ How many distinct values each has in the corpus, and what the commonest is:
 | `publisher_type` | 8 | `national_authority` |
 | `access_rights` | 3 | `public` |
 | `language` | 2 | `swedish` |
+| `link` | 3 | `success` |
 
 `cat.filters()` lists them all, live against your copy, with labels.
 
@@ -136,6 +139,7 @@ naming the ones that work.
 | `theme=` | the subject | 53.8% |
 | `license=` | the licence | 51.8% |
 | `creator=` | who produced it | 7.8% |
+| `link=` | `success`, `broken` or `excluded` | 53% |
 | `text=` | title, description or keywords | — |
 
 | Refused | Why |
@@ -206,6 +210,7 @@ missing key, so you never need `.get()`.
 | `access_url` | `[url]` — a page or service to get it through. **Read this one.** |
 | `download_url` | `[url]` — a direct file link, on only 7.4% |
 | `license`, `availability`, `status` | short names |
+| `link` | `{status, message, checked, attempts}` — the registry's nightly check, or `null` if it never saw the URL |
 | `languages` | `[short name]` |
 | `issued`, `modified` | ISO dates |
 | `access_service_uris` | `[uri]` — the data service that serves it, where declared |

@@ -179,14 +179,38 @@ SERVICE_RECORDS = [
 ]
 
 
-def write_catalog(tmp_path, records=None, name="catalog.jsonl"):
-    """A catalogue file on disk, for a Catalog that must not download."""
+#: What the registry's nightly link check says about the fixture's files.
+#: The verdicts are its vocabulary, not ours: success, broken, excluded.
+LINK_CHECKS = [
+    {"entryType": "dcat:Distribution", "context": "50",
+     "uri": "https://example.org/roads.csv", "property": "dcat:accessURL",
+     "status": "broken", "statusMessage": "Not Found",
+     "checkedAt": "2026-09-28T02:44:17.095Z", "attempts": 3},
+    {"entryType": "dcat:Distribution", "context": "50",
+     "uri": "https://example.org/roads.json", "property": "dcat:accessURL",
+     "status": "success", "statusMessage": "OK",
+     "checkedAt": "2026-09-28T02:44:18.001Z", "attempts": 1},
+    {"entryType": "dcat:Distribution", "context": "51",
+     "uri": "https://example.org/budget.xlsx", "property": "dcat:accessURL",
+     "status": "broken", "statusMessage": "Too Many Requests",
+     "checkedAt": "2026-09-28T02:44:19.002Z", "attempts": 2},
+]
+
+
+def write_catalog(tmp_path, records=None, name="catalog.sqlite"):
+    """A catalogue database on disk, for a Catalog that must not download."""
+    from dataportalen.client import SCHEMA_VERSION, _connect, _meta_set, _write_records
+
+    rows = CATALOG_RECORDS + SERVICE_RECORDS if records is None else records
     path = tmp_path / name
-    path.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False)
-                  for r in (CATALOG_RECORDS + SERVICE_RECORDS
-                            if records is None else records)) + "\n",
-        encoding="utf-8")
+    db = _connect(str(path))
+    with db:
+        _write_records(db, [
+            (r.get("type", "dataset"), r.get("modified"), r) for r in rows])
+        _meta_set(db, schema=SCHEMA_VERSION,
+                  first_retrieved="2026-09-30T00:00:00",
+                  last_refreshed="2026-09-30T00:00:00")
+    db.close()
     return str(path)
 
 

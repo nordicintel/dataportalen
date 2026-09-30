@@ -167,14 +167,11 @@ def test_an_unregistered_rdf_type_gives_a_plain_entry_not_a_keyerror():
     assert isinstance(entry, Entry)
 
 
-def test_the_request_path_quotes_the_ids_it_interpolates(cat, transport):
+def test_the_request_path_quotes_the_ids_it_interpolates(tmp_path, transport):
     """Catalog(path=...) accepts any file; a crafted id must not redirect."""
     record = dict(CATALOG_RECORDS[0], context_id="../../evil", entry_id="9")
-    import json as _json
-    path = cat.info()["path"]
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(_json.dumps(record) + "\n")
-    fresh = Catalog(path, refresh="never", transport=transport)
+    fresh = Catalog(write_catalog(tmp_path, [record]), refresh="never",
+                    transport=transport)
     transport.push("x", content_type="text/turtle")
     fresh.get(record["uri"], format="turtle")
     assert "/store/..%2F..%2Fevil/metadata/9" in transport.requests[-1]

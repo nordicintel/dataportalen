@@ -1247,7 +1247,7 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 #: 69.7%, updated 63.3%, creator 30.1%, place 23.6%.
 DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
                    "keyword", "format", "license", "access_rights",
-                   "updated", "language", "place")
+                   "updated", "language", "place", "link")
 
 #: The same for a data service, and it is a different list. Over all 599:
 #: access_rights 97.8%, publisher 97.3%, keyword 83.5%, service_type 55.9%,
@@ -1257,7 +1257,7 @@ DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
 #: `language` has one single value across all 599.
 DATA_SERVICE_FILTERS = ("publisher", "publisher_type", "creator",
                         "service_type", "theme", "keyword", "license",
-                        "access_rights")
+                        "access_rights", "link")
 
 #: Kept as the union, for code that asks "is this a filter at all".
 BREAKDOWN_FILTERS = DATASET_FILTERS

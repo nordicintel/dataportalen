@@ -7,7 +7,6 @@ so "nothing was downloaded" is a fact here rather than a hope.
 from __future__ import annotations
 
 import datetime as dt
-import gzip
 import json
 import logging
 import os
@@ -19,8 +18,19 @@ from dataportalen import Catalog, default_catalog_path
 
 
 def age(path, days):
-    when = (dt.datetime.now() - dt.timedelta(days=days)).timestamp()
-    os.utime(path, (when, when))
+    """Backdate a catalogue's own record of when it was last refreshed.
+
+    Not the file's mtime: an incremental refresh rewrites a few hundred rows
+    and must not make the whole copy look new, so the database records the
+    time itself and the Catalog reads that.
+    """
+    from dataportalen.client import _connect, _meta_set
+
+    when = (dt.datetime.now() - dt.timedelta(days=days)).replace(microsecond=0)
+    db = _connect(path)
+    with db:
+        _meta_set(db, last_refreshed=when.isoformat())
+    db.close()
 
 
 # -- where it lives ----------------------------------------------------------
@@ -29,7 +39,7 @@ def age(path, days):
 def test_the_default_path_is_a_cache_directory():
     path = default_catalog_path()
     # One file, not one per language: a record carries both languages.
-    assert path.endswith(os.path.join("dataportalen", "catalog.jsonl"))
+    assert path.endswith(os.path.join("dataportalen", "catalog.sqlite"))
     assert os.path.isabs(path)
     # Never the working directory: it must not land in someone's repository.
     assert os.path.dirname(path) != os.getcwd()
@@ -40,13 +50,6 @@ def test_it_reads_the_file(cat):
     assert len(cat) == 2
     assert [r["uri"] for r in cat] == [r["uri"] for r in CATALOG_RECORDS]
     assert cat.data_services().total == 2
-
-
-def test_gzip_is_read_transparently(tmp_path, transport):
-    path = tmp_path / "catalog.jsonl.gz"
-    with gzip.open(path, "wt", encoding="utf-8") as handle:
-        handle.write(json.dumps(CATALOG_RECORDS[0]) + "\n")
-    assert len(Catalog(str(path), refresh="never", transport=transport)) == 1
 
 
 # -- when it is written ------------------------------------------------------
@@ -107,7 +110,7 @@ def test_a_fresh_file_is_never_negative_days_old(tmp_path, transport):
 
 def test_info_reports_the_file_and_its_age(cat):
     info = cat.info()
-    assert info["path"].endswith("catalog.jsonl")
+    assert info["path"].endswith("catalog.sqlite")
     assert info["datasets"] == 2
     assert info["data_services"] == 2
     assert info["publishers"] == 2

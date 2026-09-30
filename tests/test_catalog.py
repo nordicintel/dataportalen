@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import gzip
-import json
-
 import pytest
 
 from conftest import load_fixture
-from dataportalen.client import CatalogSummary, _Registry, download_catalog
+from dataportalen.client import CatalogSummary, _Registry, download_catalog, read_catalog
 
 
 def _page(children, total, offset=0, limit=100):
@@ -46,10 +43,9 @@ def test_writes_one_json_object_per_line(wired, tmp_path, dataset_children):
     summary = download_catalog(
         str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
-    lines = out.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == len(dataset_children)
-    for line in lines:
-        record = json.loads(line)
+    records = read_catalog(str(out))
+    assert len(records) == len(dataset_children)
+    for record in records:
         assert "uri" in record and "title" in record
     assert isinstance(summary, CatalogSummary)
     assert summary.datasets == len(dataset_children)
@@ -66,19 +62,6 @@ def test_summary_reports_what_it_did(wired, tmp_path, dataset_children):
     assert payload["requests"] > 0
     assert payload["elapsed"] >= 0
     assert "CatalogSummary" in repr(summary)
-
-
-def test_gz_suffix_gzips_the_output(wired, tmp_path, dataset_children):
-    out = tmp_path / "catalog.jsonl.gz"
-    download_catalog(
-        str(out), limit=len(dataset_children), client=_Registry(transport=wired)
-    )
-    with gzip.open(out, "rt", encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    assert len(lines) == len(dataset_children)
-    assert json.loads(lines[0])["uri"]
-    # Really gzip, not a text file with a misleading name.
-    assert out.read_bytes()[:2] == b"\x1f\x8b"
 
 
 def test_limit_avoids_crawling_every_distribution(transport, dataset_children, tmp_path):
@@ -127,7 +110,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
 
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), limit=1, client=_Registry(transport=transport))
-    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    record = read_catalog(str(out))[0]
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
     assert record["distributions"][0]["title"] == {"sv": "CSV"}
@@ -154,7 +137,7 @@ def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
     out = tmp_path / "c.jsonl"
     with pytest.warns(UserWarning, match="not found in the bulk crawl"):
         download_catalog(str(out), limit=1, client=_Registry(transport=transport))
-    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    record = read_catalog(str(out))[0]
     # Unresolved references drop out of the record but are warned about, so
     # a line never silently claims a dataset has no distributions.
     assert record["distributions"] == []
@@ -181,12 +164,11 @@ def test_a_supplied_client_is_left_open(wired, tmp_path, dataset_children):
 
 def test_language_keys_are_json_safe(wired, tmp_path, dataset_children):
     # An untagged literal must not key the object under `null`.
-    out = tmp_path / "c.jsonl"
+    out = tmp_path / "c.sqlite"
     download_catalog(
         str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
-    for line in out.read_text(encoding="utf-8").splitlines():
-        record = json.loads(line)
+    for record in read_catalog(str(out)):
         assert "null" not in record["title"]
         assert all(isinstance(k, str) and k for k in record["title"])
 
@@ -260,6 +242,7 @@ def full_export(transport):
     transport.push(_page([], 1))                 # count(agents) -> 1
     transport.push(_page([], 0))                 # count(contact points) -> 0
     transport.push(_page([ORG], 1))              # the agent page
+    transport.push(_page([], 0))                 # count(link check reports) -> 0
     transport.push(_page([DATASET], 1))          # the dataset page
     transport.push(_page([], 1))                 # count(data services) -> 1
     transport.push(_page([SERVICE], 1))          # the data service page
@@ -269,8 +252,7 @@ def full_export(transport):
 def test_a_full_export_writes_both_types(full_export, tmp_path):
     out = tmp_path / "c.jsonl"
     summary = download_catalog(str(out), client=_Registry(transport=full_export))
-    records = [json.loads(line)
-               for line in out.read_text(encoding="utf-8").splitlines()]
+    records = read_catalog(str(out))
     assert [r["type"] for r in records] == ["dataset", "data_service"]
     assert summary.datasets == 1
     assert summary.data_services == 1
@@ -281,8 +263,7 @@ def test_a_full_export_writes_both_types(full_export, tmp_path):
 def test_a_data_service_record_carries_what_it_has(full_export, tmp_path):
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=full_export))
-    service = [json.loads(line)
-               for line in out.read_text(encoding="utf-8").splitlines()][-1]
+    service = read_catalog(str(out))[-1]
     assert service["title"] == {"sv": "Utlysningar", "en": "Calls"}
     assert service["service_type"] == "rest"
     assert service["endpoint_url"] == "https://api.example.org/v1"
@@ -295,7 +276,7 @@ def test_creators_are_resolved_not_left_as_uris(full_export, tmp_path):
     """A bare creator URI would be a dead end: nothing resolves one on demand."""
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=full_export))
-    dataset = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    dataset = read_catalog(str(out))[0]
     assert dataset["creators"] == [{
         "uri": "http://example.org/org",
         "context_id": "2", "entry_id": "5",
@@ -312,8 +293,7 @@ def test_a_limited_export_skips_data_services(wired, tmp_path, dataset_children)
     summary = download_catalog(str(out), limit=len(dataset_children),
                                client=_Registry(transport=wired))
     assert summary.data_services == 0
-    types = {json.loads(line)["type"]
-             for line in out.read_text(encoding="utf-8").splitlines()}
+    types = {r["type"] for r in read_catalog(str(out))}
     assert types == {"dataset"}
 
 
@@ -338,12 +318,13 @@ def test_publishers_typed_as_organizations_are_indexed_too(transport, tmp_path):
     transport.push(_page([], 1))            # count(agents), all three types
     transport.push(_page([], 0))            # count(contact points)
     transport.push(_page([org], 1))         # the agent page
+    transport.push(_page([], 0))            # count(link check reports)
     transport.push(_page([dataset], 1))     # the dataset page
     transport.push(_page([], 0))            # count(data services)
 
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=transport))
-    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    record = read_catalog(str(out))[0]
     assert record["creators"][0]["name"] == {"sv": "Folkhälsomyndigheten"}
 
 
@@ -365,13 +346,14 @@ def test_an_unresolvable_creator_is_reported_not_silently_bare(transport, tmp_pa
     transport.push(_page([], 0))
     transport.push(_page([], 0))
     transport.push(_page([], 0))
-    transport.push(_page([dataset], 1))
-    transport.push(_page([], 0))
+    transport.push(_page([], 0))            # count(link check reports)
+    transport.push(_page([dataset], 1))     # the dataset page
+    transport.push(_page([], 0))            # count(data services)
 
     out = tmp_path / "c.jsonl"
     with pytest.warns(UserWarning, match="not found in the bulk crawl"):
         download_catalog(str(out), client=_Registry(transport=transport))
-    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    record = read_catalog(str(out))[0]
     assert record["creators"] == [{"uri": "http://example.org/a-web-page"}]
 
 
