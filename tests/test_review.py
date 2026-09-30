@@ -208,16 +208,33 @@ def test_the_lru_survives_eviction_from_several_threads():
 
 
 def test_each_thread_gets_its_own_requests_session():
-    """requests.Session is not thread-safe and the download uses 8 workers."""
-    import concurrent.futures
+    """requests.Session is not thread-safe and the download uses 8 workers.
 
+    A barrier rather than a pool: handing N tasks to a pool does not
+    guarantee N threads take one each, and a pool that drains the queue on
+    one thread would make this pass or fail by timing. One run in two
+    hundred did exactly that.
+    """
     from dataportalen.core import RequestsTransport
 
     transport = RequestsTransport()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        seen = set(pool.map(lambda _: id(transport._session), range(24)))
-    assert len(seen) > 1, "every thread was handed the same session"
-    assert len(transport._made) == len(seen)
+    workers = 4
+    ready = threading.Barrier(workers)
+    seen, lock = set(), threading.Lock()
+
+    def look():
+        ready.wait(timeout=10)          # nobody proceeds until all are here
+        with lock:
+            seen.add(id(transport._session))
+
+    threads = [threading.Thread(target=look) for _ in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert len(seen) == workers, "threads shared a session"
+    assert len(transport._made) == workers
     transport.close()
     assert transport._made == []
 
@@ -232,3 +249,49 @@ def test_a_session_the_caller_supplies_is_used_and_left_open():
     assert transport._session is given
     transport.close()
     given.get                                   # still usable; not closed by us
+
+
+def test_an_empty_file_is_not_a_catalogue(tmp_path, transport):
+    """Reading it as "0 datasets" would hide the problem for as long as the
+    file sat there: every search would answer nothing and nothing would look
+    wrong."""
+    from dataportalen import ParseError
+
+    path = tmp_path / "empty.jsonl"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(ParseError) as info:
+        Catalog(str(path), refresh="never", transport=transport)
+    assert "empty" in str(info.value)
+
+
+def test_entry_has_no_reload_calling_a_method_that_went():
+    """It called _Registry.entry(), removed in 0.7.0, so it only ever raised."""
+    from dataportalen.models import Entry
+
+    assert not hasattr(Entry, "reload")
+
+
+def test_no_model_calls_a_client_method_that_does_not_exist():
+    """The models are internal, but dead code that looks live is a trap."""
+    import ast
+    import io as _io
+    import re
+
+    models = _io.open("src/dataportalen/models.py", encoding="utf-8").read()
+    client = _io.open("src/dataportalen/client.py", encoding="utf-8").read()
+    registry = next(
+        node for node in ast.parse(client).body
+        if isinstance(node, ast.ClassDef) and node.name == "_Registry")
+    have = {f.name for f in registry.body if isinstance(f, ast.FunctionDef)}
+
+    pattern = re.compile(
+        r"(?:client|self\._client|self\._require_client\(\))\.(\w+)\(")
+    called = set()
+    for node in ast.walk(ast.parse(models)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            source = ast.unparse(node.func)
+            match = pattern.match(source + "(")
+            if match:
+                called.add(match.group(1))
+    assert called <= have, (
+        "models call client methods that do not exist: %s" % sorted(called - have))

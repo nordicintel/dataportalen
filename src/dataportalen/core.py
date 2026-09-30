@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 # version: The package version, in one place.
 # ==========================================================================
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 
 # ==========================================================================

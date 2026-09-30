@@ -1250,6 +1250,15 @@ class Catalog:
         ``type`` at all, and is read as a dataset -- that is all the file held.
         """
         every = _read_jsonl(self.path)
+        if not every:
+            # A catalogue with nothing in it is not a catalogue. Writes are
+            # atomic now, so this means the file was emptied by something
+            # else -- and reading it as "0 datasets, every search answers
+            # nothing" would hide that for as long as the file sat there.
+            raise ParseError(
+                "%s is empty, so it is not a usable catalogue. Delete it, or "
+                "build the Catalog with refresh=\"always\" to fetch a fresh "
+                "one." % self.path)
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None

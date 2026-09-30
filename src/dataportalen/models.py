@@ -442,20 +442,6 @@ class Entry:
         """Look up several managed entries in as few requests as possible."""
         return self._require_client()._lookup_many(list(uris))
 
-    def reload(self, recursive: bool = True) -> "Entry":
-        """Re-fetch this entry, optionally pulling in related entities."""
-        client = self._require_client()
-        if self.context_id is None or self.entry_id is None:
-            raise RuntimeError("entry has no contextId/entryId to reload from")
-        return client.entry(
-            self.context_id,
-            self.entry_id,
-            recursive=recursive,
-            model=type(self),
-            info=self.info if self.info else None,
-            rights=self.rights,
-        )
-
     # -- output ------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1151,8 +1137,8 @@ class Dataset(Entry):
         """Fetch this dataset's distributions.
 
         A search hit carries only the distribution URIs; calling this resolves
-        them in batches. ``client.dataset(..., recursive=True)`` avoids the
-        extra round trips by fetching the whole DCAT closure at once.
+        them in batches. The catalogue download avoids the round trips
+        entirely by crawling every distribution once and splicing them in.
         """
         inline = [
             Distribution.from_resource(ref, client=self._client, context_id=self.context_id)
