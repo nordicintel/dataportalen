@@ -204,3 +204,8 @@ def test_every_breakdown_value_round_trips(catalog):
         for value, count in options[name]:
             assert catalog.datasets(limit=0, **{name: value}).total == count, (
                 "%s=%r claimed %d" % (name, value, count))
+
+
+def test_data_services_refuse_a_negative_window_too(catalog):
+    with pytest.raises(QueryError):
+        catalog.data_services(limit=-1)

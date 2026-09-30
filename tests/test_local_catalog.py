@@ -135,3 +135,21 @@ def test_the_records_are_the_shape_the_download_writes(catalog):
     assert set(record) >= set(CATALOG_RECORDS[0])
     assert isinstance(record["title"], dict)
     assert isinstance(record["publisher"]["name"], dict)
+
+
+def test_a_negative_window_is_refused_not_sliced_from_the_end(catalog):
+    """`limit=-1` used to return every match but the last, silently."""
+    for kwargs in ({"limit": -1}, {"offset": -1}, {"limit": -5, "offset": 2}):
+        with pytest.raises(QueryError) as info:
+            catalog.datasets(**kwargs)
+        assert "0 or more" in str(info.value)
+    # The two that do mean something still do.
+    assert catalog.datasets(limit=0).total == 2
+    assert len(catalog.datasets(limit=None)) == 2
+
+
+def test_an_offset_past_the_end_is_empty_not_an_error(catalog):
+    page = catalog.datasets(limit=5, offset=99999)
+    assert len(page) == 0
+    assert page.total == 2
+    assert page.has_more is False

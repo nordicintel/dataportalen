@@ -1311,6 +1311,22 @@ class Catalog:
             }
         return self._seen[key]
 
+    @staticmethod
+    def _window(limit, offset):
+        """Reject a window that Python would happily slice from the wrong end.
+
+        ``limit=-1`` sliced as ``found[0:-1]`` and quietly returned every match
+        but the last; ``offset=-1`` returned nothing at all. Both are garbage
+        in, but both looked like an answer, which is the worse failure -- a
+        caller whose arithmetic went negative got a plausible result instead of
+        a complaint.
+        """
+        if limit is not None and limit < 0:
+            raise QueryError("limit must be 0 or more, or None for every "
+                             "match; got %r" % (limit,))
+        if offset < 0:
+            raise QueryError("offset must be 0 or more; got %r" % (offset,))
+
     def _check(self, filters, allowed, what):
         """Refuse a filter this kind of record cannot answer, and say which can.
 
@@ -1358,6 +1374,7 @@ class Catalog:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        self._window(limit, offset)
         self._check(filters, DATASET_FILTERS + ("text",) + _DATE_FILTERS,
                     "datasets")
         found = self._matching(self._records, filters)
@@ -1413,6 +1430,7 @@ class Catalog:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        self._window(limit, offset)
         self._check(filters, DATA_SERVICE_FILTERS + ("text",), "data services")
         found = self._matching(self._services, filters, "data_service")
         breakdown = local_breakdown(found, limit=breakdown_limit,
