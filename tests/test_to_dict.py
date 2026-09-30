@@ -265,3 +265,30 @@ def test_a_regional_tag_folds_to_its_base_language():
         ],
     }}})
     assert entry.to_dict()["title"] == {"en": "Colour"}
+
+
+# -- reading a language map --------------------------------------------------
+
+
+def test_text_prefers_swedish_and_falls_back():
+    from dataportalen import text
+
+    assert text({"sv": "Vägtrafiknät", "en": "Road"}) == "Vägtrafiknät"
+    assert text({"en": "Road"}) == "Road"
+    assert text({"sv": "Vägtrafiknät", "en": "Road"}, "en") == "Road"
+    assert text({"sv": "Vägtrafiknät"}, "en") == "Vägtrafiknät"
+
+
+def test_text_is_safe_on_anything_a_record_holds():
+    """Ten percent of datasets have no Swedish title; this must not raise."""
+    from dataportalen import text
+
+    assert text({}) is None
+    assert text(None) is None
+    assert text("already a string") == "already a string"
+
+
+def test_text_on_a_real_record(dataset):
+    from dataportalen import text
+
+    assert text(dataset.to_dict()["title"]) == dataset.titles["sv"]

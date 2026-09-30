@@ -25,87 +25,93 @@ Distribution and import name are both `dataportalen`. The unrelated
 ## Search
 
 ```python
-from dataportalen import Dataportal
+from dataportalen import Catalog, text
 
-with Dataportal() as dp:
-    page = dp.datasets(theme="transport", publisher="trafikverket",
-                       updated_after="2024-01-01")
-    print(page.total)
-    for dataset in page:
-        print(dataset["title"])
+cat = Catalog()
+page = cat.datasets(theme="transport", publisher="trafikverket",
+                    updated_after="2024-01-01")
+
+print(page.total)
+for dataset in page:
+    print(text(dataset["title"]), dataset["distributions"])
 ```
 
-The first search downloads the whole catalogue — about six minutes and 58 MB,
-once — and every search after that runs against that copy in milliseconds.
-That copy is how the package searches: the registry answers about two
-requests a second and does not go faster with more of them in flight, so
-reading it once beats reading it every time. The registry is still asked for
-what the file does not hold — distributions and agents as entities, RDF,
-statistics, link checks.
+The first use downloads the whole catalogue — about seven minutes and 64 MB,
+once — and every search after that runs against that copy in hundredths of a
+second. That copy is how the package works: the registry caps a page at 100
+entries and answers about two requests a second whatever you do, so reading it
+once beats reading it every time.
 
-Results are plain dictionaries:
+A result is a plain dictionary. Text comes back in every language the
+publisher wrote — `text()` picks the best one, because 10% of datasets have no
+Swedish — and anything from a fixed list of options as one short English word
+you can filter on:
 
 ```json
 {
   "uri": "https://example.org/data/roads",
-  "title": "Vägtrafiknät",
+  "type": "dataset",
+  "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
   "themes": ["transport"],
   "license": "cc_by_4_0",
   "access_rights": "public",
   "accrual_periodicity": "annual",
-  "publisher": {"name": "Trafikverket", "type": "national_authority"},
+  "publisher": {"name": {"sv": "Trafikverket"}, "type": "national_authority"},
   "distributions": [
     {"download_url": ["https://...csv"], "format": "csv"}
   ]
 }
 ```
 
-## Every result knows what it is made of
+## What you can filter by
 
 ```python
-page = dp.datasets(text="cykel")
-page.total                     # 388
+cat.filters()["publisher"][0]
+# ValueCount(value='radet_for_framjande_av_kommunala_analyser_kolada',
+#            dataset_count=5863)   .label → {'sv': 'Rådet för främjande av ...'}
+
+list(cat.filters())
+# ['publisher', 'publisher_type', 'creator', 'theme', 'keyword',
+#  'format', 'license', 'access_rights', 'updated', 'language', 'place']
+```
+
+Every value goes straight back in, so browsing leads into a search. Each
+result carries the same thing for what it matched:
+
+```python
+page = cat.datasets(text="cykel")
+page.total                        # 388
 page.breakdown["publisher"]       # [('kolada', 213), ('trafikverket', 51), ...]
 page.breakdown["theme"]           # [('population_and_society', 233), ...]
-page.breakdown["format"]          # [('json', 246), ('html', 51), ...]
-page.breakdown["publisher_type"]  # [('national_authority', 201), ...]
 ```
 
 `breakdown_limit=10` caps each list and counts what it cut.
 
-Counted over everything that matched, biggest first, for every filter at
-once — and every value goes straight back in to narrow the search:
+## The rest of it
 
 ```python
-dp.datasets(text="cykel", publisher="trafikverket")
+cat.data_services(service_type="view_service")   # the APIs, not the files
+cat.get("https://example.org/data/roads")        # one record by URI
+cat.get(uri, format="turtle")                    # its raw RDF, from the registry
+cat.info()                                       # the file: path, age, counts
 ```
 
-## The catalogue file
-
-The copy the client keeps is an ordinary JSONL file — one dataset per line,
-distributions and publisher already nested — in the usual cache directory.
-To write one somewhere of your own:
+The file is ordinary JSONL — one record per line, distributions, publisher and
+creators already nested — kept in the usual cache directory. Put it where you
+like, and say when it may be rewritten:
 
 ```python
-from dataportalen import download_catalog
-
-download_catalog("catalog.jsonl")
-# 23,580 datasets · 35,151 distributions · 58 MiB · ~6 minutes
+Catalog("catalog.jsonl", refresh="if_stale")   # or "if_missing", "always", "never"
 ```
 
-```python
-from dataportalen import LocalCatalog
-
-catalog = LocalCatalog("catalog.jsonl", download=False)   # search a file directly
-catalog.datasets(theme="transport", format="csv")
-```
+Nothing is ever downloaded behind a call that looked like a search.
 
 ## Documentation
 
 - **[docs/guide.md](docs/guide.md)** — how to use it: searching, what comes
-  back, the catalogue download, settings, async.
+  back, the file, settings.
 - **[docs/internals.md](docs/internals.md)** — how it is built: where the short
-  values come from, module layout, development, releasing.
+  values come from, what the registry can and cannot do, development.
 
 ## Licence
 

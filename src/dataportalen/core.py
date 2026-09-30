@@ -7,20 +7,18 @@ the HTTP transport.
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 import sys
 import time
 import urllib.parse
-import zlib
 from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 
 # ==========================================================================
 # version: The package version, in one place.
 # ==========================================================================
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 
 # ==========================================================================
@@ -321,25 +319,6 @@ class BaseTransport:
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
-
-
-def _decompress(data: bytes, encoding: str) -> bytes:
-    encoding = (encoding or "").lower()
-    if encoding == "gzip":
-        try:
-            return gzip.decompress(data)
-        except OSError:
-            return data
-    if encoding == "deflate":
-        try:
-            return zlib.decompress(data)
-        except zlib.error:
-            try:
-                return zlib.decompress(data, -zlib.MAX_WBITS)
-            except zlib.error:
-                return data
-    return data
-
 
 class RequestsTransport(BaseTransport):
     """Transport backed by :mod:`requests` (connection pooling, keep-alive)."""

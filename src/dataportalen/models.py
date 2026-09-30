@@ -63,6 +63,7 @@ __all__ = [
     "Breakdown",
     "ValueList",
     "BREAKDOWN_FILTERS",
+    "text",
     "DATASET_FILTERS",
     "DATA_SERVICE_FILTERS",
     "Results",
@@ -118,6 +119,37 @@ def _langmap(values: Dict[Optional[str], Any]) -> Dict[str, Any]:
                 if item not in out[key]:
                     out[key].append(item)
     return out
+
+
+def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
+    """One string out of a language map: the best there is.
+
+        >>> text({"sv": "Vägtrafiknät", "en": "Road traffic network"})
+        'Vägtrafiknät'
+        >>> text({"en": "Road traffic network"})
+        'Road traffic network'
+        >>> text({}) is None
+        True
+
+    Every piece of publisher-written text in a record is a map, because 36% of
+    datasets carry both languages and throwing one away would be a choice made
+    for you. But 10% of them have no Swedish at all, so ``record["title"]["sv"]``
+    is not safe to write -- this is.
+
+    ``prefer="en"`` flips the order. Passing a plain string returns it
+    unchanged, so it is safe on a field whose shape you are unsure of.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, dict):
+        return value
+    other = ENGLISH if prefer == SWEDISH else SWEDISH
+    found = value.get(prefer) or value.get(other)
+    if found is None:
+        found = next((v for v in value.values() if v), None)
+    return found
 
 
 def _iso(value: Any) -> Optional[str]:
@@ -275,16 +307,6 @@ class Entry:
         return subject if subject and not subject.startswith("_:") else None
 
     @property
-    def metadata_uri(self) -> Optional[str]:
-        info = self.entry_info
-        return info.uri_of(ES.metadata) if info else None
-
-    @property
-    def relations_uri(self) -> Optional[str]:
-        info = self.entry_info
-        return info.uri_of(ES.relation) if info else None
-
-    @property
     def created(self) -> Optional[Union[_dt.date, _dt.datetime]]:
         """When the registry first harvested this entry."""
         info = self.entry_info
@@ -300,11 +322,6 @@ class Entry:
     def creator(self) -> Optional[str]:
         info = self.entry_info
         return info.uri_of(DCTERMS.creator) if info else None
-
-    @property
-    def contributors(self) -> List[str]:
-        info = self.entry_info
-        return info.uris(DCTERMS.contributor) if info else []
 
     @property
     def entry_type(self) -> Optional[str]:
@@ -583,11 +600,6 @@ class PeriodOfTime(_Wrapped):
         values = self.resource.values(DCAT.startDate) or self.resource.values(SCHEMA.startDate)
         return values[0] if values else None
 
-    @property
-    def end_value(self) -> Optional[str]:
-        values = self.resource.values(DCAT.endDate) or self.resource.values(SCHEMA.endDate)
-        return values[0] if values else None
-
     def to_dict(self):
         """``{"start": ..., "end": ...}`` as ISO strings where parseable."""
         return {"start": _iso(self.start), "end": _iso(self.end)}
@@ -646,25 +658,8 @@ class ContactPoint(Entry):
         return out
 
     @property
-    def telephone(self) -> Optional[str]:
-        for uri in self.resource.uris(VCARD.hasTelephone):
-            return uri[len("tel:"):] if uri.lower().startswith("tel:") else uri
-        for ref in self.resource.refs(VCARD.hasTelephone):
-            value = ref.value(VCARD.value) or ref.uri_of(VCARD.value)
-            if value:
-                return value[len("tel:"):] if value.lower().startswith("tel:") else value
-        values = self.resource.values(VCARD.hasTelephone)
-        return values[0] if values else None
-
-    @property
     def url(self) -> Optional[str]:
         return self.resource.uri_of(VCARD.hasURL)
-
-    @property
-    def address(self) -> Optional[str]:
-        return self.resource.value(VCARD.hasAddress) or self.resource.value(
-            VCARD["street-address"]
-        )
 
     @property
     def title(self) -> Optional[str]:  # type: ignore[override]
@@ -710,10 +705,6 @@ class Agent(Entry):
         return self.resource.uri_of(FOAF.homepage) or self.resource.uri_of(FOAF.page)
 
     @property
-    def page_uris(self) -> List[str]:
-        return self.resource.uris(FOAF.page)
-
-    @property
     def mbox(self) -> Optional[str]:
         uri = self.resource.uri_of(FOAF.mbox)
         if uri and uri.lower().startswith("mailto:"):
@@ -735,10 +726,6 @@ class Agent(Entry):
             if value:
                 out.append(value)
         return out
-
-    @property
-    def same_as(self) -> List[str]:
-        return self.resource.uris(OWL.sameAs)
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
@@ -794,15 +781,6 @@ class Distribution(Entry):
         return self.resource.uri_of(DCTERMS.license)
 
     @property
-    def rights_statements(self) -> List[str]:
-        """``dcterms:rights`` -- rights statements about the distribution.
-
-        Not to be confused with :attr:`Entry.rights`, which lists the caller's
-        EntryStore access rights on the entry.
-        """
-        return self.resource.uris(DCTERMS.rights) + self.resource.values(DCTERMS.rights)
-
-    @property
     def access_service_uris(self) -> List[str]:
         """``dcat:accessService`` -- data services serving this distribution."""
         return self.resource.uris(DCAT.accessService)
@@ -836,17 +814,6 @@ class Distribution(Entry):
     def availability(self) -> Optional[str]:
         """``dcatap:availability`` -- how long the distribution is guaranteed."""
         return self.resource.uri_of(DCATAP.availability)
-
-    @property
-    def page_uris(self) -> List[str]:
-        return self.resource.uris(FOAF.page)
-
-    def access_services(self) -> List["DataService"]:
-        """Fetch the data services referenced by ``dcat:accessService``."""
-        uris = self.access_service_uris
-        if not uris:
-            return []
-        return [e.as_(DataService) for e in self.fetch_many(uris)]
 
     def to_dict(self):
         return dict(self._envelope_dict(), **{
@@ -951,12 +918,6 @@ class DataService(Entry):
             return None
         found = self.fetch(uri)
         return found.as_(Agent) if found else None
-
-    def serves_datasets(self) -> List["Dataset"]:
-        uris = self.serves_dataset_uris
-        if not uris:
-            return []
-        return [e.as_(Dataset) for e in self.fetch_many(uris)]
 
     def to_dict(self):
         """This data service as a plain dict, shaped like a dataset record.
@@ -1073,10 +1034,6 @@ class Dataset(Entry):
         return self.resource.uris(DCTERMS.conformsTo)
 
     @property
-    def documentation_uris(self) -> List[str]:
-        return self.resource.uris(FOAF.page)
-
-    @property
     def source_uris(self) -> List[str]:
         return self.resource.uris(DCTERMS.source)
 
@@ -1150,11 +1107,6 @@ class Dataset(Entry):
         fetch the dataset with ``recursive=True``) to resolve those.
         """
         return _contact_points(self)
-
-    @property
-    def contact_point(self) -> Optional[ContactPoint]:
-        points = self.contact_points
-        return points[0] if points else None
 
     def fetch_contact_points(self) -> List[ContactPoint]:
         """Contact points, resolving any that are referenced by URI only."""

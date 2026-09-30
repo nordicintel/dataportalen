@@ -485,12 +485,6 @@ class Graph:
         raw = self._data.get(subject, {}).get(expand(predicate), [])
         return [node_from_json(o) for o in raw]
 
-    def triples(self) -> Iterator[Tuple[str, str, Node]]:
-        for subject, predicates in self._data.items():
-            for predicate, objects in predicates.items():
-                for obj in objects:
-                    yield subject, predicate, node_from_json(obj)
-
     def subjects_of_type(self, rdf_type: str) -> List[str]:
         """Subjects carrying the given ``rdf:type``."""
         wanted = expand(rdf_type)
@@ -502,10 +496,6 @@ class Graph:
 
     def resource(self, subject: str) -> "Resource":
         return Resource(self, subject)
-
-    def resources(self) -> Iterator["Resource"]:
-        for subject in self._data:
-            yield Resource(self, subject)
 
     def __contains__(self, subject: object) -> bool:
         return subject in self._data
@@ -625,9 +615,6 @@ class Resource:
         """The first literal converted via its ``xsd`` datatype."""
         literals = self.literals(predicate)
         return literals[0].to_python() if literals else None
-
-    def pythons(self, predicate: str) -> List[Any]:
-        return [lit.to_python() for lit in self.literals(predicate)]
 
     def date(self, predicate: str) -> Optional[Union[_dt.date, _dt.datetime]]:
         """The first literal parsed as a date or datetime, when possible.

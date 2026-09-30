@@ -70,7 +70,7 @@ from .models import (
     ValueCount,
     wrap_entry,
 )
-from .query import SORT_MODIFIED_DESC, Q, predicate_field
+from .query import SORT_MODIFIED_DESC, Q
 from .rdf import (
     DCAT,
     FOAF,
@@ -344,10 +344,6 @@ class _Registry:
             return response
         raise last_exc or TransportError("request to %s failed" % url)
 
-    def _get_json(self, path: str, params: Optional[Mapping[str, Any]] = None) -> Any:
-        """GET a JSON endpoint and decode it."""
-        return self._request(path, params, accept="application/json").json()
-
     # -- search ------------------------------------------------------------
 
     def _finalize_query(self, query: Union[str, Q, None]) -> str:
@@ -541,34 +537,6 @@ class _Registry:
         out = [found[u] for u in wanted if u in found]
         return [e.as_(model) for e in out] if model else out
 
-
-def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
-    """Resolve one-or-many short names to the union of their URIs."""
-    out: List[str] = []
-    for item in _as_list(value):
-        for uri in (resolver(item, what) if what != "value" else resolver(item)):
-            if uri not in out:
-                out.append(uri)
-    return out
-
-
-def _one(value: Any, resolver: Any, what: str) -> str:
-    found = resolver(value, what)
-    return found[0]
-
-
-def _as_results(page: SearchPage, breakdown: Optional[Breakdown] = None) -> Results:
-    """A page of models as the dicts every caller wanted anyway."""
-    return Results(
-        [entry.to_dict() for entry in page],
-        total=page.total,
-        offset=page.offset,
-        limit=page.limit,
-        facets=page.facets,
-        breakdown=breakdown,
-    )
-
-
 def local_breakdown(
     records: Sequence[Dict[str, Any]],
     limit: Optional[int] = None,
@@ -625,21 +593,6 @@ def _collect_names(record: Dict[str, Any], out: Dict[str, Dict[str, Any]]) -> No
         slug = _org_slug(org)
         if slug and slug not in out and isinstance((org or {}).get("name"), dict):
             out[slug] = org["name"]
-
-
-def _any_uri(predicate: str, uris: List[str], kind: str = "uri") -> Q:
-    """Match a predicate against any of several object URIs.
-
-    ``kind="related.uri"`` looks in the graphs of related entries instead of
-    this one's -- how a dataset is matched on something that lives on its
-    publisher.
-    """
-
-    field = predicate_field(predicate, kind)
-    if len(uris) == 1:
-        return Q.term(field, uris[0])
-    return Q.any_of(field, uris)
-
 
 def _date(value: Any) -> Optional[str]:
     """Accept "2024-01-01", a date or a datetime; emit what Solr needs.
@@ -1244,8 +1197,17 @@ class Catalog:
 
     @property
     def age_days(self) -> Optional[int]:
+        """How many days old the file is, or ``None`` if it is not there.
+
+        Clamped at zero: a file written a moment ago can carry a timestamp a
+        fraction of a second ahead of the clock, and a negative timedelta
+        floors to -1 day -- so a fresh download would report being written
+        tomorrow.
+        """
         when = self.downloaded
-        return None if when is None else (_dt.datetime.now() - when).days
+        if when is None:
+            return None
+        return max(0, (_dt.datetime.now() - when).days)
 
     @property
     def stale(self) -> bool:
@@ -1273,10 +1235,14 @@ class Catalog:
             "bytes": size,
             "datasets": len(self._records),
             "data_services": len(self._services),
+            # Counted as filter values, so this is the same number
+            # filters()["publisher"] has rows. Eight organisations mint two
+            # URIs each for one name (Folkhälsomyndigheten, SLU, Malmö
+            # Museer...), and counting URIs would claim 365 next to a list of
+            # 356.
             "publishers": len({
-                (r.get("publisher") or {}).get("uri")
-                for r in self._records + self._services
-                if (r.get("publisher") or {}).get("uri")
+                slug for r in self._records + self._services
+                if (slug := _org_slug(r.get("publisher")))
             }),
         }
 
@@ -1537,13 +1503,25 @@ def _iso_stamp(value: Any) -> str:
 def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     """The short names a filter value stands for, in a local catalogue.
 
-    A vocabulary term resolves as usual. A value that is not in the table but
-    *is* in the file resolves to itself: the breakdown reports whatever the
-    data contains -- ``parquet``, a bare GeoNames id -- and everything it
+    **Exact first.** A record stores a slug, not a URI, so if the file contains
+    the value as given then that value is the whole answer. Expanding it
+    through the vocabulary would over-match: ``json`` also resolves to
+    ``application/json+zip``, whose own slug is ``json_in_a_zip``, so
+    ``format="json"`` would quietly return 54 datasets the breakdown counts
+    under a different name -- and the breakdown's counts would stop agreeing
+    with the searches its values produce.
+
+    Failing that, the vocabulary resolves synonyms and extension aliases, so
+    ``xlsx`` still finds what is stored as ``microsoft_excel_xml_xlsx``. And a
+    value the table has never heard of but the file does contain -- ``parquet``,
+    a bare GeoNames id -- resolves to itself, because everything a breakdown
     reports has to be usable as a filter. Only a value that is neither known
     nor present is an error, and then the suggestions come from the file.
     """
-    slugs = {slugify(value)}
+    slug = slugify(value)
+    if observed is not None and slug in observed:
+        return {slug}
+    slugs = {slug}
     try:
         slugs.update(slug_for(uri) for uri in resolve(value, name))
     except QueryError:

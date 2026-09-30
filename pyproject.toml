@@ -30,7 +30,7 @@ dev = ["pytest>=7", "ruff>=0.16"]
 Homepage = "https://github.com/nordicintel/dataportal"
 Documentation = "https://docs.dataportal.se/registry/api/"
 
-# Single source of truth: src/dataportalen/_version.py
+# Single source of truth, read here and by the User-Agent in core.py
 [tool.hatch.version]
 path = "src/dataportalen/core.py"
 

@@ -118,16 +118,6 @@ _GRAPH_TYPES = ("None", "Context", "List", "PipelineResult", "Pipeline",
 _RESOURCE_TYPES = ("InformationResource", "NamedResource", "ResolvableInformationResource",
                    "Unknown")
 
-
-def _envelope_value(value: str, known: Sequence[str]) -> str:
-    """The index's own spelling of an envelope value, whatever case is given."""
-    text = str(value).strip()
-    for candidate in known:
-        if candidate.lower() == text.lower():
-            return candidate
-    return text
-
-
 class Q:
     """An immutable Solr query fragment.
 

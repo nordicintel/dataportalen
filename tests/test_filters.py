@@ -158,3 +158,49 @@ def test_creator_filters_and_breaks_down(tmp_path, transport):
 def test_an_unknown_creator_is_rejected_with_a_hint(catalog):
     with pytest.raises(QueryError):
         catalog.datasets(creator="trafikvrket")
+
+
+# -- a breakdown value must filter to exactly its own count ------------------
+
+
+def test_a_value_filters_to_exactly_the_count_it_claims(tmp_path, transport):
+    """`json` also resolves to application/json+zip, whose slug is different.
+
+    Expanding a local value through the vocabulary made `format="json"` match
+    datasets the breakdown counted under `json_in_a_zip` -- 54 of them in the
+    real corpus -- so the counts and the searches disagreed.
+    """
+    plain = dict(CATALOG_RECORDS[0], uri="https://example.org/a",
+                 distributions=[{"format": "json"}])
+    zipped = dict(CATALOG_RECORDS[1], uri="https://example.org/b",
+                  distributions=[{"format": "json_in_a_zip"}])
+    catalog = Catalog(write_catalog(tmp_path, [plain, zipped]), refresh="never",
+                      transport=transport, progress=None)
+
+    counts = dict((value, count) for value, count in catalog.filters()["format"])
+    assert counts == {"json": 1, "json_in_a_zip": 1}
+    for value, count in counts.items():
+        assert catalog.datasets(limit=0, format=value).total == count, value
+
+
+def test_an_alias_still_resolves_when_the_file_has_no_such_slug(tmp_path,
+                                                                transport):
+    """`xlsx` has to keep finding what is stored as microsoft_excel_xml.
+
+    That is what the 597 xlsx datasets in the real corpus are filed under, and
+    nobody filtering by format types the long name.
+    """
+    record = dict(CATALOG_RECORDS[0],
+                  distributions=[{"format": "microsoft_excel_xml"}])
+    catalog = Catalog(write_catalog(tmp_path, [record]), refresh="never",
+                      transport=transport, progress=None)
+    assert catalog.datasets(limit=0, format="xlsx").total == 1
+
+
+def test_every_breakdown_value_round_trips(catalog):
+    """The contract the docs state: a value goes straight back in."""
+    options = catalog.filters()
+    for name in options:
+        for value, count in options[name]:
+            assert catalog.datasets(limit=0, **{name: value}).total == count, (
+                "%s=%r claimed %d" % (name, value, count))

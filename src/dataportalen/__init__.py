@@ -38,7 +38,7 @@ from .core import (
     logger,
 )
 from .core import __version__ as _version
-from .models import Breakdown, Results, ValueCount, ValueList
+from .models import Breakdown, Results, ValueCount, ValueList, text
 
 __version__ = _version
 
@@ -46,6 +46,8 @@ __all__ = [
     # the catalogue
     "Catalog",
     "default_catalog_path",
+    # reading a record
+    "text",
     # what a search gives you
     "Results",
     "Breakdown",

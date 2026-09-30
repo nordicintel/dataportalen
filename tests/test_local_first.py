@@ -98,6 +98,13 @@ def test_a_fresh_copy_is_used_under_if_stale(tmp_path, transport):
 # -- what it says about itself ----------------------------------------------
 
 
+def test_a_fresh_file_is_never_negative_days_old(tmp_path, transport):
+    """A just-written file can be stamped a hair ahead of the clock."""
+    cat = Catalog(write_catalog(tmp_path), refresh="never", transport=transport)
+    assert cat.age_days == 0
+    assert cat.stale is False
+
+
 def test_info_reports_the_file_and_its_age(cat):
     info = cat.info()
     assert info["path"].endswith("catalog.jsonl")
