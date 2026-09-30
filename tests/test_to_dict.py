@@ -37,7 +37,7 @@ def search_hit():
 
 def test_dataset_dict_is_json_serializable(dataset):
     encoded = json.dumps(dataset.to_dict(), ensure_ascii=False)
-    assert json.loads(encoded)["title"] == dataset.title
+    assert json.loads(encoded)["title"] == dataset.to_dict()["title"]
 
 
 def test_to_json_returns_a_string(dataset):
@@ -50,7 +50,7 @@ def test_dataset_dict_carries_the_core_fields(dataset):
     assert out["context_id"] == "547"
     assert out["entry_id"] == "28672"
     assert out["title"]
-    assert isinstance(out["title"], str)
+    assert isinstance(out["title"], dict)
     assert out["description"]
     assert out["keywords"]
     assert out["landing_page"]
@@ -175,7 +175,8 @@ def test_entry_base_dict_works_for_untyped_entries():
     }}})
     out = entry.to_dict()
     json.dumps(out)
-    assert out["title"] == "T"
+    # An untagged literal folds into Swedish -- see models._fold.
+    assert out["title"] == {"sv": "T"}
     assert out["uri"] == "http://x/1"
 
 
@@ -185,12 +186,12 @@ def test_one_key_per_concept(dataset):
     for gone in ("titles", "descriptions", "keywords_by_language",
                  "distribution_uris"):
         assert gone not in out, gone
-    assert isinstance(out["title"], str)
-    assert isinstance(out["keywords"], list)
+    assert isinstance(out["title"], dict)
+    assert isinstance(out["keywords"], dict)
     for dist in out["distributions"]:
         for gone in ("titles", "access_urls", "download_urls"):
             assert gone not in dist, gone
-    assert isinstance(out["publisher"]["name"], str)
+    assert isinstance(out["publisher"]["name"], dict)
     assert "names" not in out["publisher"]
 
 
@@ -214,39 +215,54 @@ def test_the_dropped_fields_are_still_on_the_model(dataset):
     assert isinstance(dataset.distribution_uris, list)
 
 
-def test_short_names_ignore_the_language(dataset):
-    """Controlled values are one fixed name whatever language is asked for."""
-    for language in ("sv", "en", "all"):
-        out = dataset.with_language(language).to_dict()
-        assert out["access_rights"] == "public"
-        assert out["accrual_periodicity"] == "annual"
-
-
-def test_text_is_one_language_by_default(dataset):
-    """A caller asking for Swedish gets a string, not a map to unpack."""
+def test_short_names_are_never_translated(dataset):
+    """Controlled values are one fixed English short name, whatever the prose."""
     out = dataset.to_dict()
-    assert out["title"] == dataset.titles["sv"]
-    assert isinstance(out["description"], str)
-    assert all(isinstance(k, str) for k in out["keywords"])
-    assert isinstance(out["publisher"]["name"], str)
+    assert out["access_rights"] == "public"
+    assert out["accrual_periodicity"] == "annual"
 
 
-def test_language_all_keeps_every_language(dataset):
-    """The map is still there for anyone who wants it -- on request."""
-    out = dataset.with_language("all").to_dict()
+def test_every_localized_field_is_a_two_language_map(dataset):
+    """There is no language setting: a record carries what the publisher wrote."""
+    out = dataset.to_dict()
     assert out["title"] == {"sv": dataset.titles["sv"]}
+    assert isinstance(out["description"], dict)
     assert isinstance(out["keywords"], dict)
     assert isinstance(out["publisher"]["name"], dict)
 
 
-def test_a_missing_language_falls_back_rather_than_vanishing(dataset):
-    """A Swedish-only title beats None for someone who asked for English."""
-    out = dataset.with_language("en").to_dict()
-    assert out["title"] == dataset.titles["sv"]
+def test_only_sv_and_en_are_ever_keys(dataset):
+    out = dataset.to_dict()
+    for field in ("title", "description", "keywords"):
+        assert set(out[field]) <= {"sv", "en"}, field
 
 
-def test_an_unusable_language_is_rejected(dataset):
-    from dataportalen import QueryError
+def test_an_untranslated_field_has_no_en_key(dataset):
+    """Absence says "not translated"; None would say "translated to nothing"."""
+    out = dataset.to_dict()
+    assert "sv" in out["title"]
+    assert "en" not in out["title"]
 
-    with pytest.raises(QueryError):
-        dataset.with_language("swedish")
+
+def test_a_foreign_tag_folds_into_swedish():
+    entry = wrap_entry({"metadata": {"http://x/1": {
+        "http://purl.org/dc/terms/title": [
+            {"type": "literal", "lang": "no", "value": "Norsk"},
+        ],
+        "http://purl.org/dc/terms/description": [
+            {"type": "literal", "lang": "und", "value": "Otaggad"},
+            {"type": "literal", "lang": "en", "value": "English"},
+        ],
+    }}})
+    out = entry.to_dict()
+    assert out["title"] == {"sv": "Norsk"}
+    assert out["description"] == {"sv": "Otaggad", "en": "English"}
+
+
+def test_a_regional_tag_folds_to_its_base_language():
+    entry = wrap_entry({"metadata": {"http://x/1": {
+        "http://purl.org/dc/terms/title": [
+            {"type": "literal", "lang": "en-GB", "value": "Colour"},
+        ],
+    }}})
+    assert entry.to_dict()["title"] == {"en": "Colour"}

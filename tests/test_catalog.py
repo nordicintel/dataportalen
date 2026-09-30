@@ -131,7 +131,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
-    assert record["distributions"][0]["title"] == "CSV"
+    assert record["distributions"][0]["title"] == {"sv": "CSV"}
     assert record["distributions"][0]["download_url"] == ["http://example.org/f.csv"]
 
 

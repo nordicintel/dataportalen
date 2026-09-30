@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import json as _json
-import re as _re
 from collections import namedtuple as _namedtuple
 from collections.abc import Mapping as _Mapping
 from collections.abc import Sequence as _ABCSequence
@@ -25,7 +24,6 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Tuple,
     Type,
     TypeVar,
     Union,
@@ -37,7 +35,6 @@ from .rdf import (
     DCAT,
     DCATAP,
     DCTERMS,
-    DEFAULT_LANGUAGES,
     ES,
     ESCAPE,
     FOAF,
@@ -85,69 +82,49 @@ E = TypeVar("E", bound="Entry")
 _MISSING = object()
 
 
-#: BCP-47 for "undetermined". Literals with no language tag would otherwise
-#: key a JSON object under `null`, which json.dumps renders as the string
-#: "null" -- a value indistinguishable from a real language code.
-UNDETERMINED = "und"
+#: The two languages a record is ever keyed by. The registry is Swedish and
+#: publishes a partial English translation: over the whole corpus 53% of
+#: datasets are Swedish only, 36% carry both, 10% are English only.
+SWEDISH = "sv"
+ENGLISH = "en"
 
 
-#: The language a client reads in unless told otherwise.
-DEFAULT_LANGUAGE = "sv"
+def _fold(lang: Optional[str]) -> str:
+    """Which of the two keys a literal's language tag belongs under.
 
-_LANGUAGE_CODE = _re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$")
-
-
-def language_preference(language: str) -> Tuple[str, ...]:
-    """The internal preference tuple behind the public ``language`` argument.
-
-    ``"sv"`` reads Swedish and falls back to whatever exists; ``"all"`` keeps
-    every language the publisher supplied, as a map per field.
+    Publishers tag a fair amount of text ``und`` (undetermined) and the odd
+    literal in a third language -- there is one Norwegian organisation name.
+    Untagged or foreign-tagged text in a Swedish registry is Swedish, so
+    everything that is not English folds into ``"sv"``. That keeps every
+    localized field to exactly the two keys a reader can rely on.
     """
-    if not isinstance(language, str) or not language.strip():
-        raise QueryError("language must be a string like \"sv\", got %r" % (language,))
-    code = language.strip().lower()
-    if code == "all":
-        return (ALL_LANGUAGES,) + DEFAULT_LANGUAGES
-    if not _LANGUAGE_CODE.match(code):
-        raise QueryError(
-            "language must be a code like \"sv\" or \"en\", or \"all\" for every "
-            "language; got %r" % (language,)
-        )
-    return (code,)
-
-
-#: Marker at the head of a language preference meaning "keep every language".
-#: It travels with the preference tuple, so every model built from a client --
-#: nested publishers and distributions included -- shapes its output the same
-#: way without threading a second argument through every constructor.
-ALL_LANGUAGES = "*"
+    if not lang:
+        return SWEDISH
+    return ENGLISH if lang.split("-")[0].lower() == ENGLISH else SWEDISH
 
 
 def _langmap(values: Dict[Optional[str], Any]) -> Dict[str, Any]:
-    """A localized map with JSON-safe keys."""
-    return {(lang or UNDETERMINED): value for lang, value in values.items()}
+    """Localized values as ``{"sv": ..., "en": ...}``, folded and deduplicated.
 
-
-def _multilingual(languages: Sequence[str]) -> bool:
-    return bool(languages) and languages[0] == ALL_LANGUAGES
-
-
-def _one_language(values: Dict[Optional[str], Any], languages: Sequence[str]) -> Any:
-    """The value in the preferred language, or the nearest thing available.
-
-    Falls back rather than returning nothing: a Swedish-only title is more
-    useful to a caller who asked for English than ``None`` is.
+    A key is present only when that language has something in it, so a
+    Swedish-only title is ``{"sv": ...}`` rather than ``{"sv": ..., "en": None}``
+    -- absence says "not translated" where ``None`` would say "translated to
+    nothing".
     """
-    for lang in languages:
-        if lang in values:
-            return values[lang]
-    for lang in languages:                      # "sv" also answers "sv-SE"
-        for present in values:
-            if present and present.split("-")[0] == lang.split("-")[0]:
-                return values[present]
-    for key in sorted(values, key=lambda k: (k is None, k or "")):
-        return values[key]
-    return None
+    out: Dict[str, Any] = {}
+    for lang, value in values.items():
+        if value is None or value == [] or value == "":
+            continue
+        key = _fold(lang)
+        if key not in out:
+            # Copied, so merging a second tag below cannot mutate the caller's.
+            out[key] = list(value) if isinstance(value, list) else value
+        elif isinstance(out[key], list) and isinstance(value, list):
+            # Two tags folded together: merge rather than let one win.
+            for item in value:
+                if item not in out[key]:
+                    out[key].append(item)
+    return out
 
 
 def _iso(value: Any) -> Optional[str]:
@@ -200,7 +177,6 @@ class Entry:
         "rights",
         "context_id",
         "entry_id",
-        "languages",
         "_client",
         "_raw",
         "_resource",
@@ -214,7 +190,6 @@ class Entry:
         rights: Sequence[str] = (),
         context_id: Optional[str] = None,
         entry_id: Optional[str] = None,
-        languages: Sequence[str] = DEFAULT_LANGUAGES,
         client: Any = None,
         raw: Optional[Mapping[str, Any]] = None,
     ) -> None:
@@ -224,7 +199,6 @@ class Entry:
         self.rights: List[str] = list(rights)
         self.context_id = context_id
         self.entry_id = entry_id
-        self.languages = tuple(languages)
         self._client = client
         self._raw = dict(raw) if raw is not None else None
         self._resource: Any = _MISSING
@@ -237,7 +211,6 @@ class Entry:
         data: Mapping[str, Any],
         *,
         client: Any = None,
-        languages: Sequence[str] = DEFAULT_LANGUAGES,
     ) -> E:
         """Build an entry from one ``resource.children[i]`` search hit."""
         return cls(
@@ -247,7 +220,6 @@ class Entry:
             rights=data.get("rights") or (),
             context_id=data.get("contextId"),
             entry_id=data.get("entryId"),
-            languages=languages,
             client=client,
             raw=data,
         )
@@ -261,33 +233,9 @@ class Entry:
             rights=self.rights,
             context_id=self.context_id,
             entry_id=self.entry_id,
-            languages=self.languages,
             client=self._client,
             raw=self._raw,
         )
-
-    def with_language(self: E, language: str) -> E:
-        """A copy that reads in another language, or in all of them.
-
-        >>> dataset.with_language("all").to_dict()["title"]   # doctest: +SKIP
-        {'sv': 'Vägtrafiknät', 'en': 'Road traffic network'}
-        """
-        return self.with_languages(language_preference(language))
-
-    def with_languages(self: E, languages: Sequence[str]) -> E:
-        """A copy that prefers a different language order (internal)."""
-        clone = type(self)(
-            metadata=self.metadata,
-            info=self.info,
-            relations=self.relations,
-            rights=self.rights,
-            context_id=self.context_id,
-            entry_id=self.entry_id,
-            languages=languages,
-            client=self._client,
-            raw=self._raw,
-        )
-        return clone
 
     @classmethod
     def from_resource(
@@ -305,7 +253,6 @@ class Entry:
         """
         entry = cls(
             metadata=resource.graph,
-            languages=resource.languages,
             client=client,
             context_id=context_id,
             entry_id=entry_id,
@@ -324,7 +271,7 @@ class Entry:
     @property
     def entry_info(self) -> Optional[Resource]:
         uri = self.entry_uri
-        return Resource(self.info, uri, self.languages) if uri else None
+        return Resource(self.info, uri) if uri else None
 
     @property
     def resource_uri(self) -> Optional[str]:
@@ -405,20 +352,20 @@ class Entry:
         if info is not None:
             uri = info.uri_of(ES.resource)
         if uri and uri in self.metadata:
-            return Resource(self.metadata, uri, self.languages)
+            return Resource(self.metadata, uri)
         for rdf_type in self.rdf_types:
             subjects = self.metadata.subjects_of_type(rdf_type)
             named = [s for s in subjects if not s.startswith("_:")]
             if named or subjects:
-                return Resource(self.metadata, (named or subjects)[0], self.languages)
+                return Resource(self.metadata, (named or subjects)[0])
         primary = _primary_subject(self.metadata)
         if primary is not None:
-            return Resource(self.metadata, primary, self.languages)
+            return Resource(self.metadata, primary)
         named = self.metadata.named_subjects()
         if named:
-            return Resource(self.metadata, named[0], self.languages)
+            return Resource(self.metadata, named[0])
         subjects = self.metadata.subjects()
-        return Resource(self.metadata, subjects[0] if subjects else uri or "", self.languages)
+        return Resource(self.metadata, subjects[0] if subjects else uri or "")
 
     @property
     def uri(self) -> Optional[str]:
@@ -517,17 +464,15 @@ class Entry:
         }
 
     def _text(self, values: Dict[Optional[str], Any], empty: Any = None) -> Any:
-        """Localized values shaped by the client's ``language``.
+        """Localized values as ``{"sv": ..., "en": ...}``.
 
-        One language (the default) gives the value itself;
-        ``language="all"`` gives every language the publisher supplied.
+        There is no language setting: the record carries what the publisher
+        wrote, in both languages when both exist. ``empty`` is kept for the
+        few callers that want ``None`` over ``{}`` for a field with nothing
+        in it at all.
         """
-        if _multilingual(self.languages):
-            return _langmap(values)
-        if not values:
-            return empty
-        chosen = _one_language(values, self.languages)
-        return chosen if chosen is not None else empty
+        mapped = _langmap(values)
+        return mapped if mapped else ({} if empty is None else empty)
 
     def _term(self, uri: Optional[str]) -> Optional[str]:
         """One controlled value as a short name: ``"local_authority"``.
@@ -556,7 +501,7 @@ class Entry:
             return None
         for ref in self.resource.refs(DCTERMS.publisher):
             return Agent.from_resource(ref, client=self._client).to_dict()
-        return {"uri": uri, "name": {} if _multilingual(self.languages) else None}
+        return {"uri": uri, "name": {}}
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """:meth:`to_dict` rendered as a JSON string."""
@@ -1039,14 +984,14 @@ class Dataset(Entry):
     # -- descriptive -------------------------------------------------------
 
     @property
-    def keywords(self) -> List[str]:
-        """``dcat:keyword`` values in the preferred language, with fallback."""
-        preferred: List[str] = []
-        for lang in self.languages:
-            preferred = self.resource.values(DCAT.keyword, lang)
-            if preferred:
-                return preferred
-        return self.resource.values(DCAT.keyword)
+    def keywords(self) -> Dict[str, List[str]]:
+        """``dcat:keyword`` values as ``{"sv": [...], "en": [...]}``.
+
+        Keywords are the field publishers tag most erratically -- a quarter of
+        them arrive ``und`` -- so the fold in :func:`_langmap` does real work
+        here.
+        """
+        return _langmap(self.keywords_by_language)
 
     @property
     def keywords_by_language(self) -> Dict[Optional[str], List[str]]:
@@ -1889,11 +1834,10 @@ def wrap_entry(
     data: Mapping[str, Any],
     *,
     client: Any = None,
-    languages: Sequence[str] = DEFAULT_LANGUAGES,
     default: Optional[Type[Entry]] = None,
 ) -> Entry:
     """Build the most specific :class:`Entry` subclass for a search hit."""
-    base = Entry.from_json(data, client=client, languages=languages)
+    base = Entry.from_json(data, client=client)
     if default is not None:
         return base.as_(default)
     types = set(base.resource.types)

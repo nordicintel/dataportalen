@@ -90,7 +90,7 @@ def test_fetch_contact_points_does_not_duplicate_inline_ones(recursive_dataset):
     )
 
 
-def test_keywords_prefer_the_configured_language():
+def test_keywords_are_keyed_by_language():
     entry = wrap_entry(
         {
             "metadata": {
@@ -106,9 +106,8 @@ def test_keywords_prefer_the_configured_language():
             }
         },
         default=Dataset,
-        languages=("en", "sv"),
     )
-    assert entry.keywords == ["bike"]
+    assert entry.keywords == {"sv": ["cykel"], "en": ["bike"]}
     assert entry.keywords_by_language == {"sv": ["cykel"], "en": ["bike"]}
 
 
@@ -162,14 +161,12 @@ def test_catalog_statistics_maps_contexts_to_counts():
     assert all(isinstance(v, int) for v in per_context.values())
 
 
-def test_as_and_with_languages_preserve_the_envelope(dataset_hit):
+def test_as_preserves_the_envelope(dataset_hit):
     entry = wrap_entry(dataset_hit)
     plain = entry.as_(Entry)
     assert plain.context_id == entry.context_id
     assert plain.entry_id == entry.entry_id
-    english = entry.with_languages(["en", "sv"])
-    assert english.languages == ("en", "sv")
-    assert english.context_id == entry.context_id
+    assert plain.rights == entry.rights
 
 
 def test_following_references_without_a_client_is_a_clear_error(dataset_hit):

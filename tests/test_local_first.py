@@ -103,9 +103,8 @@ def test_a_stale_copy_warns_and_is_not_refreshed(tmp_path, transport, caplog,
 
 def test_the_default_path_is_a_cache_directory():
     path = default_catalog_path()
-    assert path.endswith(os.path.join("dataportalen", "catalog-sv.jsonl"))
-    # The language is in the name: it is baked into the file's contents.
-    assert default_catalog_path("all").endswith("catalog-all.jsonl")
+    # One file, not one per language: a record carries both languages.
+    assert path.endswith(os.path.join("dataportalen", "catalog.jsonl"))
     assert os.path.isabs(path)
     # Never the working directory: it must not land in someone's repository.
     assert os.path.dirname(path) != os.getcwd()

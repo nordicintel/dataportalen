@@ -53,7 +53,6 @@ from .core import (
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
     BREAKDOWN_FILTERS,
-    DEFAULT_LANGUAGE,
     Agent,
     Breakdown,
     Catalog,
@@ -69,7 +68,6 @@ from .models import (
     Results,
     SearchPage,
     ValueCount,
-    language_preference,
     wrap_entry,
 )
 from .query import SORT_MODIFIED_DESC, Q, predicate_field
@@ -144,24 +142,22 @@ class _LRU:
         return len(self._data)
 
 
-def default_catalog_path(language: str = DEFAULT_LANGUAGE) -> str:
+def default_catalog_path() -> str:
     """Where the catalogue is kept when no path is given.
 
     One copy per machine rather than per project, out of the way of any
     repository: ``%LOCALAPPDATA%\\dataportalen`` on Windows, ``$XDG_CACHE_HOME``
     or ``~/.cache/dataportalen`` elsewhere.
 
-    The language is part of the name, because it is baked into the file: a
-    catalogue written for ``language="sv"`` holds Swedish strings, and a
-    client reading in English, or in ``all``, needs its own copy rather than
-    silently getting someone else's.
+    One file, not one per language: every record carries both languages the
+    publisher supplied, so there is nothing for a second copy to differ in.
     """
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     else:
         base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache")
-    return os.path.join(base, "dataportalen", "catalog-%s.jsonl" % language)
+    return os.path.join(base, "dataportalen", "catalog.jsonl")
 
 
 #: A copy older than this is reported as stale. Nothing is re-downloaded on
@@ -175,13 +171,10 @@ class Dataportal:
     The registry is read-only and unauthenticated: everything here is a GET.
 
     :param base_url: registry root; override to point at another EntryStore.
-    :param language: which language to read text in -- ``"sv"`` by default,
-        any code such as ``"en"``, or ``"all"`` to get every language the
-        publisher supplied as a map per field.
     :param public_only: add ``public:true`` to every search (the default, and
         what the public API effectively serves).
     :param transport: an explicit :class:`~dataportalen.core.BaseTransport`;
-        ``requests`` by default. Pass ``HttpxTransport()`` for HTTP/2.
+        ``requests`` by default.
     :param log_level: convenience -- ``"INFO"`` or ``"DEBUG"`` starts printing
         this package's log records to stderr. Leave it ``None`` and configure
         the ``dataportalen`` logger yourself if your application already has
@@ -199,7 +192,6 @@ class Dataportal:
         *,
         transport: Optional[BaseTransport] = None,
         timeout: float = 30.0,
-        language: str = DEFAULT_LANGUAGE,
         catalog_path: Optional[str] = None,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
@@ -211,9 +203,7 @@ class Dataportal:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.language = language
-        self.languages = language_preference(language)
-        self.catalog_path = catalog_path or default_catalog_path(language)
+        self.catalog_path = catalog_path or default_catalog_path()
         self._catalog: Optional[LocalCatalog] = None
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
@@ -445,7 +435,7 @@ class Dataportal:
     ) -> SearchPage:
         children = ((data.get("resource") or {}).get("children")) or []
         entries = [
-            wrap_entry(child, client=self, languages=self.languages, default=model)
+            wrap_entry(child, client=self, default=model)
             for child in children
         ]
         return SearchPage(
@@ -598,7 +588,7 @@ class Dataportal:
             payload["info"] = info.to_json()
         if rights:
             payload["rights"] = list(rights)
-        return wrap_entry(payload, client=self, languages=self.languages, default=model)
+        return wrap_entry(payload, client=self, default=model)
 
     def lookup(
         self,
@@ -1329,7 +1319,6 @@ def _targeted_indexes(client, datasets, workers, counter):
 def download_catalog(
     path: str,
     *,
-    language: str = DEFAULT_LANGUAGE,
     workers: int = 8,
     limit: Optional[int] = None,
     progress: Any = "auto",
@@ -1344,7 +1333,6 @@ def download_catalog(
     its own with no further lookups.
 
     :param path: where to write; a ``.gz`` suffix gzips the output.
-    :param language: which language to read text in; see :class:`Dataportal`.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
     :param limit: stop after this many datasets, for smoke tests.
     :param progress: ``"auto"`` (the default) draws a live progress line on
@@ -1356,7 +1344,7 @@ def download_catalog(
     """
     owned = client is None
     if owned:
-        kwargs = {"language": language}
+        kwargs = {}
         if base_url:
             kwargs["base_url"] = base_url
         client = Dataportal(**kwargs)
@@ -1671,7 +1659,7 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
         return list(record.get("spatial") or [])
     if filter == "keyword":
         keywords = record.get("keywords") or []
-        if isinstance(keywords, dict):                      # language="all"
+        if isinstance(keywords, dict):                      # {sv: [...], en: [...]}
             return [k for values in keywords.values() for k in values]
         return list(keywords)
     if filter == "format":
@@ -1740,7 +1728,7 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
             else:
                 parts = [record.get(name)]
             for part in parts:
-                if isinstance(part, dict):                  # language="all"
+                if isinstance(part, dict):                  # a localized field
                     part = " ".join(str(v) for v in part.values())
                 if part and needle in str(part).lower():
                     return True
