@@ -373,3 +373,41 @@ def test_an_unresolvable_creator_is_reported_not_silently_bare(transport, tmp_pa
         download_catalog(str(out), client=_Registry(transport=transport))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert record["creators"] == [{"uri": "http://example.org/a-web-page"}]
+
+
+# -- a partial download must not become the catalogue ------------------------
+
+
+@pytest.mark.parametrize("name", ["partial.jsonl", "partial.jsonl.gz"])
+def test_a_failed_download_leaves_no_file(transport, tmp_path, name):
+    """A drop at minute six of seven must not leave an empty catalogue.
+
+    It used to: the file was opened at the target path, so a failure left a
+    0-byte file that `refresh="if_missing"` then read as a valid catalogue of
+    no datasets -- forever, because a file was there.
+    """
+    from dataportalen import Catalog
+
+    transport.push(_page([], 5))          # count(datasets)
+    for _ in range(3):
+        transport.push(_page([], 0))      # the other three counts
+    transport.push("boom", status=500)    # and then the dataset page dies
+
+    out = tmp_path / name
+    with pytest.raises(Exception):
+        download_catalog(str(out), client=_Registry(transport=transport,
+                                                    max_retries=0))
+    assert not out.exists(), "a failed download must not leave the target"
+    assert not (tmp_path / (name + ".part")).exists(), "nor its scratch file"
+
+    with pytest.raises(FileNotFoundError):
+        Catalog(str(out), refresh="never", transport=transport)
+
+
+def test_a_finished_download_leaves_no_part_file(wired, tmp_path,
+                                                 dataset_children):
+    out = tmp_path / "c.jsonl"
+    download_catalog(str(out), limit=len(dataset_children),
+                     client=_Registry(transport=wired))
+    assert out.exists()
+    assert not (tmp_path / "c.jsonl.part").exists()

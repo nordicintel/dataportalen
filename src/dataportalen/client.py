@@ -14,6 +14,7 @@ raw RDF on request -- nothing else reaches the network.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import datetime as _dt
 import difflib
 import gzip
@@ -711,19 +712,40 @@ class _Counter:
         return self._value
 
 
-def _open_output(path: str):
-    """Open ``path`` for writing text, gzipping when the name says so.
+@contextlib.contextmanager
+def _writing(path: str):
+    """Write ``path`` atomically: a partial download must not become the file.
 
-    Creates the directory if it is missing: the default location is a cache
-    directory that may not exist yet, and six minutes of downloading must not
-    end in a FileNotFoundError.
+    Everything goes to ``<path>.part`` and is renamed only once the last line
+    is written. Without that, a connection dropping at minute six of seven
+    leaves a short -- or empty -- file where the catalogue should be, and the
+    default ``refresh="if_missing"`` then reads it as a perfectly valid
+    catalogue of no datasets, forever, because a file is there. Every search
+    would answer nothing and nothing would ever fetch it again.
+
+    The directory is created if missing, because the default location is a
+    cache directory that may not exist yet and seven minutes of downloading
+    must not end in a FileNotFoundError.
     """
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
+    partial = path + ".part"
     if path.endswith(".gz"):
-        return gzip.open(path, "wt", encoding="utf-8", newline="\n")
-    return io.open(path, "w", encoding="utf-8", newline="\n")
+        handle = gzip.open(partial, "wt", encoding="utf-8", newline="\n")
+    else:
+        handle = io.open(partial, "w", encoding="utf-8", newline="\n")
+    try:
+        with handle:
+            yield handle
+    except BaseException:
+        # Leave nothing behind that could be mistaken for a catalogue.
+        try:
+            os.remove(partial)
+        except OSError:                                   # pragma: no cover
+            pass
+        raise
+    os.replace(partial, path)
 
 
 def _pages(total: int, page_size: int = PAGE_SIZE) -> List[int]:
@@ -925,7 +947,7 @@ def download_catalog(
 
         distributions, agents, contacts = indexes
 
-        with _open_output(path) as handle:
+        with _writing(path) as handle:
             for dataset in datasets:
                 record, used = _assemble(
                     dataset, distributions, agents, contacts, missing

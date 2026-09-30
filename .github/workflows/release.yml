@@ -8,9 +8,10 @@
 #   Release moves from draft to published does this workflow run.
 #
 # HOW TO CUT A RELEASE
-#   1. Bump `version` in pyproject.toml and `__version__` in
-#      src/dataportalen/__init__.py. They must match, and the release tag
-#      must match them too, or the workflow stops before uploading.
+#   1. Bump `__version__` in src/dataportalen/core.py. That is the only
+#      place it lives: pyproject.toml reads it from there, and so does the
+#      User-Agent. The release tag must match it or the workflow stops
+#      before uploading.
 #   2. Merge that to main.
 #   3. GitHub -> Releases -> "Draft a new release".
 #      Tag: v<version>, e.g. v0.2.0 (the leading "v" is expected).
@@ -66,11 +67,9 @@ jobs:
           python -m pip install --upgrade pip build twine
           python -m pip install -e ".[dev]"
 
-      # A mismatched version is the one mistake that cannot be undone once
-      # uploaded, so it is checked before anything is built.
       # A wrong version on PyPI cannot be undone, so the tag is checked
-      # before anything is built. There is only one version to check:
-      # src/dataportalen/_version.py, which pyproject.toml also reads.
+      # before anything is built. There is one version to check:
+      # src/dataportalen/core.py, which pyproject.toml also reads.
       - name: Verify the release tag matches the package version
         run: |
           set -euo pipefail
@@ -80,7 +79,7 @@ jobs:
             TAG="${{ github.event.release.tag_name }}"
             echo "release tag     : $TAG"
             if [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
-              echo "::error::Release tag $TAG does not match version $VERSION (expected v$VERSION). Fix src/dataportalen/_version.py or re-tag."
+              echo "::error::Release tag $TAG does not match version $VERSION (expected v$VERSION). Fix src/dataportalen/core.py or re-tag."
               exit 1
             fi
           fi
