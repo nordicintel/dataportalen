@@ -91,14 +91,17 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
-#: Two datasets, enough to exercise every filter and the breakdown.
+#: Two datasets, enough to exercise every filter and the breakdown. Text is
+#: a language map, as every record written since 0.7.0 is.
 CATALOG_RECORDS = [
     {
         "uri": "https://example.org/roads",
+        "type": "dataset",
         "context_id": "50",
-        "title": "Vägtrafiknät",
-        "description": "Nationellt vägnät med cykelvägar",
-        "keywords": ["vägnät", "Geodata"],
+        "entry_id": "1",
+        "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
+        "description": {"sv": "Nationellt vägnät med cykelvägar"},
+        "keywords": {"sv": ["vägnät", "Geodata"]},
         "themes": ["transport"],
         "license": "cc_by_4_0",
         "access_rights": "public",
@@ -108,15 +111,17 @@ CATALOG_RECORDS = [
         "issued": "2020-03-04",
         "modified": "2024-05-06T09:00:00+02:00",
         "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                      "name": "Trafikverket", "type": "national_authority"},
+                      "name": {"sv": "Trafikverket"}, "type": "national_authority"},
         "distributions": [{"format": "csv"}, {"format": "json"}],
     },
     {
         "uri": "https://example.org/budget",
+        "type": "dataset",
         "context_id": "51",
-        "title": "Kommunalt bidrag",
-        "description": "Utbetalda bidrag per kommun",
-        "keywords": ["ekonomi"],
+        "entry_id": "2",
+        "title": {"sv": "Kommunalt bidrag"},
+        "description": {"sv": "Utbetalda bidrag per kommun"},
+        "keywords": {"sv": ["ekonomi"]},
         "themes": ["economy_and_finance"],
         "license": "cc0_1_0",
         "access_rights": "non_public",
@@ -126,29 +131,40 @@ CATALOG_RECORDS = [
         "issued": "2014-01-01",
         "modified": "2019-01-01",
         "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
-                      "name": "Försäkringskassan", "type": "national_authority"},
+                      "name": {"sv": "Försäkringskassan"},
+                      "type": "national_authority"},
         "distributions": [{"format": "xlsx"}],
     },
 ]
 
 
-@pytest.fixture
-def client(transport: FakeTransport, tmp_path):
-    """A client wired to the fake transport, with a tiny catalogue on disk.
-
-    Dataset search reads that file; everything else goes to the transport.
-    """
-    import json
-
-    from dataportalen import Dataportal
-
-    path = tmp_path / "catalog.jsonl"
+def write_catalog(tmp_path, records=None, name="catalog.jsonl"):
+    """A catalogue file on disk, for a Catalog that must not download."""
+    path = tmp_path / name
     path.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in CATALOG_RECORDS) + "\n",
+        "\n".join(json.dumps(r, ensure_ascii=False)
+                  for r in (CATALOG_RECORDS if records is None else records)) + "\n",
         encoding="utf-8")
-    with Dataportal(transport=transport, max_retries=0,
-                    catalog_path=str(path)) as dp:
-        yield dp
+    return str(path)
+
+
+@pytest.fixture
+def client(transport: FakeTransport):
+    """The registry engine wired to the fake transport -- no file, no network."""
+    from dataportalen.client import _Registry
+
+    with _Registry(transport=transport, max_retries=0) as registry:
+        yield registry
+
+
+@pytest.fixture
+def cat(transport: FakeTransport, tmp_path):
+    """A Catalog over the two canned records; nothing is downloaded."""
+    from dataportalen import Catalog
+
+    with Catalog(write_catalog(tmp_path), refresh="never",
+                 transport=transport, progress=None) as catalog:
+        yield catalog
 
 
 @pytest.fixture

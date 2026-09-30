@@ -6,17 +6,17 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from conftest import FakeTransport, load_fixture
+from conftest import FakeTransport
 from dataportalen import (
-    Dataportal,
-    Dataset,
     HTTPError,
     NotFoundError,
-    Q,
     RateLimitError,
     ServerError,
     TransportError,
 )
+from dataportalen.client import _Registry
+from dataportalen.models import Dataset
+from dataportalen.query import Q
 from dataportalen.rdf import DCAT
 
 
@@ -33,7 +33,7 @@ def params_of(url: str) -> dict:
 
 def test_search_sends_solr_parameters(client, transport, search_response):
     transport.push(search_response)
-    client.search(Q.rdf_type(DCAT.Dataset), limit=10, offset=20)
+    client._search(Q.rdf_type(DCAT.Dataset), limit=10, offset=20)
     params = params_of(transport.requests[-1])
     assert params["type"] == "solr"
     assert params["limit"] == "10"
@@ -44,79 +44,35 @@ def test_search_sends_solr_parameters(client, transport, search_response):
 
 def test_public_filter_is_added_by_default(client, transport, search_response):
     transport.push(search_response)
-    client.search(Q.title("x"))
+    client._search(Q.title("x"))
     assert "public:true" in query_of(transport.requests[-1])
 
 
 def test_public_filter_can_be_turned_off(transport, search_response):
     transport.push(search_response)
-    with Dataportal(transport=transport, public_only=False) as dp:
-        dp.search(Q.title("x"))
+    with _Registry(transport=transport, public_only=False) as dp:
+        dp._search(Q.title("x"))
     assert "public:true" not in query_of(transport.requests[-1])
 
 
 def test_an_empty_query_becomes_match_all(transport, search_response):
     transport.push(search_response)
-    with Dataportal(transport=transport, public_only=False) as dp:
-        dp.search()
+    with _Registry(transport=transport, public_only=False) as dp:
+        dp._search()
     assert query_of(transport.requests[-1]) == "*:*"
 
 
 def test_limit_is_clamped_to_the_solr_maximum(client, transport, search_response):
     transport.push(search_response)
-    client.search(limit=5000)
+    client._search(limit=5000)
     assert params_of(transport.requests[-1])["limit"] == "100"
 
 
 def test_colons_in_uris_are_escaped_in_the_query(client, transport, search_response):
     transport.push(search_response)
-    client.lookup("http://example.org/dataset1")
+    client._lookup_many(["http://example.org/dataset1"])
     assert r"http\:\/\/example.org\/dataset1" in query_of(transport.requests[-1])
 
-
-
-def test_datasets_filters_compose_into_one_query(client, transport, search_response):
-    transport.push(search_response)
-    client.distributions(title="bidrag", keyword="cykel", theme="transport")
-    query = query_of(transport.requests[-1])
-    assert "title:bidrag" in query
-    assert "tag.literal:cykel" in query
-    assert "rdfType" in query
-    # theme="transport" became the EU data-theme URI, not a literal.
-    # ('-' is escaped for Solr, hence data\-theme.)
-    assert r"data\-theme" in query and "TRAN" in query
-
-
-def test_short_values_resolve_to_uris(client, transport, search_response):
-    """A caller never types a URI; the query still contains one."""
-    transport.push(search_response)
-    client.distributions(publisher="trafikverket")
-    assert "SE2021006297" in query_of(transport.requests[-1])
-
-
-def test_an_unknown_short_value_is_rejected_with_suggestions(client):
-    from dataportalen.core import QueryError
-
-    with pytest.raises(QueryError) as info:
-        client.distributions(theme="transprot")
-    message = str(info.value)
-    assert "transprot" in message
-    assert "transport" in message          # the near miss is offered
-
-
-def test_a_uri_is_not_accepted_as_a_value(client):
-    """One spelling per concept: the short name. URIs are not a second form."""
-    from dataportalen.core import QueryError
-
-    with pytest.raises(QueryError):
-        client.distributions(
-            theme="http://publications.europa.eu/resource/authority/data-theme/TRAN")
-
-
-def test_catalog_filter_uses_the_context_resource_uri(client, transport, search_response):
-    transport.push(search_response)
-    client.distributions(catalog=50)
-    assert r"store\/50" in query_of(transport.requests[-1])
 
 
 # -- responses ---------------------------------------------------------------
@@ -124,7 +80,7 @@ def test_catalog_filter_uses_the_context_resource_uri(client, transport, search_
 
 def test_search_page_exposes_totals_and_typed_entries(client, transport, search_response):
     transport.push(search_response)
-    page = client.search()
+    page = client._search()
     assert page.total == search_response["results"]
     assert len(page) == len(search_response["resource"]["children"])
     assert all(isinstance(e, Dataset) for e in page)
@@ -133,14 +89,14 @@ def test_search_page_exposes_totals_and_typed_entries(client, transport, search_
 
 def test_search_page_is_a_sequence(client, transport, search_response):
     transport.push(search_response)
-    page = client.search()
+    page = client._search()
     assert list(page) == page.entries
     assert page[0] is page.entries[0]
 
 
 def test_count_asks_for_a_single_row(client, transport, search_response):
     transport.push(search_response)
-    assert client.count() == search_response["results"]
+    assert client._count() == search_response["results"]
     assert params_of(transport.requests[-1])["limit"] == "1"
 
 
@@ -155,33 +111,10 @@ def _page(children, total, offset, limit):
     }
 
 
-def test_iter_search_walks_pages_until_exhausted(client, transport, search_response):
-    children = search_response["resource"]["children"]
-    transport.push(_page(children, 4, 0, 2))
-    transport.push(_page(children, 4, 2, 2))
-    entries = list(client.iter_search(page_size=2))
-    assert len(entries) == 4
-    assert params_of(transport.requests[0])["offset"] == "0"
-    assert params_of(transport.requests[1])["offset"] == "2"
-
-
-def test_iter_search_honours_an_overall_limit(client, transport, search_response):
-    children = search_response["resource"]["children"]
-    transport.push(_page(children, 100, 0, 2))
-    entries = list(client.iter_search(page_size=2, limit=1))
-    assert len(entries) == 1
-    assert len(transport.requests) == 1
-
-
-def test_iter_search_stops_on_an_empty_page(client, transport):
-    transport.push(_page([], 100, 0, 2))
-    assert list(client.iter_search(page_size=2)) == []
-
-
 def test_next_page_continues_from_the_current_offset(client, transport, search_response):
     children = search_response["resource"]["children"]
     transport.push(_page(children, 10, 0, 2))
-    page = client.search(limit=2)
+    page = client._search(limit=2)
     assert page.has_more
     transport.push(_page(children, 10, 2, 2))
     following = page.next_page()
@@ -192,7 +125,7 @@ def test_next_page_continues_from_the_current_offset(client, transport, search_r
 def test_last_page_reports_no_more(client, transport, search_response):
     children = search_response["resource"]["children"]
     transport.push(_page(children, 2, 0, 2))
-    page = client.search(limit=2)
+    page = client._search(limit=2)
     assert not page.has_more
     assert page.next_page() is None
 
@@ -200,49 +133,15 @@ def test_last_page_reports_no_more(client, transport, search_response):
 # -- single entries ----------------------------------------------------------
 
 
-def test_entry_fetches_metadata_and_envelope(client, transport):
-    transport.push(load_fixture("dataset_recursive.json"))
-    transport.push(load_fixture("dataset_entry.json"))
-    entry = client.entry(547, 28672, model=Dataset)
-    assert entry.title
-    assert entry.resource_uri
-    assert len(transport.requests) == 2
-    assert "/store/547/metadata/28672" in transport.requests[0]
-    assert params_of(transport.requests[0])["recursive"] == "dcat"
-    assert "/store/547/entry/28672" in transport.requests[1]
-
-
-def test_entry_can_skip_the_envelope_request(client, transport):
-    transport.push(load_fixture("dataset_recursive.json"))
-    entry = client.entry(547, 28672, with_info=False, model=Dataset)
-    assert len(transport.requests) == 1
-    assert entry.title
-
-
 def test_entry_raw_rejects_unknown_parts(client):
     with pytest.raises(ValueError):
-        client.entry_raw(1, 2, part="nonsense")
-
-
-def test_lookup_returns_none_when_nothing_matches(client, transport):
-    transport.push(_page([], 0, 0, 1))
-    assert client.lookup("http://example.org/missing") is None
-
-
-def test_lookup_caches_by_uri(client, transport, search_response):
-    transport.push(search_response)
-    entry = client.lookup(search_response["resource"]["children"][0]["info"] and
-                          "http://example.org/x")
-    assert entry is not None
-    again = client.lookup("http://example.org/x")
-    assert again is entry
-    assert len(transport.requests) == 1
+        client._entry_raw(1, 2, part="nonsense")
 
 
 def test_lookup_many_batches_into_one_request(client, transport, search_response):
     transport.push(search_response)
     uris = ["http://example.org/%d" % i for i in range(5)]
-    client.lookup_many(uris, batch_size=20)
+    client._lookup_many(uris, batch_size=20)
     assert len(transport.requests) == 1
     assert query_of(transport.requests[-1]).count(" OR ") == 4
 
@@ -250,59 +149,11 @@ def test_lookup_many_batches_into_one_request(client, transport, search_response
 def test_lookup_many_splits_oversized_batches(client, transport, search_response):
     transport.push(search_response)
     transport.push(search_response)
-    client.lookup_many(["http://example.org/%d" % i for i in range(4)], batch_size=2)
+    client._lookup_many(["http://example.org/%d" % i for i in range(4)], batch_size=2)
     assert len(transport.requests) == 2
 
 
 # -- statistics endpoints ----------------------------------------------------
-
-
-def test_publishers_zips_labels_values_and_series(transport, org_data):
-    transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
-        orgs = dp.publishers()
-    assert len(orgs) == len(org_data["values"])
-    assert orgs[0].name == org_data["labels"][0]
-    assert orgs[0].dataset_count == org_data["series"][0][0]
-    assert orgs[0].to_dict()["uri"] == org_data["values"][0]
-
-
-def test_publishers_carry_the_value_you_filter_with(transport, org_data, search_response):
-    """A listing is only useful if it leads into a search."""
-    transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
-        orgs = dp.publishers()
-        assert orgs[0].publisher == "radet_for_framjande_av_kommunala_analyser_kolada"
-        assert orgs[0].to_dict()["publisher"] == orgs[0].publisher
-
-        transport.push(search_response)
-        dp.distributions(publisher=orgs[0].publisher)
-    searches = [u for u in transport.requests if "query=" in u]
-    assert "SE2220000315" in query_of(searches[-1])
-
-
-def test_an_unknown_publisher_has_no_filter_value(transport, org_data):
-    """Better None than a value that would raise when used."""
-    payload = dict(org_data, labels=["Nowhere At All"],
-                   values=["https://example.org/organization/xyz"], series=[[1]])
-    transport.routes["/charts/orgData.json"] = payload
-    with Dataportal(transport=transport) as dp:
-        assert dp.publishers()[0].publisher is None
-
-
-def test_registry_totals_reports_registry_totals(transport, org_data):
-    transport.routes["/charts/orgData.json"] = org_data
-    with Dataportal(transport=transport) as dp:
-        summary = dp.registry_totals()
-    assert summary["datasets"] == org_data["datasetCount"]
-    assert summary["publishers"] == org_data["publisherCount"]
-
-
-def test_catalog_statistics_sorts_newest_first(client, transport):
-    transport.push(load_fixture("catalog_statistics.json"))
-    stats = client.catalog_statistics(limit=1)
-    assert stats and stats[0].dataset_count
-    assert params_of(transport.requests[-1])["sort"] == "modified desc"
 
 
 # -- the dump ----------------------------------------------------------------
@@ -313,39 +164,39 @@ def test_catalog_statistics_sorts_newest_first(client, transport):
 def test_404_raises_not_found(client, transport):
     transport.push({"error": "gone"}, status=404)
     with pytest.raises(NotFoundError) as info:
-        client.search()
+        client._search()
     assert info.value.status == 404
 
 
 def test_5xx_raises_server_error_after_retries_are_exhausted(transport):
     for _ in range(3):
         transport.push({"error": "boom"}, status=503)
-    with Dataportal(transport=transport, max_retries=2, backoff_factor=0) as dp:
+    with _Registry(transport=transport, max_retries=2, backoff_factor=0) as dp:
         with pytest.raises(ServerError):
-            dp.search()
+            dp._search()
     assert len(transport.requests) == 3
 
 
 def test_a_transient_5xx_is_retried_then_succeeds(transport, search_response):
     transport.push({"error": "boom"}, status=503)
     transport.push(search_response)
-    with Dataportal(transport=transport, max_retries=2, backoff_factor=0) as dp:
-        page = dp.search()
+    with _Registry(transport=transport, max_retries=2, backoff_factor=0) as dp:
+        page = dp._search()
     assert page.total == search_response["results"]
     assert len(transport.requests) == 2
 
 
 def test_429_carries_retry_after(transport):
     transport.push({"error": "slow down"}, status=429)
-    with Dataportal(transport=transport, max_retries=0) as dp:
+    with _Registry(transport=transport, max_retries=0) as dp:
         with pytest.raises(RateLimitError):
-            dp.search()
+            dp._search()
 
 
 def test_other_4xx_raises_plain_http_error(client, transport):
     transport.push({"error": "bad"}, status=400)
     with pytest.raises(HTTPError) as info:
-        client.search()
+        client._search()
     assert info.value.status == 400
     assert not isinstance(info.value, (NotFoundError, RateLimitError, ServerError))
 
@@ -362,138 +213,17 @@ def test_transport_failures_are_retried(transport, search_response):
 
     transport.request = flaky  # type: ignore[assignment]
     transport.push(search_response)
-    with Dataportal(transport=transport, max_retries=2, backoff_factor=0) as dp:
-        assert dp.search().total == search_response["results"]
+    with _Registry(transport=transport, max_retries=2, backoff_factor=0) as dp:
+        assert dp._search().total == search_response["results"]
 
 
 def test_closing_the_client_closes_a_transport_it_owns():
     from dataportalen.core import RequestsTransport
 
     owned = RequestsTransport()
-    dp = Dataportal(transport=owned)
+    dp = _Registry(transport=owned)
     dp.close()  # supplied transports are the caller's to close
     fake = FakeTransport()
-    with Dataportal(transport=fake):
+    with _Registry(transport=fake):
         pass
     assert not fake.closed
-
-
-def test_clear_cache_forces_a_second_lookup(client, transport, search_response):
-    transport.push(search_response)
-    client.lookup("http://example.org/x")
-    client.clear_cache()
-    transport.push(search_response)
-    client.lookup("http://example.org/x")
-    assert len(transport.requests) == 2
-
-
-def test_link_check_reports_query_the_report_type(client, transport):
-    payload = load_fixture("link_check_report.json")
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    reports = client.link_check_reports()
-    assert reports
-    assert "LinkCheckReport" in query_of(transport.requests[0])
-    assert all(r.checked is not None for r in reports)
-
-
-def test_link_check_reports_can_filter_to_failures(client, transport):
-    payload = load_fixture("link_check_report.json")
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    everything = client.link_check_reports()
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    failing = client.link_check_reports(failing_only=True)
-    assert len(failing) <= len(everything)
-    assert all((r.failed or 0) > 0 for r in failing)
-    assert [r.context_id for r in failing] == [
-        r.context_id for r in everything if (r.failed or 0) > 0
-    ]
-
-
-def test_link_check_reports_can_be_scoped_to_one_context(client, transport):
-    payload = load_fixture("link_check_report.json")
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    client.link_check_reports(context=762)
-    assert r"store\/762" in query_of(transport.requests[0])
-
-
-def test_metadata_quality_includes_the_repository_total(client, transport):
-    payload = load_fixture("metadata_quality.json")
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    scores = client.metadata_quality()
-    assert scores
-    assert all(s.percentage is not None for s in scores)
-    assert "MQATotal" in query_of(transport.requests[0])
-
-
-def test_metadata_quality_can_exclude_the_total(client, transport):
-    payload = load_fixture("metadata_quality.json")
-    transport.push(payload)
-    transport.push(_page([], payload["results"], 2, 100))
-    client.metadata_quality(include_total=False)
-    query = query_of(transport.requests[0])
-    assert "MQATotal" not in query
-    assert "MQA" in query
-
-
-# -- dates -------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("given,expected", [
-    ("2024-01-01", "2024-01-01T00:00:00Z"),
-    ("2024-01", "2024-01-01T00:00:00Z"),
-    ("2024", "2024-01-01T00:00:00Z"),
-    ("2024-01-01T12:30:00Z", "2024-01-01T12:30:00Z"),
-])
-def test_plain_dates_are_expanded_for_solr(client, transport, search_response, given, expected):
-    """A bare date used to produce HTTP 400. The obvious input must work."""
-    transport.push(search_response)
-    client.distributions(updated_after=given)
-    assert expected in query_of(transport.requests[-1])
-
-
-def test_date_objects_are_accepted(client, transport, search_response):
-    import datetime as dt
-
-    transport.push(search_response)
-    client.distributions(updated_after=dt.date(2024, 3, 4))
-    assert "2024-03-04T00:00:00Z" in query_of(transport.requests[-1])
-    transport.push(search_response)
-    client.distributions(updated_after=dt.datetime(2024, 3, 4, 15, 0))
-    assert "2024-03-04T15:00:00Z" in query_of(transport.requests[-1])
-
-
-def test_updated_filters_the_publishers_date_not_the_harvest(client, transport, search_response):
-    """`modified_after` used to filter the nightly harvest, matching ~97% of
-    everything. `updated_after` filters dcterms:modified, which is the date a
-    caller means."""
-    from dataportalen.query import predicate_field
-
-    transport.push(search_response)
-    client.distributions(updated_after="2024-01-01")
-    assert predicate_field("dcterms:modified", "date") in query_of(transport.requests[-1])
-
-
-def test_the_harvest_timestamp_is_not_a_filter(client):
-    """It matched ~97% of the corpus, so it only ever misled. Gone."""
-    with pytest.raises(TypeError):
-        client.distributions(harvested_after="2024-01-01")
-
-
-def test_published_filters_dcterms_issued(client, transport, search_response):
-    from dataportalen.query import predicate_field
-
-    transport.push(search_response)
-    client.distributions(published_after="2020-01-01")
-    assert predicate_field("dcterms:issued", "date") in query_of(transport.requests[-1])
-
-
-def test_the_registry_is_not_asked_for_a_dataset_search(client, transport):
-    """Dataset search is the catalogue; nothing should reach the transport."""
-    page = client.datasets(theme="transport")
-    assert page.total == 1
-    assert transport.requests == []

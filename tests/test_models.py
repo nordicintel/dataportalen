@@ -7,8 +7,7 @@ import datetime as dt
 import pytest
 
 from conftest import load_fixture
-from dataportalen import Dataset, Entry
-from dataportalen.models import Agent, CatalogStatistics, ContactPoint, Distribution, wrap_entry
+from dataportalen.models import Agent, ContactPoint, Dataset, Distribution, Entry, wrap_entry
 from dataportalen.rdf import DCAT, DCTERMS
 
 
@@ -150,17 +149,6 @@ def test_agent_reads_name_identifiers_and_homepage(recursive_dataset):
     assert agent.agent_type
 
 
-def test_catalog_statistics_maps_contexts_to_counts():
-    hit = load_fixture("catalog_statistics.json")["resource"]["children"][0]
-    stats = wrap_entry(hit, default=CatalogStatistics)
-    assert isinstance(stats.date, (dt.date, dt.datetime))
-    assert stats.dataset_count and stats.dataset_count > 0
-    per_context = stats.datasets_per_context
-    assert per_context
-    assert all(key.isdigit() for key in per_context)
-    assert all(isinstance(v, int) for v in per_context.values())
-
-
 def test_as_preserves_the_envelope(dataset_hit):
     entry = wrap_entry(dataset_hit)
     plain = entry.as_(Entry)
@@ -186,24 +174,3 @@ def test_raw_json_reconstructs_when_there_was_no_raw_payload(recursive_dataset):
     assert payload["info"]
 
 
-def test_link_check_report_counts_links():
-    from dataportalen.models import LinkCheckReport
-
-    hit = load_fixture("link_check_report.json")["resource"]["children"][0]
-    report = wrap_entry(hit)
-    assert isinstance(report, LinkCheckReport)
-    assert report.checked is not None and report.checked >= 0
-    assert report.failed is not None
-    assert report.succeeded == report.checked - report.failed
-    assert isinstance(report.run_at, (dt.date, dt.datetime))
-
-
-def test_metadata_quality_reads_the_mqa_score():
-    from dataportalen.models import MetadataQuality
-
-    children = load_fixture("metadata_quality.json")["resource"]["children"]
-    scores = [wrap_entry(hit) for hit in children]
-    assert all(isinstance(s, MetadataQuality) for s in scores)
-    assert all(s.score is not None for s in scores)
-    assert all(0 <= s.percentage <= 100 for s in scores)
-    assert all(isinstance(s.is_total, bool) for s in scores)

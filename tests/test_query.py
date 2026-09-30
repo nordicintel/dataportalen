@@ -6,9 +6,8 @@ import datetime as dt
 
 import pytest
 
-from dataportalen import Q
 from dataportalen.core import QueryError
-from dataportalen.query import escape, escape_uri, predicate_field
+from dataportalen.query import Q, escape, escape_uri, predicate_field
 from dataportalen.rdf import DCAT, DCTERMS
 
 

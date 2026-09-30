@@ -9,7 +9,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from conftest import load_fixture
-from dataportalen import Dataportal, enable_logging, logger
+from dataportalen import enable_logging, logger
+from dataportalen.client import _Registry
 from dataportalen.core import (
     BaseTransport,
     ParseError,
@@ -126,8 +127,8 @@ def test_requests_are_logged_at_debug(transport, search_response):
     stream = io.StringIO()
     enable_logging("DEBUG", stream=stream)
     transport.push(search_response)
-    with Dataportal(transport=transport) as client:
-        client.search()
+    with _Registry(transport=transport) as client:
+        client._search()
     out = stream.getvalue()
     assert "GET" in out and "-> 200" in out
 
@@ -137,17 +138,17 @@ def test_retries_are_logged_at_warning(transport, search_response):
     enable_logging("WARNING", stream=stream)
     transport.push({"error": "boom"}, status=503)
     transport.push(search_response)
-    with Dataportal(transport=transport, max_retries=2, backoff_factor=0) as client:
-        client.search()
+    with _Registry(transport=transport, max_retries=2, backoff_factor=0) as client:
+        client._search()
     assert "retrying" in stream.getvalue()
 
 
 def test_log_level_argument_is_a_shortcut(transport, search_response):
     transport.push(search_response)
-    with Dataportal(transport=transport, log_level="DEBUG") as client:
+    with _Registry(transport=transport, log_level="DEBUG") as client:
         # The handler goes to stderr by default; just prove the level took.
         assert logger.level == logging.DEBUG
-        client.search()
+        client._search()
 
 
 def test_terminal_progress_rewrites_one_line():
@@ -208,7 +209,7 @@ def test_duration_formatting(seconds, expected):
 
 def test_export_reports_progress_by_default(transport, tmp_path):
     """The five-minute-silence bug: 'auto' must be the default."""
-    from dataportalen import download_catalog
+    from dataportalen.client import download_catalog
 
     stream = io.StringIO()
     enable_logging("INFO", stream=stream)
@@ -223,7 +224,7 @@ def test_export_reports_progress_by_default(transport, tmp_path):
         transport.push(empty)
 
     download_catalog(str(tmp_path / "c.jsonl"), limit=len(children),
-                     client=Dataportal(transport=transport))
+                     client=_Registry(transport=transport))
     out = stream.getvalue()
     assert "exporting" in out
     assert "wrote" in out

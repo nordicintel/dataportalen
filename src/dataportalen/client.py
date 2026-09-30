@@ -1,12 +1,15 @@
-"""The synchronous client for the Sveriges dataportal registry API.
+"""The catalogue: one local copy of dataportal.se, searched as plain dicts.
 
-    >>> from dataportalen import Dataportal
-    >>> dp = Dataportal()
-    >>> page = dp.datasets(title="bidrag", limit=5)
+    >>> from dataportalen import Catalog
+    >>> cat = Catalog()                               # doctest: +SKIP
+    >>> page = cat.datasets(theme="transport", limit=5)   # doctest: +SKIP
     >>> page.total                                    # doctest: +SKIP
-    122
-    >>> for dataset in dp.iter_datasets(publisher="http://dataportal.se/organisation/SE2021005router"):
-    ...     print(dataset.title)                      # doctest: +SKIP"""
+    545
+
+:class:`Catalog` is the whole public surface. :class:`_Registry` below it is
+the HTTP and Solr layer, used to download the file and to fetch one entry's
+raw RDF on request -- nothing else reaches the network.
+"""
 
 from __future__ import annotations
 
@@ -55,16 +58,10 @@ from .models import (
     BREAKDOWN_FILTERS,
     Agent,
     Breakdown,
-    Catalog,
-    CatalogStatistics,
     ContactPoint,
-    DataService,
     Dataset,
     Distribution,
     Entry,
-    LinkCheckReport,
-    MetadataQuality,
-    Publisher,
     Results,
     SearchPage,
     ValueCount,
@@ -73,12 +70,9 @@ from .models import (
 from .query import SORT_MODIFIED_DESC, Q, predicate_field
 from .rdf import (
     DCAT,
-    DCTERMS,
     FOAF,
     SUPPORTED_LANGUAGES,
     VCARD,
-    Graph,
-    Types,
     publisher_for,
     resolve,
     resolve_publisher,
@@ -164,26 +158,39 @@ def default_catalog_path() -> str:
 #: its own -- a six-minute download should never surprise a running program.
 STALE_AFTER_DAYS = 7
 
+#: When :class:`Catalog` is allowed to write the file. Anything that replaces
+#: 58 MB on disk is a decision made when the object is built, never a side
+#: effect of something that read like a search.
+_REFRESH_MODES = ("if_missing", "if_stale", "always", "never")
 
-class Dataportal:
-    """Client for ``admin.dataportal.se`` (EntryStore Registry).
+#: Shorthands for the RDF serializations ``get(format=...)`` accepts. Anything
+#: else is passed to the registry as a media type unchanged, so a format this
+#: table has not heard of still works.
+_RDF_FORMATS = {
+    "turtle": "text/turtle",
+    "ttl": "text/turtle",
+    "rdf/xml": "application/rdf+xml",
+    "rdfxml": "application/rdf+xml",
+    "xml": "application/rdf+xml",
+    "n-triples": "application/n-triples",
+    "ntriples": "application/n-triples",
+    "nt": "application/n-triples",
+    "json-ld": "application/ld+json",
+    "jsonld": "application/ld+json",
+    "trig": "application/trig",
+}
 
-    The registry is read-only and unauthenticated: everything here is a GET.
 
-    :param base_url: registry root; override to point at another EntryStore.
-    :param public_only: add ``public:true`` to every search (the default, and
-        what the public API effectively serves).
-    :param transport: an explicit :class:`~dataportalen.core.BaseTransport`;
-        ``requests`` by default.
-    :param log_level: convenience -- ``"INFO"`` or ``"DEBUG"`` starts printing
-        this package's log records to stderr. Leave it ``None`` and configure
-        the ``dataportalen`` logger yourself if your application already has
-        logging set up.
+class _Registry:
+    """The HTTP and Solr layer for ``admin.dataportal.se`` (EntryStore).
 
-    Every request is logged at ``DEBUG``, retries and rate limits at
-    ``WARNING``, so a slow or failing run explains itself::
+    Internal. :class:`Catalog` owns one of these and reaches the registry
+    through it -- to download the catalogue, and to fetch one entry's raw RDF
+    on request. Nothing else here is part of the public API; pass your own
+    ``transport`` to :class:`Catalog` if you need to control the HTTP.
 
-        dp = Dataportal(log_level="DEBUG")
+    The registry is read-only and unauthenticated: everything is a GET. Every
+    request is logged at ``DEBUG``, retries and rate limits at ``WARNING``.
     """
 
     def __init__(
@@ -192,7 +199,6 @@ class Dataportal:
         *,
         transport: Optional[BaseTransport] = None,
         timeout: float = 30.0,
-        catalog_path: Optional[str] = None,
         user_agent: Optional[str] = None,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
@@ -203,8 +209,6 @@ class Dataportal:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.catalog_path = catalog_path or default_catalog_path()
-        self._catalog: Optional[LocalCatalog] = None
         self.max_retries = max(0, int(max_retries))
         self.backoff_factor = backoff_factor
         self.public_only = public_only
@@ -226,18 +230,14 @@ class Dataportal:
         if self._owns_transport:
             self._transport.close()
 
-    def __enter__(self) -> "Dataportal":
+    def __enter__(self) -> "_Registry":
         return self
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Dataportal %s>" % self.base_url
-
-    def clear_cache(self) -> None:
-        """Drop memoized URI lookups."""
-        self._cache.clear()
+        return "<_Registry %s>" % self.base_url
 
     # -- plumbing ----------------------------------------------------------
 
@@ -279,7 +279,7 @@ class Dataportal:
         delay = self.backoff_factor * (2 ** attempt)
         time.sleep(min(delay + random.uniform(0, delay * 0.1), 30.0))
 
-    def request(
+    def _request(
         self,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
@@ -329,9 +329,9 @@ class Dataportal:
             return response
         raise last_exc or TransportError("request to %s failed" % url)
 
-    def get_json(self, path: str, params: Optional[Mapping[str, Any]] = None) -> Any:
+    def _get_json(self, path: str, params: Optional[Mapping[str, Any]] = None) -> Any:
         """GET a JSON endpoint and decode it."""
-        return self.request(path, params, accept="application/json").json()
+        return self._request(path, params, accept="application/json").json()
 
     # -- search ------------------------------------------------------------
 
@@ -350,7 +350,7 @@ class Dataportal:
         combined = Q.join(parts, "AND")
         return str(combined) if combined else "*:*"
 
-    def search_raw(
+    def _search_raw(
         self,
         query: Union[str, Q, None] = None,
         *,
@@ -399,12 +399,12 @@ class Dataportal:
             params["lang"] = lang
         if extra_params:
             params.update(extra_params)
-        data = self.request("/store/search", params, accept="application/json").json()
+        data = self._request("/store/search", params, accept="application/json").json()
         if not isinstance(data, dict):
             raise ParseError("unexpected search response: %r" % (type(data),))
         return data
 
-    def search(
+    def _search(
         self,
         query: Union[str, Q, None] = None,
         *,
@@ -419,7 +419,7 @@ class Dataportal:
         ``model`` forces every hit into one class; by default each hit is typed
         from its own ``rdf:type``.
         """
-        data = self.search_raw(query, limit=limit, offset=offset, sort=sort, **kwargs)
+        data = self._search_raw(query, limit=limit, offset=offset, sort=sort, **kwargs)
         return self._page_from_json(
             data,
             model=model,
@@ -448,62 +448,14 @@ class Dataportal:
             params=params,
         )
 
-    def iter_search(
-        self,
-        query: Union[str, Q, None] = None,
-        *,
-        model: Optional[Type[Entry]] = None,
-        limit: Optional[int] = None,
-        page_size: int = MAX_LIMIT,
-        offset: int = 0,
-        sort: Optional[str] = ...,  # type: ignore[assignment]
-        **kwargs: Any,
-    ) -> Iterator[Entry]:
-        """Iterate over every hit, fetching pages as needed.
-
-        ``limit`` caps the total number of entries yielded (``None`` = all);
-        ``page_size`` controls the request size.
-
-        Paging deep into a large result set is inherently racy -- the index
-        changes nightly -- so sort by something stable (the default
-        ``modified desc`` is not) if exactness matters.
-        """
-        if sort is ...:
-            sort = self.default_sort
-        yielded = 0
-        current = max(0, int(offset))
-        while True:
-            want = min(page_size, MAX_LIMIT)
-            if limit is not None:
-                want = min(want, limit - yielded)
-                if want <= 0:
-                    return
-            page = self.search(
-                query, model=model, limit=want, offset=current, sort=sort, **kwargs
-            )
-            if not page.entries:
-                return
-            for entry in page.entries:
-                yield entry
-                yielded += 1
-                if limit is not None and yielded >= limit:
-                    return
-            current += len(page.entries)
-            if current >= page.total:
-                return
-
-    def count_datasets(self, **filters: Any) -> int:
-        """How many datasets match, without building the list."""
-        return self.catalog.count(**filters)
-
-    def count(self, query: Union[str, Q, None] = None, **kwargs: Any) -> int:
+    def _count(self, query: Union[str, Q, None] = None, **kwargs: Any) -> int:
         """Estimated number of matches (Solr's count, see the docs' caveat)."""
-        data = self.search_raw(query, limit=1, offset=0, sort=None, **kwargs)
+        data = self._search_raw(query, limit=1, offset=0, sort=None, **kwargs)
         return int(data.get("results", 0) or 0)
 
     # -- single entries ----------------------------------------------------
 
-    def entry_raw(
+    def _entry_raw(
         self,
         context_id: Union[str, int],
         entry_id: Union[str, int],
@@ -535,85 +487,9 @@ class Dataportal:
         if format:
             params["format"] = format
         path = "/store/%s/%s/%s" % (context_id, part, entry_id)
-        return self.request(path, params, accept=format)
+        return self._request(path, params, accept=format)
 
-    def metadata_graph(
-        self,
-        context_id: Union[str, int],
-        entry_id: Union[str, int],
-        *,
-        recursive: Union[bool, str] = True,
-    ) -> Graph:
-        """The metadata graph of one entry, as RDF/JSON."""
-        response = self.entry_raw(
-            context_id, entry_id, part="metadata", recursive=recursive,
-            format="application/rdf+json",
-        )
-        return Graph(response.json())
-
-    def entry_graph(self, context_id: Union[str, int], entry_id: Union[str, int]) -> Graph:
-        """The EntryStore envelope graph (creator, created/modified, resource URI)."""
-        response = self.entry_raw(
-            context_id, entry_id, part="entry", format="application/rdf+json"
-        )
-        return Graph(response.json())
-
-    def entry(
-        self,
-        context_id: Union[str, int],
-        entry_id: Union[str, int],
-        *,
-        recursive: Union[bool, str] = True,
-        with_info: bool = True,
-        model: Optional[Type[Entry]] = None,
-        info: Optional[Graph] = None,
-        rights: Sequence[str] = (),
-    ) -> Entry:
-        """Fetch one entry by its registry ids, as a typed model.
-
-        Metadata and the EntryStore envelope live behind separate URLs, so
-        ``with_info=True`` (the default) costs a second request. Pass
-        ``with_info=False`` -- or an ``info`` graph you already hold, e.g.
-        from a search hit -- to make do with one.
-        """
-        metadata = self.metadata_graph(context_id, entry_id, recursive=recursive)
-        if info is None and with_info:
-            info = self.entry_graph(context_id, entry_id)
-        payload: Dict[str, Any] = {
-            "metadata": metadata.to_json(),
-            "contextId": str(context_id),
-            "entryId": str(entry_id),
-        }
-        if info is not None:
-            payload["info"] = info.to_json()
-        if rights:
-            payload["rights"] = list(rights)
-        return wrap_entry(payload, client=self, default=model)
-
-    def lookup(
-        self,
-        uri: str,
-        *,
-        model: Optional[Type[Entry]] = None,
-        use_cache: bool = True,
-    ) -> Optional[Entry]:
-        """Find a managed entry by its resource URI.
-
-        This is how you go from a URI found inside someone's metadata -- a
-        publisher, a distribution, a data service -- to the entry describing
-        it, as the registry documentation describes.
-        """
-        if use_cache:
-            cached = self._cache.get(uri)
-            if cached is not None:
-                return cached.as_(model) if model else cached
-        page = self.search(Q.resource(uri), limit=1, sort=None, model=model)
-        found = page.entries[0] if page.entries else None
-        if found is not None and use_cache:
-            self._cache.set(uri, found)
-        return found
-
-    def lookup_many(
+    def _lookup_many(
         self,
         uris: Sequence[str],
         *,
@@ -637,7 +513,7 @@ class Dataportal:
                 pending.append(uri)
         for start in range(0, len(pending), batch_size):
             batch = pending[start:start + batch_size]
-            page = self.search(
+            page = self._search(
                 Q.resource(*batch), limit=min(MAX_LIMIT, max(len(batch), 1)),
                 sort=None, model=model,
             )
@@ -649,366 +525,6 @@ class Dataportal:
                         self._cache.set(uri, entry)
         out = [found[u] for u in wanted if u in found]
         return [e.as_(model) for e in out] if model else out
-
-    # -- typed searches ----------------------------------------------------
-
-    def _entity_query(
-        self,
-        rdf_type: Optional[str],
-        *,
-        text: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        keyword: Optional[Union[str, Sequence[str]]] = None,
-        publisher: Optional[Union[str, Sequence[str]]] = None,
-        publisher_type: Optional[Union[str, Sequence[str]]] = None,
-        theme: Optional[Union[str, Sequence[str]]] = None,
-        format: Optional[Union[str, Sequence[str]]] = None,
-        license: Optional[Union[str, Sequence[str]]] = None,
-        access_rights: Optional[str] = None,
-        updated: Optional[str] = None,
-        language: Optional[Union[str, Sequence[str]]] = None,
-        place: Optional[Union[str, Sequence[str]]] = None,
-        updated_after: Optional[_DateLike] = None,
-        updated_before: Optional[_DateLike] = None,
-        published_after: Optional[_DateLike] = None,
-        published_before: Optional[_DateLike] = None,
-        catalog: Optional[Union[str, int, Sequence[Union[str, int]]]] = None,
-        uri: Optional[Union[str, Sequence[str]]] = None,
-        query: Union[str, Q, None] = None,
-    ) -> Q:
-        """Build the Solr query for a set of keyword filters.
-
-        Controlled values are short names (``theme="transport"``), never URIs;
-        see :mod:`dataportalen.rdf`. Dates accept ``"2024-01-01"``, a
-        ``date`` or a ``datetime``.
-        """
-        parts: List[Q] = []
-        if rdf_type:
-            parts.append(Q.rdf_type(rdf_type))
-        if query is not None:
-            parts.append(query if isinstance(query, Q) else Q.raw(query))
-        if text:
-            parts.append(Q.text(text))
-        if title:
-            parts.append(Q.title(title))
-        if description:
-            parts.append(Q.description(description))
-        if keyword:
-            words = [keyword] if isinstance(keyword, str) else list(keyword)
-            parts.append(Q.join([Q.tag(w) for w in words], "AND"))
-
-        # Short names -> the URIs publishers actually used.
-        if publisher:
-            parts.append(Q.publisher(*_flatten(publisher, resolve_publisher)))
-        if publisher_type:
-            parts.append(_any_uri(
-                DCTERMS.type,
-                _flatten(publisher_type, resolve, "publisher_type"),
-                kind="related.uri"))
-        if theme:
-            parts.append(Q.theme(*_flatten(theme, resolve, "theme")))
-        if format:
-            parts.append(Q.format(*_flatten(format, resolve, "format")))
-        if license:
-            parts.append(Q.license(*_flatten(license, resolve, "license")))
-        if access_rights:
-            parts.append(Q.predicate(
-                DCTERMS.accessRights,
-                _one(access_rights, resolve, "access_rights"), kind="uri"))
-        if updated:
-            parts.append(Q.accrual_periodicity(*_flatten(updated, resolve, "updated")))
-        if language:
-            parts.append(_any_uri(
-                DCTERMS.language, _flatten(language, resolve, "language")))
-        if place:
-            parts.append(_any_uri(DCTERMS.spatial, _flatten(place, resolve, "place")))
-
-        # Dates: the publisher's own. The registry's harvest timestamp is not
-        # exposed as a filter -- it changes nightly for nearly everything, so
-        # filtering on it tells you about the harvest job, not about the data.
-        if updated_after is not None or updated_before is not None:
-            parts.append(Q.predicate_range(
-                DCTERMS.modified, _date(updated_after), _date(updated_before)))
-        if published_after is not None or published_before is not None:
-            parts.append(Q.predicate_range(
-                DCTERMS.issued, _date(published_after), _date(published_before)))
-
-        if catalog is not None:
-            parts.append(Q.context(*[self.context_uri(c) for c in _as_list(catalog)]))
-        if uri:
-            parts.append(Q.resource(*_as_list(uri)))
-        return Q.join(parts, "AND")
-
-    def context_uri(self, context_id: Union[str, int]) -> str:
-        """The resource URI of a context, as indexed in the ``context`` field."""
-        text = str(context_id)
-        if "://" in text:
-            return text
-        return "%s/store/%s" % (self.base_url, text)
-
-    # -- the catalogue -----------------------------------------------------
-
-    @property
-    def catalog(self) -> "LocalCatalog":
-        """The local catalogue, downloaded the first time it is needed.
-
-        Reading it takes a second; downloading it takes about six minutes and
-        58 MB, once. Every dataset search then runs against it.
-        """
-        if self._catalog is None:
-            self._catalog = LocalCatalog(
-                self.catalog_path, client=self, progress="auto")
-        return self._catalog
-
-    def refresh_catalog(self) -> "CatalogSummary":
-        """Download the catalogue again."""
-        summary = self.catalog.refresh()
-        return summary
-
-    def datasets(
-        self,
-        *,
-        limit: Optional[int] = 50,
-        offset: int = 0,
-        breakdown_limit: Optional[int] = None,
-        **filters: Any,
-    ) -> Results:
-        """Search datasets. Returns a list of dicts that knows the total.
-
-        Runs against the local catalogue -- downloaded the first time, about
-        six minutes once, then milliseconds a search. Every filter, every
-        value and the whole breakdown come from that file.
-
-            >>> page = dp.datasets(theme="transport")     # doctest: +SKIP
-            >>> page.total, page[0]["title"]              # doctest: +SKIP
-            (545, 'Farthinder')
-
-        ``limit`` caps the rows you hold (``None`` for all of them, ``0`` for
-        the breakdown alone); ``breakdown_limit`` caps each list in the
-        breakdown, and what it cuts is counted in
-        :attr:`~dataportalen.Breakdown.omitted`.
-        """
-        found = self.catalog.datasets(breakdown_limit=breakdown_limit, **filters)
-        window = found[offset:] if limit is None else found[offset:offset + limit]
-        return Results(window, total=found.total, offset=offset, limit=limit,
-                       breakdown=found.breakdown)
-
-    def iter_datasets(
-        self, *, limit: Optional[int] = None, **filters: Any
-    ) -> Iterator[Dict[str, Any]]:
-        """Every matching dataset, one at a time, out of the catalogue."""
-        found = self.catalog.datasets(**filters)
-        return iter(found if limit is None else found[:limit])
-
-    def dataset(
-        self,
-        uri: Optional[str] = None,
-        *,
-        context_id: Optional[Union[str, int]] = None,
-        entry_id: Optional[Union[str, int]] = None,
-        recursive: bool = True,
-    ) -> Optional[Dict[str, Any]]:
-        """One dataset as a dict, by its own URI or by registry ids.
-
-        Comes out of the local catalogue when it is there, and off the
-        registry when it is not. ``None`` if nothing matches. With
-        ``recursive`` (the default) a fetched dataset brings its
-        distributions, publisher and contact points with it.
-
-        For the RDF behind it, use :meth:`lookup`, which returns the model.
-        """
-        if uri:
-            record = self.catalog.get(uri)
-            if record is not None:
-                return record
-            logger.debug("%s is not in the local catalogue; asking the registry", uri)
-            found = self.lookup(uri, model=Dataset)
-            if found is None:
-                return None
-            if recursive and found.context_id and found.entry_id:
-                # The search hit already carries the envelope; reuse it so the
-                # recursive fetch costs exactly one extra request.
-                found = self.entry(
-                    found.context_id, found.entry_id, recursive=True,
-                    model=Dataset, info=found.info, rights=found.rights,
-                )
-            return found.to_dict() if found is not None else None
-        if context_id is None or entry_id is None:
-            raise TypeError("pass either uri= or both context_id= and entry_id=")
-        found = self.entry(context_id, entry_id, recursive=recursive, model=Dataset)
-        return found.to_dict() if found is not None else None
-
-    def distributions(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search distributions (``dcat:Distribution``). Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(DCAT.Distribution, **filters),
-            model=Distribution, limit=limit, offset=offset,
-        ))
-
-    def data_services(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search data services (``dcat:DataService``). Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(DCAT.DataService, **filters),
-            model=DataService, limit=limit, offset=offset,
-        ))
-
-    def catalogs(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search catalogues -- one ``dcat:Catalog`` per harvested source.
-
-        Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(DCAT.Catalog, **filters),
-            model=Catalog, limit=limit, offset=offset,
-        ))
-
-    def agents(
-        self, *, limit: int = 50, offset: int = 0, **filters: Any
-    ) -> Results:
-        """Search agents (``foaf:Agent``) -- publishers and creators. Always asks the registry.
-
-        The local catalogue holds datasets, with their distributions
-        nested inside them; anything else is a search the file cannot
-        answer.
-        """
-        return _as_results(self.search(
-            self._entity_query(FOAF.Agent, **filters),
-            model=Agent, limit=limit, offset=offset,
-        ))
-
-    def agent(self, uri: str) -> Optional[Agent]:
-        """Look up one agent (e.g. a dataset's ``dcterms:publisher``)."""
-        return self.lookup(uri, model=Agent)  # type: ignore[return-value]
-
-    # -- registry-wide statistics -----------------------------------------
-
-    def publishers(self) -> List[Publisher]:
-        """Every publisher, with the registry's own dataset count.
-
-        Sorted biggest first. ``row.publisher`` is the value to filter with::
-
-            biggest = dp.publishers()[0]
-            dp.datasets(publisher=biggest.publisher)
-
-        The counts come from a chart the registry rebuilds nightly, so they
-        can run slightly ahead of what a search returns. For counts over your
-        own copy, use ``dp.datasets(limit=0).breakdown["publisher"]``.
-        """
-        data = self.get_json("/charts/orgData.json")
-        labels = data.get("labels") or []
-        values = data.get("values") or []
-        series = (data.get("series") or [[]])[0]
-        out: List[Publisher] = []
-        for index, uri in enumerate(values):
-            name = labels[index] if index < len(labels) else ""
-            count = int(series[index]) if index < len(series) else 0
-            out.append(Publisher(uri, name, count))
-        return out
-
-    def registry_totals(self) -> Dict[str, int]:
-        """How many datasets, data services and publishers the registry holds."""
-        data = self.get_json("/charts/orgData.json")
-        return {
-            "datasets": int(data.get("datasetCount", 0) or 0),
-            "independent_data_services": int(data.get("independentDataserviceCount", 0) or 0),
-            "publishers": int(data.get("publisherCount", 0) or 0),
-        }
-
-    def link_check_reports(
-        self,
-        *,
-        limit: int = MAX_LIMIT,
-        failing_only: bool = False,
-        context: Optional[Union[str, int]] = None,
-    ) -> List[LinkCheckReport]:
-        """The nightly link check, one report per catalog.
-
-        ``failing_only`` keeps the catalogs where at least one distribution
-        URL did not answer.
-        """
-        query = Q.rdf_type(Types.LINK_CHECK_REPORT)
-        if context is not None:
-            query = query & Q.context(self.context_uri(context))
-        reports = [
-            entry
-            for entry in self.iter_search(query, model=LinkCheckReport, limit=limit, sort=None)
-        ]
-        if failing_only:
-            reports = [r for r in reports if (r.failed or 0) > 0]  # type: ignore[union-attr]
-        return reports  # type: ignore[return-value]
-
-    def metadata_quality(
-        self,
-        *,
-        limit: int = MAX_LIMIT,
-        include_total: bool = True,
-    ) -> List[MetadataQuality]:
-        """DCAT-AP metadata quality (MQA) scores, one per catalog.
-
-        With ``include_total`` the repository-wide ``MQATotal`` entry is
-        included; it is the one whose ``is_total`` is ``True``.
-        """
-        types = [Types.MQA, Types.MQA_TOTAL] if include_total else [Types.MQA]
-        return list(  # type: ignore[return-value]
-            self.iter_search(
-                Q.rdf_type(*types), model=MetadataQuality, limit=limit, sort=None
-            )
-        )
-
-    def catalog_statistics(self, *, limit: int = 1, offset: int = 0) -> List[CatalogStatistics]:
-        """Nightly registry-wide snapshots, newest first.
-
-        Raise ``limit`` to walk back through the historical series.
-        """
-        page = self.search(
-            Q.rdf_type(Types.CATALOG_STATISTICS),
-            model=CatalogStatistics,
-            limit=limit,
-            offset=offset,
-            sort=SORT_MODIFIED_DESC,
-        )
-        return list(page.entries)  # type: ignore[arg-type]
-
-    # -- the whole catalogue -----------------------------------------------
-
-    def download_catalog(
-        self,
-        path: str,
-        *,
-        workers: int = 8,
-        limit: Optional[int] = None,
-        progress: Any = "auto",
-    ) -> "CatalogSummary":
-        """Download every dataset to ``path`` as JSONL; returns a summary.
-
-        One self-contained JSON object per line. This is what the client does
-        for itself on a first search; call it directly to put a copy
-        somewhere of your own. See :func:`dataportalen.download_catalog`.
-        """
-        return download_catalog(
-            path, workers=workers, limit=limit, progress=progress, client=self
-        )
 
 
 def _flatten(value: Any, resolver: Any, what: str = "value") -> List[str]:
@@ -1218,7 +734,7 @@ def _crawl(
         return
 
     def fetch(offset: int) -> List[Entry]:
-        page = client.search(
+        page = client._search(
             query, model=model, limit=PAGE_SIZE, offset=offset, sort=STABLE_SORT
         )
         counter.add()
@@ -1252,12 +768,12 @@ def _take(entries, count):
 
 def _bulk_indexes(client, workers, counter):
     """One crawl per referenced type -- the right trade for a full export."""
-    distribution_total = client.count(Q.rdf_type(DCAT.Distribution))
-    agent_total = client.count(Q.rdf_type(FOAF.Agent))
+    distribution_total = client._count(Q.rdf_type(DCAT.Distribution))
+    agent_total = client._count(Q.rdf_type(FOAF.Agent))
     contact_query = Q.rdf_type(
         VCARD.Organization, VCARD.Organisation, VCARD.Individual, VCARD.Kind
     )
-    contact_total = client.count(contact_query)
+    contact_total = client._count(contact_query)
     counter.add(3)
 
     logger.info("indexing %s distributions, %s agents, %s contact points "
@@ -1303,7 +819,7 @@ def _targeted_indexes(client, datasets, workers, counter):
     def resolve(uris, model):
         if not uris:
             return {}
-        found = client.lookup_many(list(uris), model=model)
+        found = client._lookup_many(list(uris), model=model)
         counter.add(max(1, (len(uris) + 19) // 20))
         return {e.resource_uri: e.to_dict() for e in found if e.resource_uri}
 
@@ -1339,7 +855,7 @@ def download_catalog(
         stderr when it is a terminal, and otherwise logs progress periodically
         -- a five-minute run should never look like a hang. ``None`` is
         silent; a callable is invoked as ``progress(done, total)``.
-    :param client: an existing :class:`~dataportalen.Dataportal` to reuse.
+    :param client: an existing ``_Registry`` to reuse.
     :param base_url: registry root, when not passing ``client``.
     """
     owned = client is None
@@ -1347,7 +863,7 @@ def download_catalog(
         kwargs = {}
         if base_url:
             kwargs["base_url"] = base_url
-        client = Dataportal(**kwargs)
+        client = _Registry(**kwargs)
 
     started_all = time.time()
     report = progress_reporter(progress, "datasets")
@@ -1357,7 +873,7 @@ def download_catalog(
     distributions_written = 0
 
     try:
-        dataset_total = client.count(Q.rdf_type(DCAT.Dataset))
+        dataset_total = client._count(Q.rdf_type(DCAT.Dataset))
         counter.add()
         if limit is not None:
             dataset_total = min(dataset_total, limit)
@@ -1467,114 +983,196 @@ def _report_missing(missing: Dict[str, None]) -> None:
 
 
 __all__ = [
-    "LocalCatalog",
-    "Dataportal",
+    "Catalog",
+    "default_catalog_path",
     "DEFAULT_BASE_URL",
-    "download_catalog",
-    "CatalogSummary",
 ]
 
 
 # --- the catalogue on disk ---------------------------------------------------
 
 
-class LocalCatalog:
-    """The whole catalogue, downloaded once and searched locally.
+class Catalog:
+    """Sweden's open-data catalogue, downloaded once and searched locally.
 
-    The registry answers about two requests a second and does not go faster
-    with more of them in flight, so 100 datasets a request is the ceiling --
-    reading everything takes minutes. Anything that touches more than a few
-    thousand datasets is better done against a local copy::
+    The registry answers about two requests a second and caps a page at 100
+    entries, so reading all of it takes minutes. This downloads it once and
+    every search after that is local::
 
-        from dataportalen import LocalCatalog
+        from dataportalen import Catalog
 
-        catalog = LocalCatalog("catalog.jsonl")     # downloads it the first time
-        len(catalog)                                # 23580
-        catalog.datasets(theme="transport", format="csv")
+        cat = Catalog()                                  # downloads on first use
+        page = cat.datasets(theme="transport", format="csv")
+        page.total                                       # 72
+        page.breakdown["publisher"]                      # who publishes them
+        for dataset in page:
+            print(dataset["title"]["sv"], dataset["distributions"])
 
-    The filters and the values are the ones the client takes, and each result
-    is the same dict :meth:`Dataset.to_dict` returns -- what is in the file.
-    A whole-corpus filter is milliseconds instead of minutes.
+    Everything that creates or replaces the file is an argument here, so
+    nothing downloads 58 MB behind a call that looked like a search.
 
-    :param path: the JSONL file; a ``.gz`` suffix is read as gzip.
-    :param download: fetch the file when it is missing (the default). ``False``
-        raises instead, for a program that must not reach the network.
-    :param progress: passed to :func:`download_catalog` when downloading.
+    :param path: the JSONL file; a ``.gz`` suffix is read and written as gzip.
+        Defaults to :func:`default_catalog_path`.
+    :param refresh: when to download.
+
+        ``"if_missing"`` (the default)
+            download only when the file is not there. An old file is used and
+            reported, never replaced behind your back.
+        ``"if_stale"``
+            also download when it is older than ``stale_after`` days.
+        ``"always"``
+            download now, whatever is there.
+        ``"never"``
+            never download; a missing file raises
+            :class:`FileNotFoundError`. For a program that must not reach the
+            network.
+
+    :param stale_after: days before a copy counts as stale. The registry
+        re-harvests nightly, so a week is already behind.
+    :param progress: ``"auto"`` draws a progress line on a terminal and logs
+        periodically otherwise -- a five-minute download should never look
+        like a hang. ``None`` is silent; a callable gets ``(done, total)``.
+    :param workers: parallel requests while downloading. Eight is comfortable.
+    :param base_url: registry root, to point at another EntryStore.
+    :param transport: your own :class:`~dataportalen.core.BaseTransport`.
     """
 
     def __init__(
         self,
         path: Optional[str] = None,
         *,
-        download: bool = True,
+        refresh: str = "if_missing",
+        stale_after: int = STALE_AFTER_DAYS,
         progress: Any = "auto",
-        client: Any = None,
+        workers: int = 8,
+        base_url: str = DEFAULT_BASE_URL,
+        transport: Optional[BaseTransport] = None,
     ) -> None:
+        if refresh not in _REFRESH_MODES:
+            raise QueryError(
+                "refresh must be one of %s; got %r"
+                % (", ".join(map(repr, _REFRESH_MODES)), refresh))
         self.path = path or default_catalog_path()
-        path = self.path
+        self.stale_after = int(stale_after)
         self._progress = progress
-        self._client = client
+        self._workers = workers
+        self._registry = _Registry(base_url, transport=transport)
+        self._owns_registry = True
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
         self._seen: Dict[str, set] = {}
-        if not os.path.exists(path):
-            if not download:
-                raise FileNotFoundError(
-                    "%s does not exist; call refresh() or pass download=True" % path)
-            self.refresh()
-        else:
-            self._records = _read_jsonl(path)
-            logger.info("read %s datasets from %s", f"{len(self._records):,}", path)
-            self._warn_if_stale()
+        self._records: List[Dict[str, Any]] = []
+        self._load(refresh)
 
     # -- the file ----------------------------------------------------------
 
-    def refresh(self) -> CatalogSummary:
-        """Download the catalogue again, replacing what is loaded.
+    def _load(self, refresh: str) -> None:
+        """Read the file, downloading first if this mode says to."""
+        exists = os.path.exists(self.path)
+        if refresh == "always" or not exists:
+            if refresh == "never":
+                raise FileNotFoundError(
+                    "%s does not exist and refresh=\"never\" forbids downloading "
+                    "it; use refresh=\"if_missing\" or point path= at a copy"
+                    % self.path)
+            self._download()
+            return
+        self._read()
+        if refresh == "if_stale" and self.stale:
+            logger.info("%s is %d days old; refreshing", self.path, self.age_days)
+            self._download()
+        elif self.stale:
+            # Never on its own: a program that answered in a second yesterday
+            # must not block for six minutes today. The age is reported so the
+            # decision stays yours.
+            logger.warning(
+                "%s is %d days old; the registry re-harvests nightly. Build "
+                "the Catalog with refresh=\"if_stale\" for current data.",
+                self.path, self.age_days)
 
-        Also how a copy picks up a newer package's vocabulary: short names
-        are resolved when the file is written, so a file downloaded by an
-        older version keeps that version's names until it is refreshed.
-        """
-        summary = download_catalog(
-            self.path, progress=self._progress, client=self._client)
+    def _download(self) -> None:
+        download_catalog(self.path, progress=self._progress,
+                         workers=self._workers, client=self._registry)
+        self._read()
+
+    def _read(self) -> None:
         self._records = _read_jsonl(self.path)
         self._by_uri = None
         self._seen = {}
-        return summary
+        logger.info("read %s records from %s", f"{len(self._records):,}", self.path)
 
-    def _warn_if_stale(self) -> None:
-        """Say so when the copy has fallen behind the nightly harvest.
-
-        Nothing is re-downloaded on its own: a program that answered in a
-        second yesterday must not block for six minutes today. The age is
-        reported so the decision is yours.
-        """
-        age = self.age_days
-        if age is not None and age >= STALE_AFTER_DAYS:
-            logger.warning(
-                "%s is %d days old; the registry re-harvests nightly. "
-                "Call refresh() (or Dataportal.refresh_catalog()) for current data.",
-                self.path, age)
+    @property
+    def downloaded(self) -> Optional[_dt.datetime]:
+        """When the file was written, which is how old the data is."""
+        try:
+            return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
+        except OSError:                                   # pragma: no cover
+            return None
 
     @property
     def age_days(self) -> Optional[int]:
-        """How many days old the file is, or ``None`` if it is not there."""
         when = self.downloaded
-        if when is None:
-            return None
-        return (_dt.datetime.now() - when).days
+        return None if when is None else (_dt.datetime.now() - when).days
 
     @property
     def stale(self) -> bool:
-        """Whether the copy is older than a week."""
         age = self.age_days
-        return age is not None and age >= STALE_AFTER_DAYS
+        return age is not None and age >= self.stale_after
+
+    def info(self) -> Dict[str, Any]:
+        """What this copy is and how old::
+
+            {"path": "...\\catalog.jsonl",
+             "downloaded": "2026-09-30T08:12:41",
+             "age_days": 0, "stale": False, "bytes": 61203344,
+             "datasets": 23575, "data_services": 599, "publishers": 365}
+        """
+        when = self.downloaded
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:                                   # pragma: no cover
+            size = 0
+        return {
+            "path": self.path,
+            "downloaded": when.isoformat() if when else None,
+            "age_days": self.age_days,
+            "stale": self.stale,
+            "bytes": size,
+            "datasets": len(self._records),
+            "publishers": len({
+                (r.get("publisher") or {}).get("uri")
+                for r in self._records if (r.get("publisher") or {}).get("uri")
+            }),
+        }
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def close(self) -> None:
+        """Release the HTTP connection. Never required -- nothing leaks."""
+        if self._owns_registry:
+            self._registry.close()
+
+    def __enter__(self) -> "Catalog":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        return iter(self._records)
+
+    def __repr__(self) -> str:                            # pragma: no cover
+        return "<Catalog %s: %d datasets>" % (self.path, len(self._records))
+
+    # -- searching ---------------------------------------------------------
 
     def _observed(self, filter: str) -> Optional[set]:
-        """Every value this file actually contains for one filter.
+        """Every value this file actually holds for one filter.
 
         What makes "the breakdown reports it, so you can filter on it" true
-        even where the vocabulary table has no entry.
+        even where the vocabulary table has no entry for the value.
         """
         if filter not in BREAKDOWN_FILTERS:
             return None
@@ -1585,57 +1183,71 @@ class LocalCatalog:
             }
         return self._seen[filter]
 
-    def get(self, uri: str) -> Optional[Dict[str, Any]]:
-        """One dataset by its URI, or ``None`` if this copy has no such thing."""
-        if self._by_uri is None:
-            self._by_uri = {r.get("uri"): r for r in self._records if r.get("uri")}
-        return self._by_uri.get(uri)
-
-    def count(self, **filters: Any) -> int:
-        """How many datasets match, without building the list."""
-        return len(self.datasets(**filters))
-
-    @property
-    def downloaded(self) -> Optional[_dt.datetime]:
-        """When the file was written, which is how old the data is."""
-        try:
-            return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
-        except OSError:                                   # pragma: no cover
-            return None
-
-    # -- reading -----------------------------------------------------------
-
-    def __len__(self) -> int:
-        return len(self._records)
-
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        return iter(self._records)
-
-    def datasets(self, **filters: Any) -> Results:
-        """Every dataset matching the filters, as dicts.
-
-        Takes the same filters as :meth:`Dataportal.datasets` with the same
-        short values, minus ``query`` (there is no index to query) and the
-        paging arguments (you get the whole result).
-        """
-        limit = filters.pop("limit", None)   # None means every match
-        breakdown_limit = filters.pop("breakdown_limit", None)
-        for unsupported in ("offset", "sort", "page_size", "query"):
-            if unsupported in filters:
-                raise QueryError(
-                    "%r is a search-index argument; a local catalogue returns "
-                    "every match at once" % unsupported)
+    def _matching(self, records, filters):
         tests = [_local_test(name, value, self._observed(name))
                  for name, value in filters.items()]
-        out = [r for r in self._records if all(test(r) for test in tests)]
-        breakdown = local_breakdown(out, limit=breakdown_limit)
-        matched = len(out)
-        if limit is not None:
-            out = out[:limit]
-        return Results(out, total=matched, limit=limit, breakdown=breakdown)
+        return [r for r in records if all(test(r) for test in tests)]
 
-    def __repr__(self) -> str:                            # pragma: no cover
-        return "<LocalCatalog %s: %d datasets>" % (self.path, len(self._records))
+    def datasets(
+        self,
+        *,
+        limit: Optional[int] = 50,
+        offset: int = 0,
+        breakdown_limit: Optional[int] = None,
+        **filters: Any,
+    ) -> Results:
+        """Search datasets. A list of dicts that knows its own total.
+
+            >>> page = cat.datasets(theme="transport")     # doctest: +SKIP
+            >>> page.total, page[0]["title"]["sv"]         # doctest: +SKIP
+            (545, 'Farthinder')
+
+        ``limit`` caps the rows you hold -- ``None`` for every match, ``0`` for
+        the count and the breakdown alone. ``breakdown_limit`` caps each list
+        in the breakdown, and what it cuts is counted in
+        :attr:`~dataportalen.Breakdown.omitted`.
+        """
+        for unsupported in ("sort", "page_size", "query"):
+            if unsupported in filters:
+                raise QueryError(
+                    "%r is a search-index argument; a local catalogue matches "
+                    "every record at once" % unsupported)
+        found = self._matching(self._records, filters)
+        breakdown = local_breakdown(found, limit=breakdown_limit)
+        window = found[offset:] if limit is None else found[offset:offset + limit]
+        return Results(window, total=len(found), offset=offset, limit=limit,
+                       breakdown=breakdown)
+
+    def get(self, uri: str, format: str = "dict") -> Any:
+        """One record by its URI, or ``None`` if this copy has no such thing.
+
+            >>> cat.get("https://data.svk.se/dataset/c3c2...")   # doctest: +SKIP
+            {'uri': 'https://data.svk.se/dataset/c3c2...', 'title': {...}, ...}
+
+        ``format="dict"`` is local and immediate. Any other format is fetched
+        from the registry as RDF -- ``"turtle"``, ``"rdf/xml"``, ``"n-triples"``
+        or a media type -- and returned as text. That is the only request this
+        class makes outside a download.
+
+        Four of the 23,575 dataset URIs are shared by two records, because the
+        same dataset was harvested into two catalogues; the first is returned.
+        """
+        if format == "dict":
+            if self._by_uri is None:
+                self._by_uri = {}
+                for record in self._records:
+                    key = record.get("uri")
+                    if key and key not in self._by_uri:
+                        self._by_uri[key] = record
+            return self._by_uri.get(uri)
+
+        record = self.get(uri)
+        if record is None:
+            return None
+        return self._registry._entry_raw(
+            record["context_id"], record["entry_id"],
+            format=_RDF_FORMATS.get(format, format),
+        ).text
 
 
 def _read_jsonl(path: str) -> List[Dict[str, Any]]:

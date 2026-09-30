@@ -16,8 +16,9 @@ import os
 
 import pytest
 
-from dataportalen import Dataportal, Q
+from dataportalen.client import _Registry
 from dataportalen.models import Agent
+from dataportalen.query import Q
 from dataportalen.rdf import DCAT
 
 pytestmark = pytest.mark.network
@@ -36,7 +37,7 @@ def dp():
     first run downloads it (~6 minutes, once) and later runs reuse it. That
     is the supported path, so this is what the live suite exercises.
     """
-    with Dataportal() as client:
+    with _Registry() as client:
         yield client
 
 
@@ -52,8 +53,8 @@ def test_dataset_search_returns_dicts(dp):
 
 
 def test_free_text_and_title_filters_narrow_the_result(dp):
-    everything = dp.count(Q.rdf_type(DCAT.Dataset))
-    narrowed = dp.count(Q.rdf_type(DCAT.Dataset) & Q.title("bidrag", "sv"))
+    everything = dp._count(Q.rdf_type(DCAT.Dataset))
+    narrowed = dp._count(Q.rdf_type(DCAT.Dataset) & Q.title("bidrag", "sv"))
     assert 0 < narrowed < everything
 
 
@@ -107,7 +108,7 @@ def test_lookup_by_publisher_uri_returns_an_agent(dp):
 
 def test_lookup_many_resolves_a_batch(dp):
     uris = [d["uri"] for d in dp.datasets(limit=5)]
-    found = dp.lookup_many(uris)
+    found = dp._lookup_many(uris)
     assert {e.resource_uri for e in found} <= set(uris)
     assert found
 
@@ -148,7 +149,7 @@ def test_context_names_map_ids_to_organisations(dp):
 
 def test_entry_raw_serves_turtle(dp):
     hit = dp.datasets(limit=1)[0]
-    response = dp.entry_raw(hit["context_id"], hit["entry_id"], format="text/turtle")
+    response = dp._entry_raw(hit["context_id"], hit["entry_id"], format="text/turtle")
     assert response.status == 200
     assert "@prefix" in response.text
 
@@ -157,7 +158,7 @@ def test_unknown_entry_ids_raise_not_found(dp):
     from dataportalen import HTTPError
 
     with pytest.raises(HTTPError):
-        dp.entry_raw(999999, 999999, part="metadata")
+        dp._entry_raw(999999, 999999, part="metadata")
 
 
 def test_the_transport_reaches_the_registry():
@@ -165,8 +166,8 @@ def test_the_transport_reaches_the_registry():
     from dataportalen.core import RequestsTransport
 
     transport = RequestsTransport()
-    with Dataportal(transport=transport) as client:
-        assert client.count(Q.rdf_type(DCAT.Dataset)) > 1000
+    with _Registry(transport=transport) as client:
+        assert client._count(Q.rdf_type(DCAT.Dataset)) > 1000
     transport.close()
 
 
@@ -175,9 +176,9 @@ def test_negation_actually_excludes(dp):
     # Regression: `a AND (NOT b)` is silently empty in Lucene, so Q anchors
     # negations instead. The two counts must add up exactly.
     datasets = Q.rdf_type(DCAT.Dataset)
-    total = dp.count(datasets)
-    matching = dp.count(datasets & Q.title("cykel", "sv"))
-    excluded = dp.count(datasets & ~Q.title("cykel", "sv"))
+    total = dp._count(datasets)
+    matching = dp._count(datasets & Q.title("cykel", "sv"))
+    excluded = dp._count(datasets & ~Q.title("cykel", "sv"))
     assert 0 < matching < total
     assert matching + excluded == total
 
@@ -202,7 +203,7 @@ def test_catalog_export_round_trips(dp, tmp_path):
     """A small real export: every line self-contained and correct."""
     import json
 
-    from dataportalen import download_catalog
+    from dataportalen.client import download_catalog
 
     out = tmp_path / "catalog.jsonl"
     summary = download_catalog(str(out), limit=200, client=dp)
@@ -229,7 +230,7 @@ def test_catalog_export_gzips(dp, tmp_path):
     import gzip
     import json
 
-    from dataportalen import download_catalog
+    from dataportalen.client import download_catalog
 
     out = tmp_path / "catalog.jsonl.gz"
     download_catalog(str(out), limit=25, client=dp)
@@ -263,14 +264,14 @@ def test_vocabulary_labels_resolve_on_live_data(dp):
 def test_query_helpers_are_accepted_by_the_registry(dp):
     """Every Q helper below once produced an HTTP 400 or silently zero hits."""
     base = Q.rdf_type(DCAT.Dataset)
-    assert dp.count(base & Q.created("2020-01-01")) > 0
-    assert dp.count(base & Q.modified("2020")) > 0
-    assert dp.count(base & Q.predicate_range(
+    assert dp._count(base & Q.created("2020-01-01")) > 0
+    assert dp._count(base & Q.modified("2020")) > 0
+    assert dp._count(base & Q.predicate_range(
         "http://purl.org/dc/terms/modified", "2024-01-01")) > 0
-    assert dp.count(Q.entry_type("local")) > 0
-    assert dp.count(Q.graph_type("none")) > 0
-    assert dp.count(Q.resource_type("informationresource")) > 0
-    assert dp.count(base & Q.format("text/csv")) > 0
+    assert dp._count(Q.entry_type("local")) > 0
+    assert dp._count(Q.graph_type("none")) > 0
+    assert dp._count(Q.resource_type("informationresource")) > 0
+    assert dp._count(base & Q.format("text/csv")) > 0
 
 
 def test_every_filter_matches_something(dp):
@@ -297,7 +298,7 @@ def test_publishers_lead_into_a_search(dp):
 def test_language_shapes_the_output(dp):
     uri = dp.datasets(limit=1)[0]["uri"]
     assert isinstance(dp.dataset(uri=uri)["title"], str)
-    with Dataportal(language="all") as every:
+    with _Registry(language="all") as every:
         assert isinstance(every.dataset(uri=uri)["title"], dict)
 
 
@@ -336,13 +337,14 @@ def test_the_page_size_cap_is_the_registrys(dp):
 
 def test_the_local_catalogue_answers_the_same_as_the_registry(tmp_path):
     """A small real download, then the same search both ways."""
-    from dataportalen import LocalCatalog, download_catalog
+    from dataportalen import Catalog
+    from dataportalen.client import download_catalog
 
     path = tmp_path / "catalog.jsonl"
     download_catalog(str(path), limit=300, progress=None)
-    catalog = LocalCatalog(str(path), download=False)
+    catalog = Catalog(str(path), refresh="never")
 
-    page = catalog.datasets()
+    page = catalog.datasets(limit=None)
     assert len(page) == 300
     assert page.breakdown["publisher"], "a local breakdown covers publishers"
     assert page.breakdown["keyword"], "and keywords, which the registry cannot"

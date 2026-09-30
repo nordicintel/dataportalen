@@ -8,8 +8,7 @@ import json
 import pytest
 
 from conftest import load_fixture
-from dataportalen import Dataportal, download_catalog
-from dataportalen.client import CatalogSummary
+from dataportalen.client import CatalogSummary, _Registry, download_catalog
 
 
 def _page(children, total, offset=0, limit=100):
@@ -45,7 +44,7 @@ def wired(transport, dataset_children):
 def test_writes_one_json_object_per_line(wired, tmp_path, dataset_children):
     out = tmp_path / "catalog.jsonl"
     summary = download_catalog(
-        str(out), limit=len(dataset_children), client=Dataportal(transport=wired)
+        str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
     lines = out.read_text(encoding="utf-8").splitlines()
     assert len(lines) == len(dataset_children)
@@ -59,7 +58,7 @@ def test_writes_one_json_object_per_line(wired, tmp_path, dataset_children):
 def test_summary_reports_what_it_did(wired, tmp_path, dataset_children):
     out = tmp_path / "catalog.jsonl"
     summary = download_catalog(
-        str(out), limit=len(dataset_children), client=Dataportal(transport=wired)
+        str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
     payload = summary.to_dict()
     assert payload["datasets"] == len(dataset_children)
@@ -72,7 +71,7 @@ def test_summary_reports_what_it_did(wired, tmp_path, dataset_children):
 def test_gz_suffix_gzips_the_output(wired, tmp_path, dataset_children):
     out = tmp_path / "catalog.jsonl.gz"
     download_catalog(
-        str(out), limit=len(dataset_children), client=Dataportal(transport=wired)
+        str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
     with gzip.open(out, "rt", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
@@ -90,7 +89,7 @@ def test_limit_avoids_crawling_every_distribution(transport, dataset_children, t
     for _ in range(6):
         transport.push(_page([], 0))
     download_catalog(
-        str(tmp_path / "c.jsonl"), limit=1, client=Dataportal(transport=transport)
+        str(tmp_path / "c.jsonl"), limit=1, client=_Registry(transport=transport)
     )
     assert len(transport.requests) < 10
 
@@ -127,7 +126,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     transport.push(_page([], 0))               # contacts
 
     out = tmp_path / "c.jsonl"
-    download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
+    download_catalog(str(out), limit=1, client=_Registry(transport=transport))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
@@ -154,7 +153,7 @@ def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
 
     out = tmp_path / "c.jsonl"
     with pytest.warns(UserWarning, match="not found in the bulk crawl"):
-        download_catalog(str(out), limit=1, client=Dataportal(transport=transport))
+        download_catalog(str(out), limit=1, client=_Registry(transport=transport))
     record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     # Unresolved references drop out of the record but are warned about, so
     # a line never silently claims a dataset has no distributions.
@@ -166,22 +165,14 @@ def test_progress_is_called_for_every_dataset(wired, tmp_path, dataset_children)
     download_catalog(
         str(tmp_path / "c.jsonl"),
         limit=len(dataset_children),
-        client=Dataportal(transport=wired),
+        client=_Registry(transport=wired),
         progress=lambda done, total: seen.append(done),
     )
     assert seen == list(range(1, len(dataset_children) + 1))
 
 
-def test_client_method_delegates(wired, tmp_path, dataset_children):
-    with Dataportal(transport=wired) as client:
-        summary = client.download_catalog(
-            str(tmp_path / "c.jsonl"), limit=len(dataset_children)
-        )
-    assert summary.datasets == len(dataset_children)
-
-
 def test_a_supplied_client_is_left_open(wired, tmp_path, dataset_children):
-    client = Dataportal(transport=wired)
+    client = _Registry(transport=wired)
     download_catalog(
         str(tmp_path / "c.jsonl"), limit=len(dataset_children), client=client
     )
@@ -192,7 +183,7 @@ def test_language_keys_are_json_safe(wired, tmp_path, dataset_children):
     # An untagged literal must not key the object under `null`.
     out = tmp_path / "c.jsonl"
     download_catalog(
-        str(out), limit=len(dataset_children), client=Dataportal(transport=wired)
+        str(out), limit=len(dataset_children), client=_Registry(transport=wired)
     )
     for line in out.read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
@@ -209,5 +200,5 @@ def test_the_output_directory_is_created(tmp_path, transport, search_response):
     transport.push(_page([], 0))             # contacts
     out = tmp_path / "does" / "not" / "exist" / "catalog.jsonl"
     download_catalog(str(out), limit=1, progress=None,
-                     client=Dataportal(transport=transport))
+                     client=_Registry(transport=transport))
     assert out.exists()

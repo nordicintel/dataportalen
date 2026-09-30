@@ -370,7 +370,7 @@ def test_labels_exist_in_both_languages_for_the_data_themes():
 
 def test_known_values_can_be_scoped_to_one_filter():
     """A flat list of 900+ names does not answer "what can theme= be?"."""
-    from dataportalen import known_values
+    from dataportalen.rdf import known_values
 
     themes = known_values("theme")
     assert "transport" in themes
@@ -383,7 +383,8 @@ def test_known_values_can_be_scoped_to_one_filter():
 
 
 def test_known_values_rejects_an_unknown_filter():
-    from dataportalen import QueryError, known_values
+    from dataportalen import QueryError
+    from dataportalen.rdf import known_values
 
     with pytest.raises(QueryError) as info:
         known_values("themes")
@@ -391,8 +392,7 @@ def test_known_values_rejects_an_unknown_filter():
 
 
 def test_publisher_for_is_the_reverse_of_the_filter_value():
-    from dataportalen import known_publishers
-    from dataportalen.rdf import publisher_for, resolve_publisher
+    from dataportalen.rdf import known_publishers, publisher_for, resolve_publisher
 
     uri = resolve_publisher("trafikverket")[0]
     assert publisher_for(uri) == "trafikverket"

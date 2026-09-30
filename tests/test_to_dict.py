@@ -12,8 +12,7 @@ import json
 import pytest
 
 from conftest import load_fixture
-from dataportalen import Dataset
-from dataportalen.models import Distribution, wrap_entry
+from dataportalen.models import Dataset, Distribution, wrap_entry
 
 
 @pytest.fixture
@@ -160,7 +159,7 @@ def test_to_rdf_dict_uses_curie_keys(dataset):
 
 def test_search_page_serializes_whole(client, transport, search_response):
     transport.push(search_response)
-    page = client.search()
+    page = client._search()
     out = page.to_dict()
     json.dumps(out, ensure_ascii=False)
     assert out["total"] == search_response["results"]

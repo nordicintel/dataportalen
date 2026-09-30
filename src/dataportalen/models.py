@@ -44,15 +44,11 @@ from .rdf import (
     SCHEMA,
     SKOS,
     SPDX,
-    STATS,
     VCARD,
     Graph,
     Resource,
     expand,
-    known_publishers,
-    publisher_for,
     slug_for,
-    slugify,
 )
 
 __all__ = [
@@ -60,13 +56,8 @@ __all__ = [
     "Dataset",
     "Distribution",
     "DataService",
-    "Catalog",
     "Agent",
     "ContactPoint",
-    "LinkCheckReport",
-    "MetadataQuality",
-    "CatalogStatistics",
-    "Publisher",
     "ValueCount",
     "PeriodOfTime",
     "Breakdown",
@@ -139,14 +130,8 @@ def _iso(value: Any) -> Optional[str]:
 _TYPE_PRIORITY = [
     DCAT.DatasetSeries,
     DCAT.Dataset,
-    DCAT.Catalog,
     DCAT.DataService,
     DCAT.Distribution,
-    STATS.CatalogStatistics,
-    ESCAPE.LinkCheckReport,
-    ESCAPE.MQATotal,
-    ESCAPE.MQA,
-    DCTERMS.Standard,
     FOAF.Organization,
     FOAF.Agent,
 ]
@@ -1226,295 +1211,6 @@ class Dataset(Entry):
         return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
 
 
-class Catalog(Entry):
-    """``dcat:Catalog`` -- one harvested organisation's catalog."""
-
-    rdf_types = (DCAT.Catalog,)
-
-    @property
-    def publisher_uri(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.publisher)
-
-    @property
-    def homepage(self) -> Optional[str]:
-        """``foaf:homepage``, falling back to ``foaf:page``."""
-        return self.resource.uri_of(FOAF.homepage) or self.resource.uri_of(FOAF.page)
-
-    @property
-    def page_uris(self) -> List[str]:
-        return self.resource.uris(FOAF.page)
-
-    @property
-    def dataset_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.dataset)
-
-    @property
-    def service_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.service)
-
-    @property
-    def theme_taxonomy_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.themeTaxonomy)
-
-    @property
-    def language_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.language)
-
-    @property
-    def license(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.license)
-
-    @property
-    def issued(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.issued)
-
-    @property
-    def modified_date(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.modified)
-
-    def publisher(self) -> Optional[Agent]:
-        uri = self.publisher_uri
-        if not uri:
-            return None
-        found = self.fetch(uri)
-        return found.as_(Agent) if found else None
-
-    def datasets(self, limit: Optional[int] = None) -> List[Dataset]:
-        """Datasets in this catalog's context (one search request per page)."""
-        client = self._require_client()
-        if self.context_id is None:
-            return [e.as_(Dataset) for e in self.fetch_many(self.dataset_uris[:limit])]
-        return list(client.datasets_in_context(self.context_id, limit=limit))
-
-    def to_dict(self):
-        return dict(self._envelope_dict(), **{
-            "title": self._text(self.titles),
-            "description": self._text(self.descriptions),
-            "publisher": self._publisher_dict(),
-            "homepage": self.homepage,
-            "languages": self._terms(self.language_uris),
-            "license": self._term(self.license),
-            "theme_taxonomies": self.theme_taxonomy_uris,
-            "dataset_uris": self.dataset_uris,
-            "service_uris": self.service_uris,
-            "issued": _iso(self.issued),
-            "modified": _iso(self.modified_date),
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Catalog %r ctx=%s>" % (self.title, self.context_id)
-
-
-class LinkCheckReport(Entry):
-    """``escape:LinkCheckReport`` -- the nightly link check for one catalog.
-
-    The registry follows every distribution's access and download URLs and
-    records how many of them answered.
-    """
-
-    rdf_types = (ESCAPE.LinkCheckReport,)
-
-    @property
-    def checked(self) -> Optional[int]:
-        """How many links were checked."""
-        return self.resource.integer(ESCAPE.linkChecks)
-
-    @property
-    def failed(self) -> Optional[int]:
-        """How many links did not answer."""
-        return self.resource.integer(ESCAPE.failedLinkChecks)
-
-    @property
-    def excluded(self) -> Optional[int]:
-        """How many links were skipped (e.g. an unsupported scheme)."""
-        return self.resource.integer(ESCAPE.excludedLinkChecks)
-
-    @property
-    def succeeded(self) -> Optional[int]:
-        checked, failed = self.checked, self.failed
-        if checked is None or failed is None:
-            return None
-        return checked - failed
-
-    @property
-    def run_at(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.created)
-
-    def to_dict(self):
-        return dict(self._envelope_dict(), **{
-            "checked": self.checked,
-            "succeeded": self.succeeded,
-            "failed": self.failed,
-            "excluded": self.excluded,
-            "run_at": _iso(self.run_at),
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<LinkCheckReport ctx=%s %s/%s ok>" % (
-            self.context_id, self.succeeded, self.checked,
-        )
-
-
-class MetadataQuality(Entry):
-    """``escape:MQA`` -- a catalog's metadata quality assessment.
-
-    The registry scores each catalog against the DCAT-AP MQA methodology;
-    ``escape:MQATotal`` carries the same fields for the whole repository.
-    """
-
-    rdf_types = (ESCAPE.MQA, ESCAPE.MQATotal)
-
-    @property
-    def score(self) -> Optional[int]:
-        """Points scored (the MQA scale tops out at 405)."""
-        return self.resource.integer(ESCAPE.score)
-
-    @property
-    def percentage(self) -> Optional[float]:
-        value = self.resource.python(ESCAPE.percentage)
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @property
-    def rating(self) -> Optional[float]:
-        value = self.resource.python(ESCAPE.rating)
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @property
-    def succeeded(self) -> Optional[bool]:
-        return self.resource.boolean(ESCAPE.success)
-
-    @property
-    def is_total(self) -> bool:
-        """Whether this is the repository-wide total rather than one catalog."""
-        return self.resource.is_a(ESCAPE.MQATotal)
-
-    @property
-    def assessed_at(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.modified)
-
-    def to_dict(self):
-        return dict(self._envelope_dict(), **{
-            "title": self._text(self.titles),
-            "score": self.score,
-            "percentage": self.percentage,
-            "rating": self.rating,
-            "succeeded": self.succeeded,
-            "is_total": self.is_total,
-            "assessed_at": _iso(self.assessed_at),
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<MetadataQuality %r %s%%>" % (self.title, self.percentage)
-
-
-class CatalogStatistics(Entry):
-    """``stats:CatalogStatistics`` -- one day's registry-wide snapshot."""
-
-    rdf_types = (STATS.CatalogStatistics,)
-
-    _PREFIX = STATS + "datasets_in_context_"
-
-    @property
-    def date(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.date)
-
-    @property
-    def datasets_per_context(self) -> Dict[str, int]:
-        """``{contextId: dataset count}`` for that day.
-
-        Context ids map to organisations through
-        :meth:`Dataportal.context_names` or a harvest report's ``context_id``.
-        Keys that are not plain context ids are skipped; see
-        :attr:`datasets_per_context_raw` for everything the server sent.
-        """
-        return {
-            key: count
-            for key, count in self.datasets_per_context_raw.items()
-            if key.isdigit()
-        }
-
-    @property
-    def datasets_per_context_raw(self) -> Dict[str, int]:
-        """Every ``datasets_in_context_*`` counter, keyed by the raw suffix.
-
-        The registry occasionally emits a compound suffix rather than a bare
-        context id, so this is the unfiltered view.
-        """
-        out: Dict[str, int] = {}
-        for predicate in self.resource.predicates():
-            if predicate.startswith(self._PREFIX):
-                count = self.resource.integer(predicate)
-                if count is not None:
-                    out[predicate[len(self._PREFIX):]] = count
-        return out
-
-    def _stat(self, local: str) -> Optional[int]:
-        return self.resource.integer(STATS + local)
-
-    @property
-    def dataset_count(self) -> Optional[int]:
-        """Datasets stored in this registry (``residentDatasetCount``)."""
-        return self._stat("residentDatasetCount")
-
-    @property
-    def public_dataset_count(self) -> Optional[int]:
-        return self._stat("residentPublicDatasetCount")
-
-    @property
-    def other_dataset_count(self) -> Optional[int]:
-        return self._stat("otherDatasetCount")
-
-    @property
-    def psi_dataset_count(self) -> Optional[int]:
-        """Datasets from public-sector (PSI) organisations."""
-        return self._stat("psiDatasetCount")
-
-    @property
-    def psi_dcat_count(self) -> Optional[int]:
-        return self._stat("psiDcat")
-
-    @property
-    def psi_page_count(self) -> Optional[int]:
-        return self._stat("psiPage")
-
-    @property
-    def psi_page_and_dcat_count(self) -> Optional[int]:
-        return self._stat("psiPageAndDcat")
-
-    @property
-    def psi_failed_count(self) -> Optional[int]:
-        return self._stat("psiFailed")
-
-    @property
-    def other_dcat_count(self) -> Optional[int]:
-        return self._stat("otherDcat")
-
-    def to_dict(self):
-        return dict(self._envelope_dict(), **{
-            "date": _iso(self.date),
-            "dataset_count": self.dataset_count,
-            "public_dataset_count": self.public_dataset_count,
-            "other_dataset_count": self.other_dataset_count,
-            "psi_dataset_count": self.psi_dataset_count,
-            "datasets_per_context": self.datasets_per_context,
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<CatalogStatistics %s datasets=%s>" % (self.date, self.dataset_count)
-
-
-def _known_publisher(name: str) -> Optional[str]:
-    """A name-derived filter value, but only if it really resolves."""
-    slug = slugify(name)
-    return slug if slug and slug in known_publishers(slug) else None
-
-
 class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     """One value a filter accepts, and how many datasets carry it.
 
@@ -1525,41 +1221,6 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     """
 
     __slots__ = ()
-
-
-class Publisher:
-    """A publisher, how many datasets it has, and how to filter on it.
-
-    ``publisher`` is the value to pass to
-    :meth:`~dataportalen.Dataportal.datasets`, so a listing leads straight
-    into a search::
-
-        for org in dp.publishers()[:5]:
-            print(org.dataset_count, org.publisher)
-            dp.datasets(publisher=org.publisher)
-
-    It is ``None`` for the handful of publishers that are in the chart but not
-    in the package's table, which are then only reachable by URI.
-    """
-
-    __slots__ = ("uri", "name", "dataset_count", "publisher")
-
-    def __init__(self, uri: str, name: str, dataset_count: int) -> None:
-        self.uri = uri
-        self.name = name
-        self.dataset_count = dataset_count
-        self.publisher = publisher_for(uri) or _known_publisher(name)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "publisher": self.publisher,
-            "name": self.name,
-            "dataset_count": self.dataset_count,
-            "uri": self.uri,
-        }
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Publisher %r datasets=%d>" % (self.name, self.dataset_count)
 
 
 # --- search results ---------------------------------------------------------
@@ -1795,7 +1456,7 @@ class SearchPage(_ABCSequence):
             return None
         params = dict(self._params)
         params["offset"] = self.offset + len(self.entries)
-        return self._client.search(**params)
+        return self._client._search(**params)
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<SearchPage %d-%d of ~%d>" % (
@@ -1821,12 +1482,8 @@ for _model in (
     Dataset,
     Distribution,
     DataService,
-    Catalog,
     Agent,
     ContactPoint,
-    LinkCheckReport,
-    MetadataQuality,
-    CatalogStatistics,
 ):
     register_model(_model)
 

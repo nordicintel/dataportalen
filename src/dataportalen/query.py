@@ -4,7 +4,7 @@ The registry exposes a Solr index; queries are strings in Lucene syntax with
 some awkward escaping rules (every colon inside a URI must be backslashed).
 :class:`Q` hides that:
 
-    >>> from dataportalen import Q
+    >>> from dataportalen.query import Q
     >>> from dataportalen.rdf import DCAT
     >>> str(Q.rdf_type(DCAT.Dataset) & Q.public())
     'rdfType:http\\\\:\\\\/\\\\/www.w3.org\\\\/ns\\\\/dcat#Dataset AND public:true'
