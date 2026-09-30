@@ -1,6 +1,7 @@
 # Internals
 
-For working on the package. Using it is covered in [guide.md](guide.md).
+For working on the package. Using it is [guide.md](guide.md), and every method,
+filter and record key is in [reference.md](reference.md).
 
 1. [Where the short values come from](#where-the-short-values-come-from)
 2. [Label coverage](#label-coverage)
@@ -122,13 +123,14 @@ Six modules; callers import from the package root.
 | `models.py` | `Dataset`, `DataService`, `Distribution`, `Agent` and friends, `to_dict()`, and the result types |
 | `query.py` | the `Q` Solr query builder |
 | `client.py` | `Catalog` (the whole public surface), `_Registry` (HTTP and Solr), the download |
-| `__init__.py` | 18 exports, and nothing else |
+| `__init__.py` | 19 exports, and nothing else |
 
 ### Public and internal
 
 `Catalog` is the public surface: `datasets()`, `data_services()`, `filters()`,
 `get()`, `info()`, `close()`. Five methods where 0.6.0 had 32 on `Dataportal`
-plus 7 on `LocalCatalog`.
+plus 7 on `LocalCatalog`. Plus `text()`, `default_catalog_path()` and the
+result types -- see [reference.md](reference.md#everything-exported).
 
 Everything that talks to the registry sits behind `_Registry`, and the RDF layer
 -- `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` -- is internal but very much
@@ -182,39 +184,6 @@ One asymmetry worth knowing if you join the two types: `servedByDataService`
 appears on **29% of datasets** while `servesDataset` appears on **8% of data
 services**. The link is recorded far more often from the dataset side.
 
-### Which filters each type supports
-
-Measured by crawling every metadata graph of both types -- all 23,576 datasets
-and all 599 data services -- and counting predicates. Nothing was sampled.
-
-Datasets take eleven, at these fill rates: `publisher`, `license` and
-`publisher_type` 100%, `keyword` 94.8%, `language` 89.3%, `access_rights`
-82.3%, `theme` 78.2%, `format` 69.7%, `updated` 63.3%, `creator` 30.1%, `place`
-23.6%. Plus `text` and the date pair (`modified` 89.1%, `issued` 42.1%).
-
-Data services take eight -- `access_rights` 97.8%, `publisher` 97.3%,
-`publisher_type`, `keyword` 83.5%, `service_type` 55.9%, `theme` 53.8%,
-`license` 51.8%, `creator`, plus `text` -- and **refuse** four with an error
-naming the ones that work: `format` and `updated` are entirely absent from the
-599, `place` is on 7.8% and `language` has one single value across all of them.
-No date filters either: `modified` 7.5%, `issued` 0.8%.
-
-Rejected for datasets, each with the number that rejected it:
-`qualifiedAttribution` 28.7% and `provenance` 28.6% (free text, not values),
-`temporal` 19% (a range, so it stays a field), `conformsTo` 3.6%, `subject`
-2.1%, `hvdCategory` 1.5% with 11 clean values, `applicableLegislation` 1.5%
-with **one** distinct value, and `dataQuality`/`byteSize`/`version` under 1%.
-Nothing above 30% fill was left out.
-
-The raw-to-slug collapse is where the vocabulary earns its keep: `theme` has 530
-distinct URIs in the wild collapsing to 31 slugs, `language` 67 to 2, `place`
-2,704 to 542.
-
-`service_type` comes from `dcterms:type`: `rest` 288 (the Wikidata term),
-`view_service` 31, `download_service` 14, `transformation_service` 1,
-`discovery_service` 1 -- the last four INSPIRE. All of them already had slugs in
-`vocabulary.json`, INSPIRE themes included.
-
 ### Where each call goes
 
 Everything but one reads the file. `datasets()`, `data_services()`, `filters()`,
@@ -240,6 +209,21 @@ A value that the vocabulary table does not know but the file does contain --
 falls back to what the catalogue actually holds, so everything a breakdown
 reports can be filtered on. A value that is neither known nor present is
 still an error, with suggestions.
+
+### Two things that will bite
+
+**A local filter matches its value exactly when the file contains it.** Only
+then does it fall back to vocabulary expansion. That ordering is load-bearing:
+`json` also resolves to `application/json+zip`, whose own slug is
+`json_in_a_zip`, so expanding first made `format="json"` return 14,173 where the
+breakdown said 14,119 -- and the breakdown's counts stopped agreeing with the
+searches its values produce. `tests/test_filters.py` round-trips every value of
+every filter, which is the invariant to keep.
+
+**An organisation's slug comes from the URI table first and its own name
+second.** Dropping the fallback silently loses 13 of the 365 publishers and 98
+of the 146 creators, because they mint URIs the table never saw. Dropping the
+table and using only names would break every slug users have written down.
 
 ## Development
 
@@ -284,7 +268,7 @@ them overturned a guess.
 
 | Fact | Value |
 | --- | --- |
-| Datasets / data services / distributions | 23,576 / 599 / 34,916 |
+| Datasets / data services / distributions | 23,576 / 599 / 35,133 in the file |
 | Full download | 673 requests, ~7 minutes, 64 MiB |
 | Loading the file | ~1.3 s |
 | A filtered search | 0.02-0.06 s |

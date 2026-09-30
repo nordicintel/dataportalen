@@ -1,22 +1,20 @@
 # Guide
 
-Everything here is ordinary Python. You ask for datasets, you get dictionaries.
+How to use it, in the order you run into things. Every method, filter and
+record key is listed in [reference.md](reference.md); this page is the part
+worth reading once.
 
-1. [Start](#start)
-2. [Find datasets](#find-datasets)
-3. [Narrow the search](#narrow-the-search)
-4. [Filter by date](#filter-by-date)
-5. [What you can filter by](#what-you-can-filter-by)
-6. [What a result is made of](#what-a-result-is-made-of)
-7. [How much comes back](#how-much-comes-back)
-8. [What a dataset looks like](#what-a-dataset-looks-like)
-9. [Data services](#data-services)
-10. [One record at a time](#one-record-at-a-time)
-11. [The file](#the-file)
-12. [Settings](#settings)
-13. [When something goes wrong](#when-something-goes-wrong)
+1. [The first run](#the-first-run)
+2. [Searching](#searching)
+3. [Finding out what you can filter by](#finding-out-what-you-can-filter-by)
+4. [Reading a result](#reading-a-result)
+5. [Data services](#data-services)
+6. [Recipes](#recipes)
+7. [What it does not do](#what-it-does-not-do)
+8. [Why it works this way](#why-it-works-this-way)
+9. [When something goes wrong](#when-something-goes-wrong)
 
-## Start
+## The first run
 
 ```python
 from dataportalen import Catalog
@@ -24,131 +22,126 @@ from dataportalen import Catalog
 cat = Catalog()
 ```
 
-That first line downloads the catalogue — about seven minutes and 64 MB, once
-— and every search after that runs against the copy on disk, in hundredths of
-a second.
+**That takes about seven minutes the first time** and writes 64 MB to disk. Do
+it deliberately rather than inside something you expect to be quick — it prints
+a progress line, so it never looks like a hang.
 
-**The copy is how this package works.** It is built that way because the
-registry is slow in a way you cannot work around: it caps a page at 100
-entries and answers about two requests a second no matter how many you have in
-flight. Reading anything substantial over the API takes minutes every time.
-Reading it once takes minutes once.
+Every search after that is local: hundredths of a second, no network, works on
+a plane. That is the whole design, and [why](#why-it-works-this-way) is worth
+two minutes if anything about it surprises you.
 
-The file holds every dataset and every data service, each with its
-distributions, publisher, creators and contacts already nested. Searching,
-counting and every breakdown come from it without touching the network.
+The file goes in the usual cache directory — `%LOCALAPPDATA%\dataportalen\` on
+Windows, `~/.cache/dataportalen/` elsewhere — so one copy serves every project
+and nothing lands in a repository.
 
-There is one exception, and you have to ask for it:
-[`get(uri, format="turtle")`](#one-record-at-a-time) fetches an entry's raw RDF
-from the registry, because that is not in the file.
+```python
+cat.info()
+# {'path': 'C:\\Users\\you\\AppData\\Local\\dataportalen\\catalog.jsonl',
+#  'downloaded': '2026-09-30T03:17:40', 'age_days': 0, 'stale': False,
+#  'bytes': 67527943, 'datasets': 23576, 'data_services': 599,
+#  'publishers': 356}
+```
 
-## Find datasets
+**Nothing is ever downloaded behind a call that looked like a search.** When the
+file may be rewritten is something you say when you build the `Catalog`:
+
+```python
+Catalog(refresh="if_missing")   # the default: fetch it once, then leave it
+Catalog(refresh="if_stale")     # also refresh when it is over a week old
+Catalog(refresh="always")       # refresh now
+Catalog(refresh="never")        # never fetch; raise if the file is not there
+Catalog("my-copy.jsonl")        # somewhere of your own
+```
+
+The registry re-harvests nightly, so after a week you get a warning telling you
+how old your copy is. It is still used — a script that answered in a second
+yesterday should not block for seven minutes today. `cat.info()["stale"]` is
+the same fact without the log.
+
+`refresh="never"` is what you want in CI, or anywhere that must not reach the
+network.
+
+## Searching
 
 ```python
 from dataportalen import text
 
 page = cat.datasets(text="cykel")
 
-print(page.total)          # 388 — how many matched
+page.total                                 # 388 — how many matched
 for dataset in page:
     print(text(dataset["title"]))
 ```
 
-It is an ordinary list, so it slices, and it goes straight into anything that
-takes records:
+`page` is an ordinary list of dictionaries that also knows its own total, so it
+slices and goes straight into anything that takes records.
+
+**Filters combine, and all of them have to match:**
 
 ```python
-import pandas
-pandas.DataFrame(cat.datasets(theme="transport", limit=None))
+cat.datasets(theme="transport", format="csv", publisher="trafikverket")
 ```
 
-`limit` defaults to 50 so a stray search cannot print twenty thousand
-dictionaries. `limit=None` gives you everything that matched, and `limit=0`
-gives you the count and the breakdown with no rows at all.
-
-## Narrow the search
-
-Add any of these. They combine, so all of them have to match:
+Values are short and lowercase; you never type a web address. There are eleven,
+and [reference.md](reference.md#dataset-filters) lists each with how much of the
+corpus it covers. The ones you will reach for:
 
 ```python
-page = cat.datasets(theme="transport", format="csv", publisher="trafikverket")
+cat.datasets(text="cykel")                     # title, description, keywords
+cat.datasets(publisher="trafikverket")         # who put it on the portal
+cat.datasets(creator="statistikmyndigheten_scb_statistiska_centralbyran")
+cat.datasets(theme="transport")                # the subject
+cat.datasets(format="csv")                     # a format you can download
+cat.datasets(keyword="geodata")                # the publisher's own tags
+cat.datasets(updated_after="2024-01-01")       # changed since
 ```
 
-Values are short and lowercase. You never type a web address.
+`publisher` and `creator` are different questions — the publisher put it on the
+portal, the creator produced the data. Statistikmyndigheten SCB is the creator
+of 3,807 datasets that others publish.
 
-| Filter | What it matches | On how many datasets |
-| --- | --- | --- |
-| `text="cykel"` | anywhere in the title, description or keywords, either language | — |
-| `publisher="trafikverket"` | the organisation that put it on the portal | 100% |
-| `license="cc_by_4_0"` | the licence it is released under | 100% |
-| `keyword="geodata"` | one of the keywords the publisher attached | 94.8% |
-| `language="swedish"` | the language of the data itself | 89.3% |
-| `access_rights="public"` | whether it is open to everyone | 82.3% |
-| `theme="transport"` | the subject it is filed under | 78.2% |
-| `format="csv"` | a format you can download it in | 69.7% |
-| `updated="annual"` | how often the publisher refreshes it | 63.3% |
-| `publisher_type="local_authority"` | what kind of organisation published it | 100% |
-| `creator="statistikmyndigheten_scb"` | the organisation that produced the data | 30.1% |
-| `place="kingdom_of_sweden"` | the area it covers | 23.6% |
-
-The percentages are measured over all 23,576 datasets, and they are the reason
-this list is this list — nothing rarer got in. A filter with no value on a
-dataset simply does not match it.
-
-**`publisher` and `creator` are different questions.** The publisher put it on
-the portal; the creator produced the data. Most datasets name only a
-publisher, but where both are there they often differ — Statistikmyndigheten
-SCB is the creator of 3,807 datasets published by others.
-
-Give a list instead of one value and any of them will do:
+A list means any of them will do:
 
 ```python
-cat.datasets(format=["csv", "xlsx"])        # either format
-cat.datasets(keyword=["geodata", "trafik"]) # but keywords must all be present
+cat.datasets(format=["csv", "xlsx"])           # either format
+cat.datasets(keyword=["geodata", "trafik"])    # but keywords must all match
 ```
 
-`language` is `swedish` or `english` and nothing else. The registry holds 67
-distinct values in that field, but 65 of them cover about 106 datasets between
-them — language corpora and multilingual dictionaries. They are still on each
-dataset's own `languages` list; they are just not worth a filter.
-
-## Filter by date
+**How much comes back.** There are no pages. A search scans the file and `limit`
+says how much of the result you want to hold:
 
 ```python
-cat.datasets(updated_after="2024-01-01")
+cat.datasets(theme="transport")               # the first 50 (the default)
+cat.datasets(theme="transport", limit=None)   # all 545
+cat.datasets(theme="transport", limit=10, offset=100)
+cat.datasets(theme="transport", limit=0)      # the count and breakdown, no rows
 ```
 
-| Filter | Which date | Present on |
-| --- | --- | --- |
-| `updated_after`, `updated_before` | when the publisher last changed the data | 89.1% |
-| `published_after`, `published_before` | when the publisher first released it | 42.1% |
+`page.total` is exactly how many matched — not an estimate — and that last line
+is how you count things:
 
-Write the date however is convenient — `"2024-01-01"`, `"2024-01"`, `"2024"`,
-or Python's own `date` and `datetime` objects.
+```python
+cat.datasets(publisher="trafikverket", limit=0).total     # 338
+```
 
-Both dates are the publisher's. The registry also records when it last copied a
-dataset in, but it does that nightly for nearly everything, so filtering on it
-would tell you about the registry's schedule rather than about the data. It is
-deliberately not offered.
-
-## What you can filter by
+## Finding out what you can filter by
 
 `cat.filters()` is the one thing a search cannot tell you: the options, with
 counts, before you search.
 
 ```python
 for row in cat.filters()["publisher"][:3]:
-    print(row.dataset_count, row.value, "-", row.label["sv"])
+    print(row.dataset_count, row.value, "-", text(row.label))
 ```
 
 ```text
 5863 radet_for_framjande_av_kommunala_analyser_kolada - Rådet för främjande av kommunala analyser - Kolada
-4306 statistikmyndigheten_scb_statistiska_centralbyran - Statistikmyndigheten SCB
+4306 statistikmyndigheten_scb_statistiska_centralbyran - Statistikmyndigheten SCB - Statistiska centralbyrån
 2246 goteborgs_universitet - Göteborgs universitet
 ```
 
 `row.value` is what you filter with, `row.label` is what you show a person, and
-`row.dataset_count` is how many there are. A row is still a plain
+`row.dataset_count` is how many there are. A row is also a plain
 `(value, count)` pair, so it unpacks in a loop.
 
 ```python
@@ -157,8 +150,12 @@ list(cat.filters())
 #  'format', 'license', 'access_rights', 'updated', 'language', 'place']
 ```
 
-Some of these lists are long — 23,371 distinct keywords, 542 places. Cap them,
-and what was cut is counted rather than dropped quietly:
+**Every value round-trips.** `cat.datasets(theme=value, limit=0).total` is
+exactly the count the row claimed, for every filter and every value. That is
+tested, not hoped.
+
+Some lists are long — 23,371 distinct keywords, 542 places. Cap them, and what
+was cut is counted rather than dropped quietly:
 
 ```python
 options = cat.filters(limit=10)
@@ -167,200 +164,107 @@ options["keyword"].omitted   # 23361
 options.omitted              # {'keyword': 23361, 'place': 532, ...}
 ```
 
-It reads the whole catalogue, which takes about half a second. If you already
-have a result in hand, its own breakdown is free — see next.
+Reading the whole catalogue takes about half a second. If you already have a
+result in hand its own breakdown is free, and it is the same structure counted
+over **what matched** rather than over everything:
 
-And if you just guess a value, the error corrects you:
+```python
+page = cat.datasets(text="cykel")
+page.breakdown["publisher"]       # [('kolada', 213), ('trafikverket', 51), ...]
+page.breakdown["theme"]           # [('population_and_society', 233), ...]
+page.breakdown.top("format")      # the commonest value
+page.breakdown.to_dict()          # {filter: {value: count}}, for JSON
+```
+
+So one structure answers both "what can I filter by?" and "what is in this
+result?", and every value in it narrows the search you already have.
+
+If you guess a value, the error corrects you:
 
 ```python
 cat.datasets(theme="transprot")
 # QueryError: unknown theme 'transprot'. Did you mean: transport?
 ```
 
-## What a result is made of
+## Reading a result
 
-Every search comes back knowing what it matched. `page.breakdown` is the same
-structure `filters()` gives you, counted over **everything that matched** —
-not just the rows you are holding:
+Every result is the same dictionary.
+[reference.md](reference.md#a-dataset-record) lists all 22 keys with how often
+each is filled. Four things are worth knowing before you write any of it down.
 
-```python
-page = cat.datasets(text="cykel")
-page.total                        # 388
+**Text is a map of languages, always.** `{"sv": ...}`, `{"en": ...}`, or both. A
+key is there only when that language is: 53% of datasets are Swedish only, 36%
+carry both, 10% are English only.
 
-page.breakdown["publisher"]       # [('kolada', 213), ('trafikverket', 51), ...]
-page.breakdown["theme"]           # [('population_and_society', 233), ...]
-page.breakdown["format"]          # [('json', 246), ('html', 51), ...]
-page.breakdown["access_rights"]   # [('public', 366), ...]
-```
-
-Every value goes straight back in to narrow the search:
-
-```python
-cat.datasets(text="cykel", publisher="trafikverket")
-```
-
-So one structure answers both "what can I filter by?" and "what is in this
-result?". Counts are per dataset — one with three CSV files counts once under
-`format` → `csv`.
-
-```python
-page.breakdown.to_dict()      # {filter: {value: count}}, for JSON
-page.breakdown.top("theme")   # the commonest value
-```
-
-`breakdown_limit=` caps each list, exactly as `filters(limit=)` does.
-
-## How much comes back
-
-There are no pages. A search scans the file and `limit` says how much of the
-result you want to hold:
-
-```python
-cat.datasets(theme="transport")              # the first 50
-cat.datasets(theme="transport", limit=None)  # all 545
-cat.datasets(theme="transport", limit=10, offset=100)
-cat.datasets(theme="transport", limit=0)     # the count and breakdown, no rows
-```
-
-`page.total` is how many matched and `page.has_more` says whether you are
-holding all of them. `total` is exact, not an estimate, and the file does not
-move while you read it.
-
-That last line is how you count things:
-
-```python
-cat.datasets(publisher="trafikverket", limit=0).total   # 338
-```
-
-## What a dataset looks like
-
-Every result, and everything `get()` returns, is the same dictionary:
-
-```json
-{
-  "uri": "https://example.org/data/roads",
-  "type": "dataset",
-  "context_id": "50",
-  "entry_id": "28672",
-
-  "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
-  "description": {"sv": "Nationell vägdatabas ..."},
-  "keywords": {"sv": ["vägnät", "trafik"], "en": ["road network"]},
-  "identifier": "NVDB-2020",
-  "landing_page": "https://example.org/roads",
-
-  "themes": ["transport"],
-  "license": "cc_by_4_0",
-  "access_rights": "public",
-  "accrual_periodicity": "annual",
-  "languages": ["swedish"],
-  "spatial": ["kingdom_of_sweden"],
-
-  "issued": "2020-03-04",
-  "modified": "2024-05-06T09:00:00+02:00",
-  "temporal": {"start": "2015-01-01", "end": "2024-12-31"},
-
-  "publisher": {
-    "name": {"sv": "Trafikverket"},
-    "type": "national_authority",
-    "identifiers": ["2021006297"],
-    "email": "data@trafikverket.se",
-    "homepage": "https://trafikverket.se",
-    "uri": "http://dataportal.se/organisation/SE2021006297",
-    "context_id": "1", "entry_id": "5"
-  },
-  "creators": [{"name": {"sv": "Trafikverket"}, "type": "national_authority",
-                "uri": "http://dataportal.se/organisation/SE2021006297"}],
-  "contact_points": [{"name": "Datasupport", "email": "data@example.org"}],
-
-  "distributions": [
-    {"title": {"sv": "Vägnät CSV"},
-     "download_url": ["https://...csv"],
-     "access_url": [],
-     "format": "csv",
-     "license": "cc_by_4_0",
-     "availability": "stable"}
-  ]
-}
-```
-
-Four things worth knowing.
-
-**Text is a map of languages, always.** `{"sv": ...}`, `{"en": ...}`, or both.
-A key is there only when that language is. Over the whole catalogue: 53% of
-datasets are Swedish only, 36% carry both, 10% are English only. There is no
-language setting to get wrong — you get what the publisher wrote, and you pick
-when you read. Anything the registry tagged as undetermined, or in a third
-language, is filed under `"sv"`; it is a Swedish registry.
-
-Because that 10% is real, do not write `record["title"]["sv"]` — it raises for
-one dataset in ten. `text()` takes the best there is:
+So **do not write `record["title"]["sv"]`** — it raises for one dataset in ten.
+`text()` takes the best there is:
 
 ```python
 from dataportalen import text
 
-text(dataset["title"])              # Swedish if there is any, else English
-text(dataset["title"], "en")        # the other way round
-text(dataset["publisher"]["name"])  # works on any of them
+text(dataset["title"])               # Swedish if there is any, else English
+text(dataset["title"], "en")         # the other way round
+text(dataset["publisher"]["name"])   # works on any of them
 ```
 
-It returns `None` for a field with nothing in it, and passes a plain string
-through, so it is safe wherever you are unsure of the shape.
+It returns `None` for a field with nothing in it and passes a plain string
+through, so it is safe wherever you are unsure of the shape. Anything the
+registry tagged as undetermined, or in a third language, is filed under `"sv"` —
+it is a Swedish registry.
 
 **Anything from a fixed list of options is one short English word.** `themes`,
-`license`, `access_rights`, `languages`, `publisher.type` — these come from
-standard vocabularies, and you get `"transport"` rather than the web address
-the registry publishes. The same word works as a filter, which is the point.
-They stay English whatever the text says, because `"annual"` is more useful to
-build on than *årligen*.
+`license`, `access_rights`, `languages`, `publisher["type"]` — these come from
+standard vocabularies, and you get `"transport"` rather than the web address the
+registry publishes. The same word works as a filter, which is the point. They
+stay English whatever the prose says, because `"annual"` is more useful to build
+on than *årligen*.
 
 **The filter is singular, the field is plural.** You search `theme="transport"`
-and read `dataset["themes"]`. Four differ this way:
-
-| Filter | Field on the record |
-| --- | --- |
-| `theme=` | `themes` |
-| `language=` | `languages` |
-| `place=` | `spatial` |
-| `updated=` | `accrual_periodicity` |
-
-The rest read as you would guess. A breakdown is keyed by the *filter* name,
+and read `dataset["themes"]`. Four differ this way — `theme`/`themes`,
+`language`/`languages`, `place`/`spatial`, `updated`/`accrual_periodicity`. The
+rest read as you would guess, and a breakdown is keyed by the *filter* name,
 because that is what you feed back in.
 
-**The files live under `distributions`.** One entry per download the publisher
-offers. `download_url` is the file itself; `access_url` is a page or service
-you go through to get it. Both are lists, because publishers give more than one
-often enough that a scalar would lie.
+**The files are under `distributions`, and `access_url` is the one to read.**
 
-Anything the publisher left out is `null` or `[]`, never missing.
+```python
+for dist in dataset["distributions"]:
+    dist["format"]        # 'csv'
+    dist["access_url"]    # a page or service to get it through — nearly all
+    dist["download_url"]  # a direct file link — only 7.4% have one
+```
+
+Both are lists, because publishers give more than one often enough that a scalar
+would lie. Of 35,133 distributions, 32,536 carry **only** `access_url` and 2,592
+carry both; none carries `download_url` alone. Reading only `download_url` would
+miss nine files in ten.
+
+Anything the publisher left out is `null` or `[]`, never missing — a key is
+always there, so you never need `.get()`.
 
 ## Data services
 
-The registry holds 599 `dcat:DataService` entries — APIs rather than files.
-They are in the same file, and search the same way:
+The registry holds 599 `dcat:DataService` entries — APIs rather than files. They
+are in the same file and search the same way:
 
 ```python
-from dataportalen import text
-
-page = cat.data_services(service_type="view_service")
-for service in page:
+for service in cat.data_services(service_type="view_service", limit=2):
     print(text(service["title"]), service["endpoint_url"])
 ```
 
-A record looks like a dataset's, minus what a service does not have and plus
-what it does:
-
-```python
-service["service_type"]        # 'rest', 'view_service', 'download_service', ...
-service["endpoint_url"]        # where to call it
-service["serves_dataset_uris"] # which datasets it serves
-service["conforms_to"]         # the specification it follows, where declared
+```text
+Railway Transport Network - View Service (INSPIRE) http://geo-inspire.trafikverket.se/...
+Road Transport Network - View Service (INSPIRE)    http://geo-inspire.trafikverket.se/...
 ```
 
-`service_type` takes `rest` (288 of them), `view_service` (31),
+`service_type` is `rest` (288 of them), `view_service` (31),
 `download_service` (14), `transformation_service` and `discovery_service` (one
 each). The last four are INSPIRE spatial service types, so that is how you find
-the WMS endpoints.
+WMS endpoints.
+
+A record looks like a dataset's, minus what a service does not have and plus
+what it does: `endpoint_url`, `serves_dataset_uris`, `conforms_to`, and no
+`distributions`.
 
 **Four filters do not apply, and saying so is the point:**
 
@@ -372,131 +276,131 @@ cat.data_services(format="csv")
 ```
 
 A data service has no distributions, so no `format`; no accrual periodicity, so
-no `updated`; `place` is set on 8% of the 599 and `language` has a single value
-across all of them. The date filters are out for the same reason — `modified`
-is on 7.5% and `issued` on 0.8%. Returning zero rows instead would read as "no
-CSV APIs" when the truth is "wrong question".
+no `updated`; `place` is set on 8% of the 599 and `language` has one single value
+across all of them. The date filters are out for the same reason. Coming back
+with zero rows instead would read as "no CSV APIs" when the truth is "wrong
+question".
 
-Its breakdown carries the eight keys it has, not empty lists for the four it
-does not:
+## Recipes
 
-```python
-cat.data_services(limit=0).breakdown["service_type"]
-```
-
-## One record at a time
+**Every CSV in a theme, with somewhere to get it**
 
 ```python
-cat.get("https://catalog.skane.se/rowstore/dataset/9f0e...")
+for dataset in cat.datasets(theme="transport", format="csv", limit=None):
+    for dist in dataset["distributions"]:
+        if dist["format"] == "csv":
+            print(text(dataset["title"]), dist["access_url"])
 ```
 
-That address is the publisher's own identifier — the `uri` field of any result.
-It comes straight out of the file, works for datasets and data services alike,
-and gives you `None` rather than an error when nothing matches.
-
-For the original RDF, which is not in the file, name a format. That is one
-request to the registry:
+**What changed since a date, newest first**
 
 ```python
-cat.get(uri, format="turtle")      # also "rdf/xml", "n-triples", "json-ld",
-                                   # "trig", or any media type
+recent = cat.datasets(updated_after="2026-09-01", limit=None)
+recent.sort(key=lambda r: r["modified"] or "", reverse=True)
 ```
 
-Four of the 23,576 dataset URIs are shared by two records, because the same
-dataset was harvested into two catalogues. `get()` returns the first.
+`modified` is the publisher's own date, and 63 of them are in the future. Sort by
+it, but do not trust it as a fact about the world.
 
-## The file
+**Who publishes a subject**
 
 ```python
-cat.info()
+for row in cat.datasets(theme="environment", limit=0).breakdown["publisher"][:3]:
+    print(row.dataset_count, text(row.label))
 ```
+
+```text
+471 Sveriges Lantbruksuniversitet (SLU)
+291 Rådet för främjande av kommunala analyser - Kolada
+246 Statistikmyndigheten SCB - Statistiska centralbyrån
+```
+
+**Into a dataframe**
 
 ```python
-{'path': 'C:\\Users\\you\\AppData\\Local\\dataportalen\\catalog.jsonl',
- 'downloaded': '2026-09-30T03:06:34',
- 'age_days': 0,
- 'stale': False,
- 'bytes': 66805627,
- 'datasets': 23576,
- 'data_services': 599,
- 'publishers': 365}
+import pandas
+frame = pandas.DataFrame(cat.datasets(theme="transport", limit=None))
 ```
 
-It lives in the usual cache directory — `%LOCALAPPDATA%\dataportalen\` on
-Windows, `~/.cache/dataportalen/` elsewhere — so one copy serves every project
-and nothing lands in a repository.
-
-**Everything that writes the file is an argument you pass when you build the
-`Catalog`.** There is no method that quietly replaces 64 MB on disk.
+Nested columns stay nested. One row per file is usually more useful:
 
 ```python
-Catalog("my-copy.jsonl")                    # somewhere else
-Catalog(refresh="if_stale")                 # refresh when it is over a week old
-Catalog(refresh="always")                   # refresh now
-Catalog(refresh="never")                    # never download; raise if missing
-Catalog(stale_after=1)                      # your definition of old
-Catalog(progress=None)                      # no progress line
-Catalog(progress=print)                     # your own progress handler
-Catalog("catalog.jsonl.gz")                 # gzip, from the suffix
+rows = [
+    {"dataset": text(d["title"]),
+     "publisher": text(d["publisher"]["name"]),
+     "format": dist["format"],
+     "url": (dist["access_url"] or [None])[0]}
+    for d in cat.datasets(theme="transport", limit=None)
+    for dist in d["distributions"]
+]
 ```
 
-`refresh="if_missing"` is the default: download it the first time and then
-leave it alone. The registry re-harvests nightly, so after a week you get a
-warning saying how old your copy is — but nothing is re-downloaded on its own,
-because a script that answered in a second yesterday should not block for
-seven minutes today.
+**In CI, or anywhere that must not reach the network**
 
-`refresh="never"` is for a program that must not reach the network: a missing
-file raises instead of fetching.
+```python
+cat = Catalog("catalog.jsonl", refresh="never")
+```
 
-Short names are resolved when the file is written, so a copy also keeps the
-vocabulary of the version that downloaded it. Refresh after upgrading to pick
-up renamed or newly labelled values.
+Cache or commit the file, and a missing one raises instead of spending seven
+minutes. `Catalog("catalog.jsonl.gz")` reads and writes gzip from the suffix,
+which is about a third of the size.
 
-It is ordinary JSONL, so nothing stops you reading it yourself:
+**Read the file yourself**
 
 ```python
 import json
 
-with open(cat.info()["path"], encoding="utf-8") as f:
-    for line in f:
-        record = json.loads(line)          # record["type"] says which kind
+with open(cat.info()["path"], encoding="utf-8") as handle:
+    for line in handle:
+        record = json.loads(line)       # record["type"] says which kind
 ```
 
-## Settings
+It is ordinary JSONL: one record per line, complete on its own, both kinds of
+record in the one file.
 
-All optional:
+## What it does not do
 
-```python
-cat = Catalog(
-    base_url="https://admin.dataportal.se",  # another EntryStore registry
-    transport=None,                          # your own HTTP layer
-    workers=8,                               # parallel requests while downloading
-)
-```
+It reads. There is nothing here that writes to the registry.
 
-To see what it is doing:
+Three things the registry has that this deliberately does not surface, with the
+reason, because they are the likeliest things to go looking for:
 
-```python
-from dataportalen import enable_logging
-enable_logging("DEBUG")     # every request, with status and duration
-```
+- **Catalogues.** 656 are registered and only 157 hold a dataset; of the 152
+  live ones, 127 have exactly one publisher, so a catalogue listing mostly
+  duplicates `publisher`. Where a dataset came in through an aggregator,
+  `record["context_id"]` identifies it.
+- **Agents.** 7,609 exist and 365 publish anything; 4,916 are individual
+  researchers who reach no dataset. `cat.filters()["publisher"]` and
+  `["creator"]` are the ones that matter, and they come with names.
+- **The registry's own reports** — nightly dataset counts, link checks, DCAT-AP
+  quality scores. They describe the registry, not the data.
 
-If your application already configures logging, use it — this package logs to a
-logger named `dataportalen` and never touches your setup:
+For raw RDF, `cat.get(uri, format="turtle")` hands you an entry's graph as text.
+That is the only call that reaches the network after the download.
 
-```python
-import logging
-logging.getLogger("dataportalen").setLevel(logging.DEBUG)
-```
+## Why it works this way
 
-`cat.close()` releases the HTTP connection. You do not have to call it and
-nothing leaks if you don't.
+The registry caps a page at **100 entries** and answers about **two requests a
+second** no matter how many you have in flight — measured at 8, 16 and 32
+workers, all the same. So reading the whole corpus costs about seven minutes
+whenever you do it.
+
+That leaves two designs: pay seven minutes once, or pay a slice of it on every
+question. This package pays once. The consequences are worth knowing:
+
+- Searching, counting and every breakdown are local and immediate. A
+  whole-corpus breakdown over 23,576 datasets takes half a second, which is not
+  something the registry's index can do at all.
+- Your copy is a snapshot. The registry re-harvests nightly, so it drifts, and
+  `cat.info()["stale"]` tells you when it has drifted more than a week.
+- Counts here can differ slightly from dataportal.se. That is what a snapshot
+  means, rather than a bug.
+
+[internals.md](internals.md#what-the-registry-can-do) has the measurements.
 
 ## When something goes wrong
 
-Every error here comes from `DataportalError`, so one `except` catches all of
-them:
+Every error comes from `DataportalError`, so one `except` catches all of them:
 
 ```python
 from dataportalen import DataportalError
@@ -507,20 +411,18 @@ except DataportalError as error:
     print(error)
 ```
 
-When you want to react differently to different failures:
+[reference.md](reference.md#errors) lists each one. The four situations that are
+not really errors:
 
-| Error | Means |
-| --- | --- |
-| `QueryError` | your filters were wrong — usually a value that does not exist, or one that does not apply to what you were searching |
-| `FileNotFoundError` | `refresh="never"` and there is no file |
-| `NotFoundError` | there is no such entry (`get()` gives you `None` instead) |
-| `RateLimitError` | too many requests; it already retried |
-| `TimeoutError` | the registry did not answer in time |
-| `TransportError` | the connection failed |
-| `ServerError` | the registry itself broke |
-| `ParseError` | the registry sent something unreadable |
+**"It is downloading again and I did not ask."** It only does that for
+`refresh="always"`, or `refresh="if_stale"` with a copy over a week old. The
+default never refetches.
 
-One thing that is not a bug here: the registry rebuilds its search index
-nightly, so your copy can be a day behind what a publisher has actually
-published — and a week behind if you have not refreshed it. `cat.info()["stale"]`
-tells you.
+**"My counts differ from dataportal.se."** Your copy is a snapshot; check
+`cat.info()["age_days"]`. Build with `refresh="always"` when you need today's.
+
+**"`KeyError: 'sv'`."** 10% of datasets have no Swedish text. Use `text()`.
+
+**"It came back empty and I expected something."** If the filter does not apply
+to what you searched you get a `QueryError` naming the ones that do, so an empty
+result really is an empty result. Check the value against `cat.filters()`.
