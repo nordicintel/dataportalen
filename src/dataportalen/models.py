@@ -152,6 +152,20 @@ def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
     return found
 
 
+#: The shape a publisher or creator always has, even when there is none. A
+#: record never hands back a bare None where a dict is documented.
+_EMPTY_AGENT = {
+    "uri": None,
+    "context_id": None,
+    "entry_id": None,
+    "name": {},
+    "type": None,
+    "identifiers": [],
+    "email": None,
+    "homepage": None,
+}
+
+
 def _iso(value: Any) -> Optional[str]:
     """A date/datetime as an ISO-8601 string; anything else passed through."""
     if value is None:
@@ -421,11 +435,12 @@ class Entry:
 
     def fetch(self, uri: str) -> Optional["Entry"]:
         """Look up another managed entry by its resource URI."""
-        return self._require_client().lookup(uri)
+        found = self._require_client()._lookup_many([uri])
+        return found[0] if found else None
 
     def fetch_many(self, uris: Sequence[str]) -> List["Entry"]:
         """Look up several managed entries in as few requests as possible."""
-        return self._require_client().lookup_many(uris)
+        return self._require_client()._lookup_many(list(uris))
 
     def reload(self, recursive: bool = True) -> "Entry":
         """Re-fetch this entry, optionally pulling in related entities."""
@@ -502,10 +517,15 @@ class Entry:
         """
         uri = self.resource.uri_of(DCTERMS.publisher)
         if not uri:
-            return None
+            # Never None. 10 datasets and 16 data services name no publisher
+            # at all, and every documented way of reading one subscripts it --
+            # `text(record["publisher"]["name"])` would raise on exactly those.
+            # An empty value is `{}` or None inside the dict, as everywhere
+            # else in a record, so the shape is the same for all of them.
+            return dict(_EMPTY_AGENT)
         for ref in self.resource.refs(DCTERMS.publisher):
             return Agent.from_resource(ref, client=self._client).to_dict()
-        return {"uri": uri, "name": {}}
+        return dict(_EMPTY_AGENT, uri=uri)
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """:meth:`to_dict` rendered as a JSON string."""
@@ -1394,7 +1414,7 @@ class Results(list):
         super().__init__(records)
         self.total = len(self) if total is None else int(total)
         self.offset = offset
-        self.limit = len(self) if limit is None else limit
+        self.limit = limit
         self.facets = list(facets)
         #: What everything that matched is made of -- see :class:`Breakdown`.
         self.breakdown = breakdown if breakdown is not None else Breakdown({})
@@ -1529,7 +1549,11 @@ def wrap_entry(
         return base.as_(default)
     types = set(base.resource.types)
     for rdf_type in _TYPE_PRIORITY:
-        if rdf_type in types:
+        # `in MODEL_REGISTRY` rather than a bare lookup: _TYPE_PRIORITY names
+        # dcat:DatasetSeries, which has no model, and the registry holds 13
+        # of them. A hit would have raised KeyError instead of giving back a
+        # plain Entry.
+        if rdf_type in types and rdf_type in MODEL_REGISTRY:
             return base.as_(MODEL_REGISTRY[rdf_type])
     for rdf_type in types:
         model = MODEL_REGISTRY.get(rdf_type)

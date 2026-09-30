@@ -170,7 +170,7 @@ over **what matched** rather than over everything:
 
 ```python
 page = cat.datasets(text="cykel")
-page.breakdown["publisher"]       # [('kolada', 213), ('trafikverket', 51), ...]
+page.breakdown["publisher"]       # [('radet_..._kolada', 213), ('trafikverket', 51), ...]
 page.breakdown["theme"]           # [('population_and_society', 233), ...]
 page.breakdown.top("format")      # the commonest value
 page.breakdown.to_dict()          # {filter: {value: count}}, for JSON

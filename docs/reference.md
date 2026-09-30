@@ -167,7 +167,7 @@ missing key, so you never need `.get()`.
 | `context_id`, `entry_id` | str | 100% |
 | `title` | `{"sv": str, "en": str}` | 100% |
 | `description` | `{"sv": str, "en": str}` | 100% |
-| `publisher` | dict, see below | 100% |
+| `publisher` | dict, see below — always a dict, with empty values where no publisher is named (10 datasets) | 100% |
 | `license` | short name | 100% |
 | `keywords` | `{"sv": [str], "en": [str]}` | 94.8% |
 | `distributions` | `[dict]`, see below | 93.0% |
@@ -180,7 +180,7 @@ missing key, so you never need `.get()`.
 | `identifier` | str | 61.0% |
 | `landing_page` | url | 56.2% |
 | `issued` | ISO date | 41.6% |
-| `creators` | `[dict]`, shaped like `publisher` | 30.1% |
+| `creators` | `[dict]`, shaped like `publisher` — but one of the 146 is a web page rather than a registry entry, so that one is `{"uri": …}` alone | 30.1% |
 | `temporal` | `{"start": …, "end": …}` | 19.0% |
 | `spatial` | `[short name]` | 19.0% |
 

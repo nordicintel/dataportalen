@@ -38,6 +38,7 @@ from typing import (
     Type,
     Union,
 )
+from urllib.parse import quote as _quote
 
 from .core import (
     DEFAULT_USER_AGENT,
@@ -110,36 +111,49 @@ _BARE_YEAR = re.compile(r"^\d{4}$")
 
 
 class _LRU:
-    """A tiny insertion-ordered cache; avoids a functools.lru_cache on self."""
+    """A tiny insertion-ordered cache; avoids a functools.lru_cache on self.
+
+    Locked, because a partial export resolves distributions, agents and
+    contact points on three threads at once and they share one of these. The
+    eviction was the race: between ``next(iter(self._data))`` picking the
+    oldest key and ``pop`` removing it, another thread could pop the same
+    one, and the second pop raises KeyError.
+    """
 
     def __init__(self, maxsize: int = 512) -> None:
         self.maxsize = maxsize
         self._data: Dict[Any, Any] = {}
+        self._lock = threading.Lock()
 
     def get(self, key: Any, default: Any = None) -> Any:
-        if key in self._data:
-            value = self._data.pop(key)
-            self._data[key] = value
-            return value
-        return default
+        with self._lock:
+            if key in self._data:
+                value = self._data.pop(key)
+                self._data[key] = value
+                return value
+            return default
 
     def __contains__(self, key: Any) -> bool:
-        return key in self._data
+        with self._lock:
+            return key in self._data
 
     def set(self, key: Any, value: Any) -> None:
         if self.maxsize <= 0:
             return
-        if key in self._data:
-            self._data.pop(key)
-        elif len(self._data) >= self.maxsize:
-            self._data.pop(next(iter(self._data)))
-        self._data[key] = value
+        with self._lock:
+            if key in self._data:
+                self._data.pop(key)
+            elif len(self._data) >= self.maxsize:
+                self._data.pop(next(iter(self._data)))
+            self._data[key] = value
 
     def clear(self) -> None:
-        self._data.clear()
+        with self._lock:
+            self._data.clear()
 
     def __len__(self) -> int:
-        return len(self._data)
+        with self._lock:
+            return len(self._data)
 
 
 def default_catalog_path() -> str:
@@ -498,7 +512,12 @@ class _Registry:
             params["recursive"] = "dcat" if recursive is True else recursive
         if format:
             params["format"] = format
-        path = "/store/%s/%s/%s" % (context_id, part, entry_id)
+        # Quoted for defence in depth. Both ids come from our own records,
+        # and every one in the corpus is numeric or 32 hex characters -- but
+        # `Catalog(path=...)` accepts any file, and a `../` in a hand-edited
+        # context_id would otherwise redirect the one outbound request.
+        path = "/store/%s/%s/%s" % (
+            _quote(str(context_id), safe=""), part, _quote(str(entry_id), safe=""))
         return self._request(path, params, accept=format)
 
     def _lookup_many(
@@ -619,6 +638,26 @@ def _date(value: Any) -> Optional[str]:
     if _BARE_YEAR.match(text):
         return text + "-01-01T00:00:00Z"
     return text
+
+
+def _require_values(value: Any, name: str) -> List[str]:
+    """The values of a filter, refusing the ones that quietly mean everything.
+
+    An empty list used to sail through `keyword=[]` as "no conditions" and
+    hand back all 23,576 datasets, while `theme=[]` gave none -- the same
+    input, two opposite answers, neither of them an error. Caller code that
+    builds a tag list which comes out empty deserves to be told.
+    """
+    if value is None:
+        raise QueryError(
+            "%s needs a value; got None. Leave the filter out to match "
+            "everything." % (name,))
+    values = _as_list(value)
+    if not values or all(v is None or not str(v).strip() for v in values):
+        raise QueryError(
+            "%s needs a value; got %r. Leave the filter out to match "
+            "everything." % (name, value))
+    return values
 
 
 def _as_list(value: Any) -> List[str]:
@@ -1064,7 +1103,16 @@ def _assemble(
         record["creators"] = creators
 
     if not record.get("contact_points"):
-        resolved = [contacts[u] for u in entry.contact_point_uris if u in contacts]
+        resolved = []
+        for uri in entry.contact_point_uris:
+            found = contacts.get(uri)
+            if found is None:
+                # Reported like an unresolved distribution or creator rather
+                # than dropped: a record that names a contact and shows none
+                # should not do so in silence.
+                missing.setdefault(uri, None)
+            else:
+                resolved.append(found)
         if resolved:
             record["contact_points"] = resolved
 
@@ -1241,8 +1289,8 @@ class Catalog:
 
             {"path": "...\\catalog.jsonl",
              "downloaded": "2026-09-30T08:12:41",
-             "age_days": 0, "stale": False, "bytes": 61203344,
-             "datasets": 23575, "data_services": 599, "publishers": 365}
+             "age_days": 0, "stale": False, "bytes": 67527943,
+             "datasets": 23576, "data_services": 599, "publishers": 356}
         """
         when = self.downloaded
         try:
@@ -1360,9 +1408,11 @@ class Catalog:
     ) -> Results:
         """Search datasets. A list of dicts that knows its own total.
 
-            >>> page = cat.datasets(theme="transport")     # doctest: +SKIP
-            >>> page.total, page[0]["title"]["sv"]         # doctest: +SKIP
-            (545, 'Farthinder')
+            >>> page = cat.datasets(theme="transport")       # doctest: +SKIP
+            >>> page.total                                   # doctest: +SKIP
+            545
+            >>> text(page[0]["title"])                       # doctest: +SKIP
+            'Ändamålskatalogen'
 
         ``limit`` caps the rows you hold -- ``None`` for every match, ``0`` for
         the count and the breakdown alone. ``breakdown_limit`` caps each list
@@ -1450,7 +1500,7 @@ class Catalog:
         or a media type -- and returned as text. That is the only request this
         class makes outside a download.
 
-        Four of the 23,575 dataset URIs are shared by two records, because the
+        Four of the 23,576 dataset URIs are shared by two records, because the
         same dataset was harvested into two catalogues; the first is returned.
         """
         if format == "dict":
@@ -1481,6 +1531,16 @@ def _read_jsonl(path: str) -> List[Dict[str, Any]]:
 #: distributions, its publisher is only there as a URI, and the rest are
 #: plain fields.
 def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
+    """Every value one filter reads out of one record, blanks excluded.
+
+    33 datasets carry a keyword that is nothing but a newline and four
+    spaces. It is not a value anybody can filter on, so it does not belong in
+    a breakdown that promises every row can be fed back in.
+    """
+    return [v for v in _local_values_raw(record, filter) if str(v).strip()]
+
+
+def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter in ("theme", "themes"):
         return list(record.get("themes") or [])
     if filter == "language":
@@ -1523,6 +1583,28 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
     raise QueryError(
         "cannot count values for %r; try one of: %s"
         % (filter, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
+
+
+def _require_date(value: Any, name: str) -> str:
+    """A date bound that is really a date.
+
+    `_date` normalises the shapes publishers write, but it checked the shape
+    and not the calendar, so `updated_after="2024-13-45"` became a bound that
+    silently matched 12,584 datasets and `updated_after=None` became the
+    empty string, which every stamp sorts after. Both looked like an answer.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise QueryError("%s needs a date; got %r" % (name, value))
+    stamp = _date(value)
+    if not stamp:
+        raise QueryError("%s needs a date; got %r" % (name, value))
+    try:
+        _dt.datetime.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        raise QueryError(
+            "%s needs a real date such as \"2024-01-01\", \"2024-01\" or "
+            "\"2024\"; got %r" % (name, value)) from None
+    return stamp
 
 
 def _iso_stamp(value: Any) -> str:
@@ -1576,16 +1658,28 @@ def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
     A name-derived slug is not in the package's table, so the file it came from
     is the only thing that can vouch for it. Everything the breakdown reports
     has to be usable as a filter, and the breakdown reports these.
+
+    Where the table does vouch for it, the value is translated to the slug a
+    record actually stores. ``organisations.json`` indexes every publisher
+    under both its slugged name and its organisation number, so
+    ``publisher="SE2021006297"`` validates -- and used to be matched, as
+    itself, against records filed under ``trafikverket``. It matched nothing
+    and said nothing: 186 accepted values could never match, 184 of them
+    naming an organisation that really is in the file.
     """
     slug = slugify(value)
     if observed is not None and slug in observed:
         return slug
     try:
-        resolve_publisher(value)                           # raises with a hint
+        uris = resolve_publisher(value)                    # raises with a hint
     except QueryError:
         if observed is None:
             raise
         raise _suggest_from(slug, observed, name) from None
+    for uri in uris:
+        canonical = publisher_for(uri)
+        if canonical and (observed is None or canonical in observed):
+            return canonical
     return slug
 
 
@@ -1598,6 +1692,11 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
+    if name in ("text", "keyword", "publisher", "creator", "theme", "format",
+                "license", "access_rights", "updated", "language", "place",
+                "publisher_type", "service_type"):
+        _require_values(value, name)
+
     if name == "text":
         # The one free-text filter, over both languages of the title and the
         # description and every keyword. The narrower title=/description=/uri=
@@ -1622,7 +1721,7 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
             name.rsplit("_", 1)[0])
         if field is None:
             raise QueryError("unknown filter %r" % (name,))
-        bound = _iso_stamp(_date(value))
+        bound = _iso_stamp(_require_date(value, name))
         after = name.endswith("_after")
 
         def date_test(record):
@@ -1634,11 +1733,33 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
         return date_test
 
     if name == "keyword":
-        # The index matches a keyword on substrings, so this does too.
-        wanted = [str(v).lower() for v in _as_list(value)]
-        return lambda record: all(
-            any(w in k.lower() for k in _local_values(record, "keyword"))
-            for w in wanted)
+        # Exact when the file holds the keyword, substring otherwise -- the
+        # same rule the vocabulary filters use, and for the same reason. A
+        # pure substring match broke the contract the breakdown states: the
+        # keyword `BARN` is carried by 24 datasets and matched 680, because
+        # it is inside `BARNOMSORG` and the rest. 68 of the 120 commonest
+        # keywords disagreed with their own count.
+        # Case matters in the exact branch: the breakdown counts `BARN` and
+        # `Barn` as the two different values they are, so folding case here
+        # would make a value match more datasets than its own row claims.
+        given = [str(v) for v in _as_list(value)]
+        known = set(observed or ())
+
+        def keyword_test(record: Dict[str, Any]) -> bool:
+            have = _local_values(record, "keyword")
+            lowered = None
+            for needle in given:
+                if needle in known:
+                    if needle not in have:
+                        return False
+                else:
+                    if lowered is None:
+                        lowered = [k.lower() for k in have]
+                    if not any(needle.lower() in k for k in lowered):
+                        return False
+            return True
+
+        return keyword_test
 
     if name in ("publisher", "creator"):
         wanted = {_org_value(item, name, observed) for item in _as_list(value)}

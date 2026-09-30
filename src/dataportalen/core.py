@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 import time
 import urllib.parse
 from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
@@ -321,14 +322,37 @@ class BaseTransport:
         self.close()
 
 class RequestsTransport(BaseTransport):
-    """Transport backed by :mod:`requests` (connection pooling, keep-alive)."""
+    """Transport backed by :mod:`requests` (connection pooling, keep-alive).
+
+    A session per thread. ``requests.Session`` is not documented as
+    thread-safe, and the catalogue download fans eight workers out over one
+    transport -- the path every user takes on first use. Each thread gets its
+    own, so they share nothing but the class; pooling and keep-alive still
+    work, per thread. Passing an explicit ``session`` opts out and uses that
+    one everywhere, which is what the caller asked for.
+    """
 
     def __init__(self, session: Any = None) -> None:
         import requests  # a declared dependency; always present
 
         self._requests = requests
-        self._session = session or requests.Session()
+        self._given = session
         self._owns_session = session is None
+        self._local = threading.local()
+        self._made: List[Any] = []
+        self._made_lock = threading.Lock()
+
+    @property
+    def _session(self) -> Any:
+        if self._given is not None:
+            return self._given
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = self._requests.Session()
+            self._local.session = session
+            with self._made_lock:
+                self._made.append(session)
+        return session
 
     def request(
         self,
@@ -377,8 +401,16 @@ class RequestsTransport(BaseTransport):
         return resp.status_code, dict(resp.headers), chunks()
 
     def close(self) -> None:
-        if self._owns_session:
-            self._session.close()
+        """Close every session this transport opened, on whichever thread."""
+        if not self._owns_session:
+            return
+        with self._made_lock:
+            sessions, self._made = self._made, []
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:                             # pragma: no cover
+                pass
 
 
 def default_transport() -> BaseTransport:
