@@ -1007,6 +1007,25 @@ def slug_for(uri: Optional[str]) -> Optional[str]:
     return slugify(tail) or None
 
 
+def label_for(slug: Optional[str]) -> Dict[str, str]:
+    """The human label for a short name, as ``{"sv": ..., "en": ...}``.
+
+    The reverse of :func:`slug_for`, for putting a readable name next to a
+    breakdown's value. A slug usually stands for several URIs (the same
+    concept written four ways), and they agree on the label, so the first one
+    with any label wins. ``{}`` where the vocabulary has none -- a keyword or
+    a publisher is its own label and needs no lookup.
+    """
+    if not slug:
+        return {}
+    for uri in _BY_SLUG.get(slug, ()):
+        found = VOCABULARY.labels(uri)
+        if found:
+            return {key: value for key, value in found.items()
+                    if key in DEFAULT_LANGUAGES}
+    return {}
+
+
 def _suggest(value: str, candidates: Sequence[str], what: str) -> QueryError:
     """The error for an unknown value, naming the likeliest few alternatives.
 
@@ -1177,6 +1196,7 @@ __all__ = [
     "resolve",
     "resolve_publisher",
     "known_values",
+    "label_for",
     "FILTER_VOCABULARIES",
     "SUPPORTED_LANGUAGES",
     "known_publishers",

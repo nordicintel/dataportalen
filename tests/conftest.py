@@ -138,12 +138,54 @@ CATALOG_RECORDS = [
 ]
 
 
+#: Two data services. A different shape on purpose: no distributions, no
+#: accrual_periodicity, no spatial -- the keys a data service does not have
+#: are absent rather than empty.
+SERVICE_RECORDS = [
+    {
+        "uri": "https://api.example.org/v1",
+        "type": "data_service",
+        "context_id": "14",
+        "entry_id": "9283",
+        "title": {"sv": "Utlysningar", "en": "Calls"},
+        "description": {"sv": "API för utlysningar"},
+        "keywords": {"sv": ["Innovation"]},
+        "service_type": "rest",
+        "endpoint_url": "https://api.example.org/v1",
+        "themes": ["education_culture_and_sport"],
+        "license": "cc0_1_0",
+        "access_rights": "public",
+        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
+                      "name": {"sv": "Trafikverket"},
+                      "type": "national_authority"},
+    },
+    {
+        "uri": "https://geodata.example.org/wms",
+        "type": "data_service",
+        "context_id": "15",
+        "entry_id": "9284",
+        "title": {"sv": "Kartvisning"},
+        "description": {"sv": "WMS-tjänst"},
+        "keywords": {"sv": ["Geodata"]},
+        "service_type": "view_service",
+        "endpoint_url": "https://geodata.example.org/wms",
+        "themes": ["transport"],
+        "license": "cc_by_4_0",
+        "access_rights": "public",
+        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
+                      "name": {"sv": "Försäkringskassan"},
+                      "type": "national_authority"},
+    },
+]
+
+
 def write_catalog(tmp_path, records=None, name="catalog.jsonl"):
     """A catalogue file on disk, for a Catalog that must not download."""
     path = tmp_path / name
     path.write_text(
         "\n".join(json.dumps(r, ensure_ascii=False)
-                  for r in (CATALOG_RECORDS if records is None else records)) + "\n",
+                  for r in (CATALOG_RECORDS + SERVICE_RECORDS
+                            if records is None else records)) + "\n",
         encoding="utf-8")
     return str(path)
 

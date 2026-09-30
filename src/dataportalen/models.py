@@ -63,6 +63,8 @@ __all__ = [
     "Breakdown",
     "ValueList",
     "BREAKDOWN_FILTERS",
+    "DATASET_FILTERS",
+    "DATA_SERVICE_FILTERS",
     "Results",
     "SearchPage",
     "wrap_entry",
@@ -889,6 +891,28 @@ class DataService(Entry):
         return self.resource.uris(DCAT.servesDataset)
 
     @property
+    def service_type(self) -> Optional[str]:
+        """What kind of service, from ``dcterms:type``.
+
+        Present on 56% of the 599 in the registry, over five values:
+        ``rest`` for the 288 tagged with the Wikidata term, and the INSPIRE
+        ``view_service`` (31), ``download_service`` (14),
+        ``transformation_service`` and ``discovery_service`` (1 each).
+        """
+        return slug_for(self.resource.uri_of(DCTERMS.type))
+
+    @property
+    def keywords_by_language(self) -> Dict[Optional[str], List[str]]:
+        out: Dict[Optional[str], List[str]] = {}
+        for lit in self.resource.literals(DCAT.keyword):
+            out.setdefault(lit.lang, []).append(lit.value)
+        return out
+
+    @property
+    def creator_uris(self) -> List[str]:
+        return self.resource.uris(DCTERMS.creator)
+
+    @property
     def publisher_uri(self) -> Optional[str]:
         return self.resource.uri_of(DCTERMS.publisher)
 
@@ -935,14 +959,25 @@ class DataService(Entry):
         return [e.as_(Dataset) for e in self.fetch_many(uris)]
 
     def to_dict(self):
+        """This data service as a plain dict, shaped like a dataset record.
+
+        The same keys mean the same things, so a reader does not have to learn
+        two shapes -- but a data service has no distributions, no periodicity
+        and no spatial coverage, and those keys are absent rather than empty.
+        """
         return dict(self._envelope_dict(), **{
+            "type": "data_service",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
+            "keywords": self._text(self.keywords_by_language, empty=[]),
+            "service_type": self.service_type,
             "endpoint_url": self.endpoint_url,
             "endpoint_urls": self.endpoint_urls,
             "endpoint_descriptions": self.endpoint_description_uris,
             "serves_dataset_uris": self.serves_dataset_uris,
+            "conforms_to": self.conforms_to,
             "publisher": self._publisher_dict(),
+            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
@@ -1178,16 +1213,21 @@ class Dataset(Entry):
         graph -- all of them after a ``recursive=True`` fetch, none of them
         for a plain search hit, where ``distribution_uris`` still lists the
         references.
+
+        ``creators`` starts as ``[{"uri": ...}]`` here and is filled in with
+        the name and type during a download, where the 146 distinct creator
+        URIs across the corpus are resolved in about two batched requests.
         """
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
+            "type": "dataset",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
             "keywords": self._text(self.keywords_by_language, empty=[]),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
-            "creator_uris": self.creator_uris,
+            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
@@ -1212,23 +1252,57 @@ class Dataset(Entry):
 
 
 class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
-    """One value a filter accepts, and how many datasets carry it.
+    """One value a filter accepts, and how many records carry it.
 
-    A plain ``(value, dataset_count)`` pair, so it unpacks in a loop::
+    Still a plain ``(value, dataset_count)`` pair, so it unpacks in a loop and
+    compares equal to one::
 
         for value, count in page.breakdown["theme"]:
             ...
+
+    :attr:`label` rides alongside rather than in the tuple -- ``{"sv": ...,
+    "en": ...}``, from the vocabulary for a controlled value and from the
+    records themselves for a publisher or creator. It is ``{}`` for values
+    that are their own label, such as keywords.
+
+        row = page.breakdown["publisher"][0]
+        row.value                     # 'trafikverket', what you filter with
+        row.label["sv"]               # 'Trafikverket', what you show
+
+    It is not part of the tuple, so ``_replace`` and pickling drop it, and
+    the class carries a ``__dict__`` to hold it -- a namedtuple subclass
+    cannot use ``__slots__``.
     """
 
-    __slots__ = ()
+    def __new__(cls, value, dataset_count, label=None):
+        row = super().__new__(cls, value, dataset_count)
+        row.label = label or {}
+        return row
 
 
 # --- search results ---------------------------------------------------------
 
 
-BREAKDOWN_FILTERS = ("publisher", "publisher_type", "theme", "keyword",
-                     "format", "license", "access_rights", "updated",
-                     "language", "place")
+#: What a dataset can be filtered and broken down by. Every one was measured
+#: over all 23,575 datasets: publisher and license are on 100% of them,
+#: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
+#: 69.7%, updated 63.3%, creator 30.1%, place 23.6%.
+DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
+                   "keyword", "format", "license", "access_rights",
+                   "updated", "language", "place")
+
+#: The same for a data service, and it is a different list. Over all 599:
+#: access_rights 97.8%, publisher 97.3%, keyword 83.5%, service_type 55.9%,
+#: theme 53.8%, license 51.8%. The four that are missing are missing for a
+#: reason -- a data service has no distributions (so no `format`) and no
+#: `accrual_periodicity` (no `updated`), `place` is set on 7.8% of them and
+#: `language` has one single value across all 599.
+DATA_SERVICE_FILTERS = ("publisher", "publisher_type", "creator",
+                        "service_type", "theme", "keyword", "license",
+                        "access_rights")
+
+#: Kept as the union, for code that asks "is this a filter at all".
+BREAKDOWN_FILTERS = DATASET_FILTERS
 
 
 class ValueList(list):
@@ -1281,9 +1355,7 @@ class Breakdown(_Mapping):
         limit: Optional[int] = None,
     ) -> None:
         self._counts = {}
-        for name in BREAKDOWN_FILTERS:
-            if name not in counts:
-                continue
+        for name in counts:
             values = list(counts[name])
             if limit is not None and len(values) > limit:
                 self._counts[name] = ValueList(values[:limit], len(values) - limit)
@@ -1305,6 +1377,12 @@ class Breakdown(_Mapping):
         raise QueryError(
             "nothing is broken down by %r; this result knows: %s"
             % (filter, ", ".join(self._counts)))
+
+    def __contains__(self, filter: object) -> bool:
+        # Mapping's default catches KeyError, and __getitem__ raises
+        # QueryError -- so `"format" in breakdown` would propagate instead of
+        # answering False.
+        return filter in self._counts
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._counts)

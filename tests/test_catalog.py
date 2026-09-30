@@ -202,3 +202,174 @@ def test_the_output_directory_is_created(tmp_path, transport, search_response):
     download_catalog(str(out), limit=1, progress=None,
                      client=_Registry(transport=transport))
     assert out.exists()
+
+
+# -- the file holds data services too ----------------------------------------
+
+
+def _entry(context, entry, uri, metadata):
+    """One search hit: the envelope that points at `uri`, plus its graph."""
+    return {
+        "contextId": context, "entryId": entry, "rights": ["readmetadata"],
+        "info": {"https://admin.dataportal.se/store/%s/entry/%s" % (context, entry): {
+            "http://entrystore.org/terms/resource": [{"type": "uri", "value": uri}]}},
+        "metadata": {uri: metadata},
+    }
+
+
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+DCT = "http://purl.org/dc/terms/"
+DCAT_NS = "http://www.w3.org/ns/dcat#"
+
+SERVICE = _entry("14", "9283", "http://example.org/api", {
+    DCT + "title": [{"type": "literal", "lang": "sv", "value": "Utlysningar"},
+                    {"type": "literal", "lang": "en", "value": "Calls"}],
+    DCT + "type": [{"type": "uri",
+                    "value": "http://www.wikidata.org/entity/Q749568"}],
+    DCT + "publisher": [{"type": "uri", "value": "http://example.org/org"}],
+    DCAT_NS + "endpointURL": [{"type": "uri", "value": "https://api.example.org/v1"}],
+    DCAT_NS + "keyword": [{"type": "literal", "lang": "sv", "value": "Innovation"}],
+    RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "DataService"}],
+})
+
+DATASET = _entry("1", "1", "http://example.org/ds", {
+    DCT + "title": [{"type": "literal", "lang": "sv", "value": "DS"}],
+    DCT + "creator": [{"type": "uri", "value": "http://example.org/org"}],
+    RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
+})
+
+ORG = _entry("2", "5", "http://example.org/org", {
+    "http://xmlns.com/foaf/0.1/name": [
+        {"type": "literal", "lang": "sv", "value": "Trafikverket"}],
+    DCT + "type": [{"type": "uri", "value": "http://purl.org/adms/publishertype/"
+                                            "NationalAuthority"}],
+    RDF_TYPE: [{"type": "uri", "value": "http://xmlns.com/foaf/0.1/Agent"}],
+})
+
+
+@pytest.fixture
+def full_export(transport):
+    """The whole conversation a full export has, in the order it happens.
+
+    The four counts come first, then each index crawl, and the dataset pages
+    only when the write loop starts pulling them -- the crawl is a generator,
+    so a dataset page is fetched as it is written.
+    """
+    transport.push(_page([], 1))                 # count(datasets) -> 1
+    transport.push(_page([], 0))                 # count(distributions) -> 0
+    transport.push(_page([], 1))                 # count(agents) -> 1
+    transport.push(_page([], 0))                 # count(contact points) -> 0
+    transport.push(_page([ORG], 1))              # the agent page
+    transport.push(_page([DATASET], 1))          # the dataset page
+    transport.push(_page([], 1))                 # count(data services) -> 1
+    transport.push(_page([SERVICE], 1))          # the data service page
+    return transport
+
+
+def test_a_full_export_writes_both_types(full_export, tmp_path):
+    out = tmp_path / "c.jsonl"
+    summary = download_catalog(str(out), client=_Registry(transport=full_export))
+    records = [json.loads(line)
+               for line in out.read_text(encoding="utf-8").splitlines()]
+    assert [r["type"] for r in records] == ["dataset", "data_service"]
+    assert summary.datasets == 1
+    assert summary.data_services == 1
+    assert summary.to_dict()["data_services"] == 1
+    assert "data services" in repr(summary)
+
+
+def test_a_data_service_record_carries_what_it_has(full_export, tmp_path):
+    out = tmp_path / "c.jsonl"
+    download_catalog(str(out), client=_Registry(transport=full_export))
+    service = [json.loads(line)
+               for line in out.read_text(encoding="utf-8").splitlines()][-1]
+    assert service["title"] == {"sv": "Utlysningar", "en": "Calls"}
+    assert service["service_type"] == "rest"
+    assert service["endpoint_url"] == "https://api.example.org/v1"
+    assert service["keywords"] == {"sv": ["Innovation"]}
+    # A data service has no files, so the key is absent rather than empty.
+    assert "distributions" not in service
+
+
+def test_creators_are_resolved_not_left_as_uris(full_export, tmp_path):
+    """A bare creator URI would be a dead end: nothing resolves one on demand."""
+    out = tmp_path / "c.jsonl"
+    download_catalog(str(out), client=_Registry(transport=full_export))
+    dataset = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    assert dataset["creators"] == [{
+        "uri": "http://example.org/org",
+        "context_id": "2", "entry_id": "5",
+        "name": {"sv": "Trafikverket"},
+        "type": "national_authority",
+        "identifiers": [], "email": None, "homepage": None,
+    }]
+    assert "creator_uris" not in dataset
+
+
+def test_a_limited_export_skips_data_services(wired, tmp_path, dataset_children):
+    """They are the small half; a smoke test should stay small."""
+    out = tmp_path / "c.jsonl"
+    summary = download_catalog(str(out), limit=len(dataset_children),
+                               client=_Registry(transport=wired))
+    assert summary.data_services == 0
+    types = {json.loads(line)["type"]
+             for line in out.read_text(encoding="utf-8").splitlines()}
+    assert types == {"dataset"}
+
+
+def test_publishers_typed_as_organizations_are_indexed_too(transport, tmp_path):
+    """A `foaf:Organization` creator is still a creator.
+
+    Most agents are `foaf:Agent`, but 69 in the registry are
+    `foaf:Organization` -- and those 69 account for 2,073 of the 7,151 creator
+    references. Crawling only `foaf:Agent` left a third of them as bare URIs.
+    """
+    org = _entry("2", "6", "http://example.org/org2", {
+        "http://xmlns.com/foaf/0.1/name": [
+            {"type": "literal", "lang": "sv", "value": "Folkhälsomyndigheten"}],
+        RDF_TYPE: [{"type": "uri", "value": "http://xmlns.com/foaf/0.1/Organization"}],
+    })
+    dataset = _entry("1", "1", "http://example.org/ds", {
+        DCT + "creator": [{"type": "uri", "value": "http://example.org/org2"}],
+        RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
+    })
+    transport.push(_page([], 1))            # count(datasets)
+    transport.push(_page([], 0))            # count(distributions)
+    transport.push(_page([], 1))            # count(agents), all three types
+    transport.push(_page([], 0))            # count(contact points)
+    transport.push(_page([org], 1))         # the agent page
+    transport.push(_page([dataset], 1))     # the dataset page
+    transport.push(_page([], 0))            # count(data services)
+
+    out = tmp_path / "c.jsonl"
+    download_catalog(str(out), client=_Registry(transport=transport))
+    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    assert record["creators"][0]["name"] == {"sv": "Folkhälsomyndigheten"}
+
+
+def test_the_agent_query_covers_all_three_types(transport):
+    """The count is asked of one query, so a type left out is silent."""
+    from dataportalen.client import _AGENT_TYPES
+
+    assert _AGENT_TYPES == ("http://xmlns.com/foaf/0.1/Agent",
+                            "http://xmlns.com/foaf/0.1/Organization",
+                            "http://www.w3.org/ns/prov#Agent")
+
+
+def test_an_unresolvable_creator_is_reported_not_silently_bare(transport, tmp_path):
+    dataset = _entry("1", "1", "http://example.org/ds", {
+        DCT + "creator": [{"type": "uri", "value": "http://example.org/a-web-page"}],
+        RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
+    })
+    transport.push(_page([], 1))
+    transport.push(_page([], 0))
+    transport.push(_page([], 0))
+    transport.push(_page([], 0))
+    transport.push(_page([dataset], 1))
+    transport.push(_page([], 0))
+
+    out = tmp_path / "c.jsonl"
+    with pytest.warns(UserWarning, match="not found in the bulk crawl"):
+        download_catalog(str(out), client=_Registry(transport=transport))
+    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    assert record["creators"] == [{"uri": "http://example.org/a-web-page"}]

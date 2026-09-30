@@ -36,8 +36,10 @@ def test_the_default_path_is_a_cache_directory():
 
 
 def test_it_reads_the_file(cat):
+    """One file, two kinds of line; len() and iteration are the datasets."""
     assert len(cat) == 2
     assert [r["uri"] for r in cat] == [r["uri"] for r in CATALOG_RECORDS]
+    assert cat.data_services().total == 2
 
 
 def test_gzip_is_read_transparently(tmp_path, transport):
@@ -100,6 +102,7 @@ def test_info_reports_the_file_and_its_age(cat):
     info = cat.info()
     assert info["path"].endswith("catalog.jsonl")
     assert info["datasets"] == 2
+    assert info["data_services"] == 2
     assert info["publishers"] == 2
     assert info["bytes"] > 0
     assert info["age_days"] == 0

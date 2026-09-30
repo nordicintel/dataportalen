@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import datetime as _dt
+import difflib
 import gzip
 import io
 import json
@@ -55,10 +56,12 @@ from .core import (
     progress_reporter,
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
-    BREAKDOWN_FILTERS,
+    DATA_SERVICE_FILTERS,
+    DATASET_FILTERS,
     Agent,
     Breakdown,
     ContactPoint,
+    DataService,
     Dataset,
     Distribution,
     Entry,
@@ -71,8 +74,10 @@ from .query import SORT_MODIFIED_DESC, Q, predicate_field
 from .rdf import (
     DCAT,
     FOAF,
+    PROV,
     SUPPORTED_LANGUAGES,
     VCARD,
+    label_for,
     publisher_for,
     resolve,
     resolve_publisher,
@@ -157,6 +162,16 @@ def default_catalog_path() -> str:
 #: A copy older than this is reported as stale. Nothing is re-downloaded on
 #: its own -- a six-minute download should never surprise a running program.
 STALE_AFTER_DAYS = 7
+
+#: The date filters, which only datasets support: `modified` is on 89.1% of
+#: them and `issued` on 42.1%, against 7.5% and 0.8% of the 599 data services.
+_DATE_FILTERS = ("updated_after", "updated_before",
+                 "published_after", "published_before")
+
+#: Every name that is a filter for something. A name outside this set is a
+#: typo, not a question the wrong kind of record cannot answer.
+_EVERY_FILTER = frozenset(
+    DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("text",))
 
 #: When :class:`Catalog` is allowed to write the file. Anything that replaces
 #: 58 MB on disk is a decision made when the object is built, never a side
@@ -555,19 +570,61 @@ def _as_results(page: SearchPage, breakdown: Optional[Breakdown] = None) -> Resu
 
 
 def local_breakdown(
-    records: Sequence[Dict[str, Any]], limit: Optional[int] = None
+    records: Sequence[Dict[str, Any]],
+    limit: Optional[int] = None,
+    filters: Sequence[str] = DATASET_FILTERS,
 ) -> Breakdown:
-    """A breakdown counted over records in hand -- one pass, every filter."""
-    tallies: Dict[str, Dict[str, int]] = {name: {} for name in BREAKDOWN_FILTERS}
+    """A breakdown counted over records in hand -- one pass, every filter.
+
+    ``filters`` is the set that applies to these records, so a data service
+    breakdown carries the seven keys it has rather than empty lists for the
+    four it does not.
+    """
+    tallies: Dict[str, Dict[str, int]] = {name: {} for name in filters}
+    names: Dict[str, Dict[str, Any]] = {}
     for record in records:
         for name, counts in tallies.items():
             for value in set(_local_values(record, name)):
                 counts[value] = counts.get(value, 0) + 1
+        _collect_names(record, names)
     return Breakdown({
-        name: [ValueCount(value, count) for value, count in
+        name: [ValueCount(value, count, names.get(value) or label_for(value))
+               for value, count in
                sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
         for name, counts in tallies.items()
     }, limit=limit)
+
+
+def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The filter value for one publisher or creator.
+
+    The package's URI table first, because those slugs are stable across
+    releases. Failing that, the organisation's own name from the record --
+    without which 13 of the 365 publishers and 98 of the 146 creators would
+    have no filter value at all, since they mint URIs the table never saw
+    (``fohm-app.folkhalsomyndigheten.se/...``, ``myndighetsregistret.scb.se/...``).
+    """
+    if not org:
+        return None
+    known = publisher_for(org.get("uri"))
+    if known:
+        return known
+    name = org.get("name")
+    if isinstance(name, dict):
+        name = name.get("sv") or name.get("en")
+    return (slugify(name) or None) if name else None
+
+
+def _collect_names(record: Dict[str, Any], out: Dict[str, Dict[str, Any]]) -> None:
+    """Remember the readable name of each publisher and creator seen.
+
+    The vocabulary has no entry for an organisation, so its label comes from
+    the records -- the same place the slug came from.
+    """
+    for org in [record.get("publisher")] + list(record.get("creators") or []):
+        slug = _org_slug(org)
+        if slug and slug not in out and isinstance((org or {}).get("name"), dict):
+            out[slug] = org["name"]
 
 
 def _any_uri(predicate: str, uris: List[str], kind: str = "uri") -> Q:
@@ -641,7 +698,8 @@ STABLE_SORT = "uri asc"
 class CatalogSummary:
     """What a :func:`download_catalog` run produced."""
 
-    __slots__ = ("path", "datasets", "distributions", "bytes_written", "elapsed", "requests")
+    __slots__ = ("path", "datasets", "data_services", "distributions",
+                 "bytes_written", "elapsed", "requests")
 
     def __init__(
         self,
@@ -651,9 +709,11 @@ class CatalogSummary:
         bytes_written: int,
         elapsed: float,
         requests: int,
+        data_services: int = 0,
     ) -> None:
         self.path = path
         self.datasets = datasets
+        self.data_services = data_services
         self.distributions = distributions
         self.bytes_written = bytes_written
         self.elapsed = elapsed
@@ -663,6 +723,7 @@ class CatalogSummary:
         return {
             "path": self.path,
             "datasets": self.datasets,
+            "data_services": self.data_services,
             "distributions": self.distributions,
             "bytes_written": self.bytes_written,
             "elapsed": round(self.elapsed, 1),
@@ -670,9 +731,11 @@ class CatalogSummary:
         }
 
     def __repr__(self) -> str:
-        return "<CatalogSummary %s: %d datasets, %d distributions, %.1f MiB in %.0fs>" % (
+        return ("<CatalogSummary %s: %d datasets, %d data services, "
+                "%d distributions, %.1f MiB in %.0fs>") % (
             os.path.basename(self.path),
             self.datasets,
+            self.data_services,
             self.distributions,
             self.bytes_written / (1 << 20),
             self.elapsed,
@@ -766,10 +829,19 @@ def _take(entries, count):
         yield entry
 
 
+#: Publishers and creators are not all typed the same way. Most are
+#: `foaf:Agent` (5,846), but 69 are `foaf:Organization` and 1,693 are
+#: `prov:Agent` -- and the Organization ones are load-bearing: they account
+#: for 2,073 creator references, a third of them, which a `foaf:Agent`-only
+#: crawl left as bare URIs.
+_AGENT_TYPES = (FOAF.Agent, FOAF.Organization, PROV.Agent)
+
+
 def _bulk_indexes(client, workers, counter):
     """One crawl per referenced type -- the right trade for a full export."""
     distribution_total = client._count(Q.rdf_type(DCAT.Distribution))
-    agent_total = client._count(Q.rdf_type(FOAF.Agent))
+    agent_query = Q.rdf_type(*_AGENT_TYPES)
+    agent_total = client._count(agent_query)
     contact_query = Q.rdf_type(
         VCARD.Organization, VCARD.Organisation, VCARD.Individual, VCARD.Kind
     )
@@ -791,7 +863,7 @@ def _bulk_indexes(client, workers, counter):
 
     started = time.time()
     agents = _index_by_uri(_crawl(
-        client, Q.rdf_type(FOAF.Agent), Agent, agent_total, workers, counter))
+        client, agent_query, Agent, agent_total, workers, counter))
     logger.info("  agents indexed: %s (%.0fs)",
                 f"{len(agents):,}", time.time() - started)
 
@@ -841,16 +913,18 @@ def download_catalog(
     client: Any = None,
     base_url: Optional[str] = None,
 ) -> CatalogSummary:
-    """Download every dataset to ``path`` as JSONL and return a summary.
+    """Download the catalogue to ``path`` as JSONL and return a summary.
 
-    Each line is one dataset in the same shape as
-    :meth:`~dataportalen.models.Dataset.to_dict`, with its distributions,
-    publisher and contact points resolved and nested -- so a line stands on
-    its own with no further lookups.
+    One JSON object per line: every ``dcat:Dataset`` and every
+    ``dcat:DataService``, each carrying a ``type`` that says which. A line
+    stands on its own -- distributions, publisher, creators and contact points
+    are resolved and nested, so nothing needs a further lookup.
 
     :param path: where to write; a ``.gz`` suffix gzips the output.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
-    :param limit: stop after this many datasets, for smoke tests.
+    :param limit: stop after this many datasets, for smoke tests. Data services
+        are skipped entirely when it is set -- they are the small half, and a
+        smoke test should stay small.
     :param progress: ``"auto"`` (the default) draws a live progress line on
         stderr when it is a terminal, and otherwise logs progress periodically
         -- a five-minute run should never look like a hang. ``None`` is
@@ -869,6 +943,7 @@ def download_catalog(
     report = progress_reporter(progress, "datasets")
     counter = _Counter()
     written = 0
+    services_written = 0
     bytes_written = 0
     distributions_written = 0
 
@@ -910,6 +985,16 @@ def download_catalog(
                 if report is not None:
                     report(written, dataset_total)
 
+            if limit is None:
+                # 599 services in six pages: the one real DCAT class the file
+                # would otherwise lack, for about 1% of the dataset crawl.
+                for record in _service_records(client, workers, counter,
+                                               agents, contacts, missing):
+                    line = json.dumps(record, ensure_ascii=False) + "\n"
+                    handle.write(line)
+                    services_written += 1
+                    bytes_written += len(line.encode("utf-8"))
+
         if missing:
             # Anything the crawl did not cover -- a distribution in a
             # non-public context, say. Reported, never silently dropped.
@@ -920,13 +1005,15 @@ def download_catalog(
         if owned:
             client.close()
 
-    logger.info("wrote %s: %s datasets, %s distributions, %.1f MiB in %.0fs "
-                "(%d requests)",
-                path, f"{written:,}", f"{distributions_written:,}",
+    logger.info("wrote %s: %s datasets, %s data services, %s distributions, "
+                "%.1f MiB in %.0fs (%d requests)",
+                path, f"{written:,}", f"{services_written:,}",
+                f"{distributions_written:,}",
                 bytes_written / (1 << 20), time.time() - started_all, counter.value)
     return CatalogSummary(
         path=path,
         datasets=written,
+        data_services=services_written,
         distributions=distributions_written,
         bytes_written=bytes_written,
         elapsed=time.time() - started_all,
@@ -934,28 +1021,50 @@ def download_catalog(
     )
 
 
+def _service_records(client, workers, counter, agents, contacts, missing):
+    """Every ``dcat:DataService``, assembled like a dataset and yielded."""
+    total = client._count(Q.rdf_type(DCAT.DataService))
+    counter.add()
+    logger.info("exporting %s data services", f"{total:,}")
+    for service in _crawl(client, Q.rdf_type(DCAT.DataService), DataService,
+                          total, workers, counter):
+        record, _ = _assemble(service, {}, agents, contacts, missing,
+                              with_distributions=False)
+        yield record
+
+
 def _assemble(
-    dataset: Dataset,
-    distributions: Dict[str, Dict[str, Any]],
+    entry: Any,
+    distribution_index: Dict[str, Dict[str, Any]],
     agents: Dict[str, Dict[str, Any]],
     contacts: Dict[str, Dict[str, Any]],
     missing: Dict[str, None],
+    *,
+    with_distributions: bool = True,
 ) -> Tuple[Dict[str, Any], int]:
-    """One dataset dict with its references spliced in from the indexes."""
-    # `distributions=False`: a search hit has none inline, and we are about to
-    # supply better ones from the index.
-    record = dataset.to_dict(distributions=False)
+    """One dataset or data service, with its references spliced in.
+
+    A search hit carries no nested distributions, publisher or contacts -- only
+    the URIs -- so they come from the indexes the crawl already built rather
+    than a request each.
+    """
+    # `distributions=False` on a dataset: a search hit has none inline, and we
+    # are about to supply better ones from the index. A data service has no
+    # distributions at all, and its to_dict takes no such argument.
+    record = (entry.to_dict(distributions=False) if with_distributions
+              else entry.to_dict())
 
     nested = []
-    for uri in dataset.distribution_uris:
-        found = distributions.get(uri)
-        if found is not None:
-            nested.append(found)
-        else:
-            missing.setdefault(uri, None)
-    record["distributions"] = nested
+    if with_distributions:
+        for uri in entry.distribution_uris:
+            found = distribution_index.get(uri)
+            if found is not None:
+                nested.append(found)
+            else:
+                missing.setdefault(uri, None)
+        record["distributions"] = nested
 
-    publisher_uri = dataset.publisher_uri
+    publisher_uri = entry.publisher_uri
     if publisher_uri:
         found = agents.get(publisher_uri)
         if found is not None:
@@ -963,8 +1072,24 @@ def _assemble(
         elif record.get("publisher") is None:
             record["publisher"] = {"uri": publisher_uri, "name": {}}
 
+    # Creators are organisations, not people: 146 distinct URIs over the whole
+    # corpus, and the agent index already holds them. A bare URI would be a
+    # dead end now that nothing resolves one on demand.
+    creators = []
+    for uri in entry.creator_uris:
+        found = agents.get(uri)
+        if found is None:
+            # One of the 146 is a plain web page rather than a managed entry,
+            # so it stays a bare URI -- reported, not quietly named absent.
+            missing.setdefault(uri, None)
+            creators.append({"uri": uri})
+        else:
+            creators.append(dict(found))
+    if creators:
+        record["creators"] = creators
+
     if not record.get("contact_points"):
-        resolved = [contacts[u] for u in dataset.contact_point_uris if u in contacts]
+        resolved = [contacts[u] for u in entry.contact_point_uris if u in contacts]
         if resolved:
             record["contact_points"] = resolved
 
@@ -1061,6 +1186,7 @@ class Catalog:
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
         self._seen: Dict[str, set] = {}
         self._records: List[Dict[str, Any]] = []
+        self._services: List[Dict[str, Any]] = []
         self._load(refresh)
 
     # -- the file ----------------------------------------------------------
@@ -1095,10 +1221,18 @@ class Catalog:
         self._read()
 
     def _read(self) -> None:
-        self._records = _read_jsonl(self.path)
+        """Load the file and split it by ``type``.
+
+        One file holds both kinds of line. A record written before 0.7.0 has no
+        ``type`` at all, and is read as a dataset -- that is all the file held.
+        """
+        every = _read_jsonl(self.path)
+        self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
+        self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None
         self._seen = {}
-        logger.info("read %s records from %s", f"{len(self._records):,}", self.path)
+        logger.info("read %s datasets and %s data services from %s",
+                    f"{len(self._records):,}", f"{len(self._services):,}", self.path)
 
     @property
     def downloaded(self) -> Optional[_dt.datetime]:
@@ -1138,9 +1272,11 @@ class Catalog:
             "stale": self.stale,
             "bytes": size,
             "datasets": len(self._records),
+            "data_services": len(self._services),
             "publishers": len({
                 (r.get("publisher") or {}).get("uri")
-                for r in self._records if (r.get("publisher") or {}).get("uri")
+                for r in self._records + self._services
+                if (r.get("publisher") or {}).get("uri")
             }),
         }
 
@@ -1164,27 +1300,49 @@ class Catalog:
         return iter(self._records)
 
     def __repr__(self) -> str:                            # pragma: no cover
-        return "<Catalog %s: %d datasets>" % (self.path, len(self._records))
+        return "<Catalog %s: %d datasets, %d data services>" % (
+            self.path, len(self._records), len(self._services))
 
     # -- searching ---------------------------------------------------------
 
-    def _observed(self, filter: str) -> Optional[set]:
+    def _observed(self, filter: str, kind: str = "dataset") -> Optional[set]:
         """Every value this file actually holds for one filter.
 
         What makes "the breakdown reports it, so you can filter on it" true
-        even where the vocabulary table has no entry for the value.
+        even where the vocabulary table has no entry for the value. Kept per
+        kind of record, because a data service's values are its own.
         """
-        if filter not in BREAKDOWN_FILTERS:
+        if filter not in DATASET_FILTERS and filter not in DATA_SERVICE_FILTERS:
             return None
-        if filter not in self._seen:
-            self._seen[filter] = {
-                value for record in self._records
+        key = (kind, filter)
+        if key not in self._seen:
+            records = self._services if kind == "data_service" else self._records
+            self._seen[key] = {
+                value for record in records
                 for value in _local_values(record, filter)
             }
-        return self._seen[filter]
+        return self._seen[key]
 
-    def _matching(self, records, filters):
-        tests = [_local_test(name, value, self._observed(name))
+    def _check(self, filters, allowed, what):
+        """Refuse a filter this kind of record cannot answer, and say which can.
+
+        Silently matching nothing would be worse: a data service has no
+        `format` because it has no distributions, and a search that returned
+        zero would read as "no CSV APIs" rather than "wrong question".
+
+        A name that is not a filter anywhere falls through to
+        :func:`_local_test`, which reports it as unknown rather than as
+        inapplicable -- a typo and a wrong question are different mistakes.
+        """
+        for name in filters:
+            if name in allowed or name not in _EVERY_FILTER:
+                continue
+            raise QueryError(
+                "%s have no %r. Available: %s"
+                % (what, name, ", ".join(allowed)))
+
+    def _matching(self, records, filters, kind="dataset"):
+        tests = [_local_test(name, value, self._observed(name, kind))
                  for name, value in filters.items()]
         return [r for r in records if all(test(r) for test in tests)]
 
@@ -1212,8 +1370,65 @@ class Catalog:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        self._check(filters, DATASET_FILTERS + ("text",) + _DATE_FILTERS,
+                    "datasets")
         found = self._matching(self._records, filters)
-        breakdown = local_breakdown(found, limit=breakdown_limit)
+        breakdown = local_breakdown(found, limit=breakdown_limit,
+                                    filters=DATASET_FILTERS)
+        window = found[offset:] if limit is None else found[offset:offset + limit]
+        return Results(window, total=len(found), offset=offset, limit=limit,
+                       breakdown=breakdown)
+
+    def filters(self, limit: Optional[int] = None) -> Breakdown:
+        """What you can filter datasets by, with counts and readable names.
+
+        The one thing a search cannot tell you: the options, before you search.
+
+            >>> cat.filters()["publisher"][0]              # doctest: +SKIP
+            ValueCount(value='radet_for_..._kolada', dataset_count=5863)
+            >>> list(cat.filters())                        # doctest: +SKIP
+            ['publisher', 'publisher_type', 'creator', 'theme', ...]
+
+        The same :class:`~dataportalen.Breakdown` a search carries, counted
+        over every dataset -- about a third of a second for the whole corpus.
+        ``limit`` caps each list and what it cuts is counted in
+        :attr:`~dataportalen.Breakdown.omitted`.
+
+        Data service options come from ``data_services(limit=0).breakdown``,
+        which is the identical structure over the other seven filters.
+        """
+        return local_breakdown(self._records, limit=limit,
+                               filters=DATASET_FILTERS)
+
+    def data_services(
+        self,
+        *,
+        limit: Optional[int] = 50,
+        offset: int = 0,
+        breakdown_limit: Optional[int] = None,
+        **filters: Any,
+    ) -> Results:
+        """Search data services -- the registry's APIs rather than its files.
+
+            >>> cat.data_services(service_type="view")     # doctest: +SKIP
+
+        Same signature and same record shape as :meth:`datasets`, and served
+        from the same file. Four filters do not apply and are refused rather
+        than quietly matching nothing: a data service has no distributions
+        (so no ``format``), no ``accrual_periodicity`` (no ``updated``), and
+        across all 599 of them ``place`` is set on 8% and ``language`` has a
+        single value. There are no date filters either -- ``modified`` is on
+        7.5% and ``issued`` on 0.8%.
+        """
+        for unsupported in ("sort", "page_size", "query"):
+            if unsupported in filters:
+                raise QueryError(
+                    "%r is a search-index argument; a local catalogue matches "
+                    "every record at once" % unsupported)
+        self._check(filters, DATA_SERVICE_FILTERS + ("text",), "data services")
+        found = self._matching(self._services, filters, "data_service")
+        breakdown = local_breakdown(found, limit=breakdown_limit,
+                                    filters=DATA_SERVICE_FILTERS)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
                        breakdown=breakdown)
@@ -1235,7 +1450,7 @@ class Catalog:
         if format == "dict":
             if self._by_uri is None:
                 self._by_uri = {}
-                for record in self._records:
+                for record in self._records + self._services:
                     key = record.get("uri")
                     if key and key not in self._by_uri:
                         self._by_uri[key] = record
@@ -1284,15 +1499,24 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
         value = record.get(filter)
         return [value] if value else []
     if filter == "publisher":
-        publisher = record.get("publisher") or {}
-        name = publisher_for(publisher.get("uri"))
-        return [name] if name else []
+        slug = _org_slug(record.get("publisher"))
+        return [slug] if slug else []
     if filter == "publisher_type":
         kind = (record.get("publisher") or {}).get("type")
         return [kind] if kind else []
+    if filter == "creator":
+        out = []
+        for creator in record.get("creators") or []:
+            slug = _org_slug(creator)
+            if slug:
+                out.append(slug)
+        return out
+    if filter == "service_type":
+        value = record.get("service_type")
+        return [value] if value else []
     raise QueryError(
         "cannot count values for %r; try one of: %s"
-        % (filter, ", ".join(BREAKDOWN_FILTERS)))
+        % (filter, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
 
 
 def _iso_stamp(value: Any) -> str:
@@ -1328,17 +1552,44 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     return slugs
 
 
+def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
+    """One publisher or creator value, checked against the table and the file.
+
+    A name-derived slug is not in the package's table, so the file it came from
+    is the only thing that can vouch for it. Everything the breakdown reports
+    has to be usable as a filter, and the breakdown reports these.
+    """
+    slug = slugify(value)
+    if observed is not None and slug in observed:
+        return slug
+    try:
+        resolve_publisher(value)                           # raises with a hint
+    except QueryError:
+        if observed is None:
+            raise
+        raise _suggest_from(slug, observed, name) from None
+    return slug
+
+
+def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
+    """The unknown-value error, with the suggestions drawn from this file."""
+    close = difflib.get_close_matches(value, sorted(observed), n=3, cutoff=0.7)
+    hint = (" Did you mean: %s?" % ", ".join(close)) if close else ""
+    return QueryError("unknown %s %r.%s" % (what, value, hint))
+
+
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
-    if name in ("text", "title", "description"):
+    if name == "text":
+        # The one free-text filter, over both languages of the title and the
+        # description and every keyword. The narrower title=/description=/uri=
+        # variants earned nothing a caller could not do by reading the record,
+        # and one record by URI is what get() is for.
         needle = str(value).lower()
 
         def text_test(record: Dict[str, Any]) -> bool:
-            if name == "text":
-                parts = [record.get("title"), record.get("description")]
-                parts.extend(_local_values(record, "keyword"))
-            else:
-                parts = [record.get(name)]
+            parts = [record.get("title"), record.get("description")]
+            parts.extend(_local_values(record, "keyword"))
             for part in parts:
                 if isinstance(part, dict):                  # a localized field
                     part = " ".join(str(v) for v in part.values())
@@ -1347,11 +1598,6 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
             return False
 
         return text_test
-
-    if name in ("uri", "catalog"):
-        key = "uri" if name == "uri" else "context_id"
-        wanted = {str(v) for v in _as_list(value)}
-        return lambda record: str(record.get(key)) in wanted
 
     if name.endswith("_after") or name.endswith("_before"):
         field = {"updated": "modified", "published": "issued"}.get(
@@ -1376,23 +1622,18 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
             any(w in k.lower() for k in _local_values(record, "keyword"))
             for w in wanted)
 
-    if name == "publisher":
-        wanted = set()
-        for item in _as_list(value):
-            resolve_publisher(item)                        # raises with a hint
-            wanted.add(slugify(item))
-        return lambda record: bool(
-            wanted & set(_local_values(record, "publisher")))
+    if name in ("publisher", "creator"):
+        wanted = {_org_value(item, name, observed) for item in _as_list(value)}
+        return lambda record: bool(wanted & set(_local_values(record, name)))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
-                "language", "place", "publisher_type"):
+                "language", "place", "publisher_type", "service_type"):
         wanted = set()
         for item in _as_list(value):
             wanted.update(_local_slugs(item, name, observed))
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     raise QueryError(
-        "unknown filter %r for a local catalogue; supported: access_rights, "
-        "catalog, description, format, keyword, language, license, place, "
-        "published_after, published_before, publisher, text, theme, title, "
-        "updated, updated_after, updated_before, uri" % (name,))
+        "unknown filter %r; supported: %s, published_after, published_before, "
+        "text, updated_after, updated_before"
+        % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))

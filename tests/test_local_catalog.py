@@ -34,8 +34,6 @@ def uris(results):
     ({"place": "kingdom_of_sweden"}, ["roads"]),
     ({"publisher": "trafikverket"}, ["roads"]),
     ({"publisher_type": "national_authority"}, ["roads", "budget"]),
-    ({"catalog": 51}, ["budget"]),
-    ({"uri": "https://example.org/budget"}, ["budget"]),
     ({"text": "cykel"}, ["roads"]),
     ({"text": "bidrag"}, ["budget"]),
     ({"keyword": "geodata"}, ["roads"]),
@@ -120,7 +118,8 @@ def test_the_breakdown_describes_the_match_not_the_page(catalog):
 
 def test_a_dataset_counts_once_per_value(catalog):
     """Two CSV distributions on one dataset is one dataset under `csv`."""
-    page = catalog.datasets(uri="https://example.org/roads")
+    page = catalog.datasets(publisher="trafikverket")
+    assert page.total == 1
     assert page.breakdown["format"] == [("csv", 1), ("json", 1)]
 
 
