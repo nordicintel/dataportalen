@@ -236,7 +236,7 @@ def cat(transport: FakeTransport, tmp_path):
     from dataportalen import Catalog
 
     with Catalog(write_catalog(tmp_path), max_age=None,
-                 _transport=transport) as catalog:
+                 _transport=transport, access_rights=None) as catalog:
         yield catalog
 
 

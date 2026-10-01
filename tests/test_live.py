@@ -45,7 +45,7 @@ def cat():
     path = default_catalog_path()
     if not os.path.exists(path):
         pytest.skip("no catalogue downloaded; run Catalog() once first")
-    return Catalog(path, max_age=None)
+    return Catalog(path, max_age=None, access_rights=None)
 
 
 # -- what the registry can do, which the design depends on -------------------

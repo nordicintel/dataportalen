@@ -1,7 +1,9 @@
-"""The registry's nightly link check, carried into the catalogue.
+"""The registry's nightly link check, and what the catalogue does with it.
 
 The verdict is the registry's and is passed through as it stands. This package
 wraps what the API says; it does not re-test links or second-guess a status.
+What it does decide is what to show: a broken file is marked, a working one is
+not, and by default the broken ones are not there at all.
 """
 
 from __future__ import annotations
@@ -12,126 +14,107 @@ from conftest import CATALOG_RECORDS, write_catalog
 from dataportalen import Catalog, QueryError
 
 
-def with_links(record, *pairs):
+def with_files(record, *pairs):
     """A copy of `record` whose distributions carry the given verdicts."""
     dists = []
-    for (url, status, message) in pairs:
-        dists.append({"format": "csv", "access_url": [url], "download_url": [],
-                      "link": {"status": status, "message": message,
-                               "checked": "2026-09-28T02:44:17", "attempts": 1}})
+    for (url, reason) in pairs:
+        dist = {"format": "csv", "access_url": [url], "download_url": []}
+        if reason is not None:
+            dist["broken"] = {"reason": reason, "checked": "2026-09-28T02:44:17"}
+        dists.append(dist)
     return dict(record, distributions=dists)
 
 
+ALIVE = None
+
+
 @pytest.fixture
-def catalog(tmp_path, transport):
-    records = [
-        with_links(CATALOG_RECORDS[0],
-                   ("https://example.org/a.csv", "broken", "Not Found"),
-                   ("https://example.org/b.csv", "success", "OK")),
-        with_links(CATALOG_RECORDS[1],
-                   ("https://example.org/c.csv", "broken", "Too Many Requests")),
-    ]
-    return Catalog(write_catalog(tmp_path, records), max_age=None,
-                   _transport=transport)
+def path(tmp_path):
+    return write_catalog(tmp_path, [
+        with_files(CATALOG_RECORDS[0],
+                   ("https://example.org/a.csv", "Not Found"),
+                   ("https://example.org/b.csv", ALIVE)),
+        with_files(dict(CATALOG_RECORDS[1], access_rights="public"),
+                   ("https://example.org/c.csv", "Too Many Requests")),
+    ])
 
 
-# -- the verdict is on the record -------------------------------------------
+# -- what a record carries ----------------------------------------------------
 
 
-def test_each_file_carries_the_registrys_verdict(catalog):
-    dist = catalog.datasets()[0]["distributions"][0]
-    assert dist["link"] == {"status": "broken", "message": "Not Found",
-                            "checked": "2026-09-28T02:44:17", "attempts": 1}
+def test_a_broken_file_is_marked_and_a_working_one_is_not(path, transport):
+    cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
+    a, b = cat.datasets()[0]["distributions"]
+    assert a["broken"] == {"reason": "Not Found", "checked": "2026-09-28T02:44:17"}
+    assert "broken" not in b
+    assert "link" not in a and "link" not in b
 
 
-def test_the_message_is_passed_through_not_interpreted(catalog):
-    """`Too Many Requests` is broken because the registry says broken."""
-    statuses = [(d["link"]["status"], d["link"]["message"])
-                for r in catalog.datasets(limit=None)
-                for d in r["distributions"]]
-    assert ("broken", "Too Many Requests") in statuses
-    assert ("broken", "Not Found") in statuses
+def test_the_reason_is_the_registrys_not_ours(path, transport):
+    """`Too Many Requests` is broken because the registry said broken."""
+    cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
+    reasons = {d["broken"]["reason"] for r in cat.datasets(limit=None)
+               for d in r["distributions"] if d.get("broken")}
+    assert reasons == {"Not Found", "Too Many Requests"}
 
 
-# -- link is an ordinary filter ---------------------------------------------
+def test_the_record_itself_carries_no_verdict(path, transport):
+    """277 datasets had a broken landing page and perfectly good files."""
+    cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
+    for record in cat.datasets(limit=None):
+        assert "link" not in record
+        assert "broken" not in record
 
 
-def test_link_filters_like_any_other(catalog):
-    assert catalog.datasets(link="broken", limit=0).total == 2
-    assert catalog.datasets(link="success", limit=0).total == 1
+# -- the default leaves broken files, and dead datasets, out -----------------
 
 
-def test_link_is_in_the_breakdown_with_counts(catalog):
-    counts = dict(catalog.datasets(limit=0).breakdown["link"])
-    assert counts == {"broken": 2, "success": 1}
+def test_broken_files_are_left_out_by_default(path, transport):
+    cat = Catalog(path, max_age=None, _transport=transport)
+    assert cat.datasets(limit=0).total == 1
+    dists = cat.datasets()[0]["distributions"]
+    assert [d["access_url"] for d in dists] == [["https://example.org/b.csv"]]
+    assert "broken" not in dists[0]
 
 
-def test_a_link_value_round_trips_like_every_other(catalog):
-    for value, count in catalog.filters()["link"]:
-        assert catalog.datasets(link=value, limit=0).total == count
+def test_a_dataset_whose_every_file_is_broken_is_left_out(path, transport):
+    """5,331 of them. Metadata with nothing to fetch is what dead means."""
+    cat = Catalog(path, max_age=None, _transport=transport)
+    assert cat.get(CATALOG_RECORDS[1]["uri"]) is None
+    assert cat.get(CATALOG_RECORDS[0]["uri"]) is not None
 
 
-def test_link_takes_a_list(catalog):
-    assert catalog.datasets(link=["broken", "success"], limit=0).total == 2
-
-
-def test_an_unknown_link_value_is_refused(catalog):
-    with pytest.raises(QueryError) as info:
-        catalog.datasets(link="dead")
-    assert "success" in str(info.value)
-
-
-def test_data_services_take_link_too(cat):
-    assert "link" in cat.data_services(limit=0).breakdown
-
-
-# -- excluding them at init --------------------------------------------------
-
-
-def test_exclude_broken_drops_the_broken_files(tmp_path, transport):
-    records = [
-        with_links(CATALOG_RECORDS[0],
-                   ("https://example.org/a.csv", "broken", "Not Found"),
-                   ("https://example.org/b.csv", "success", "OK")),
-    ]
-    path = write_catalog(tmp_path, records)
-
-    kept = Catalog(path, max_age=None, _transport=transport)
-    assert len(kept.datasets()[0]["distributions"]) == 2
-
-    pruned = Catalog(path, max_age=None, _transport=transport,
-                     exclude_broken=True)
-    dists = pruned.datasets()[0]["distributions"]
-    assert len(dists) == 1
-    assert dists[0]["link"]["status"] == "success"
-
-
-def test_a_dataset_whose_files_all_break_keeps_its_metadata(tmp_path, transport):
-    """It is still a dataset; it just has nothing you can fetch."""
-    records = [with_links(CATALOG_RECORDS[0],
-                          ("https://example.org/a.csv", "broken", "Gone"))]
-    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport, exclude_broken=True)
-    record = cat.datasets()[0]
-    assert record["distributions"] == []
-    assert record["title"]
-
-
-def test_excluding_is_off_by_default(tmp_path, transport):
-    records = [with_links(CATALOG_RECORDS[0],
-                          ("https://example.org/a.csv", "broken", "Gone"))]
-    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+def test_a_dataset_that_never_had_files_stays(tmp_path, transport):
+    """1,647 of them: APIs and registers. Not dead, just not files."""
+    record = dict(CATALOG_RECORDS[0], distributions=[])
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport)
-    assert len(cat.datasets()[0]["distributions"]) == 1
+    assert cat.datasets(limit=0).total == 1
 
 
-# -- a record with no check at all -------------------------------------------
+def test_exclude_broken_false_keeps_everything(path, transport):
+    cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
+    assert cat.datasets(limit=0).total == 2
+    assert len(cat.datasets()[0]["distributions"]) == 2
 
 
-def test_a_file_the_check_never_saw_has_no_link_key(tmp_path, transport):
-    """An older file, or one written with links=False."""
-    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport)
-    dist = cat.datasets()[0]["distributions"][0]
-    assert dist.get("link") is None
-    assert cat.datasets(limit=0).breakdown["link"] == []
-    assert cat.datasets(link="broken", limit=0).total == 0
+def test_link_is_not_a_filter(path, transport):
+    cat = Catalog(path, max_age=None, _transport=transport)
+    with pytest.raises(QueryError) as info:
+        cat.datasets(link="broken")
+    assert "unknown filter" in str(info.value)
+    assert "link" not in cat.filters()
+    assert "link" not in cat.data_services(limit=0).breakdown
+
+
+# -- a file the check never saw -----------------------------------------------
+
+
+def test_a_file_the_check_never_saw_is_simply_unmarked(tmp_path, transport):
+    """An older file, or one written with links=False, is not 'broken'."""
+    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport,
+                  access_rights=None)
+    for record in cat.datasets(limit=None):
+        for dist in record["distributions"]:
+            assert "broken" not in dist
+    assert cat.datasets(limit=0).total == 2

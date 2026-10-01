@@ -15,7 +15,7 @@ from dataportalen import Catalog, QueryError
 @pytest.fixture
 def catalog(tmp_path, transport):
     return Catalog(write_catalog(tmp_path), max_age=None,
-                   _transport=transport)
+                   _transport=transport, access_rights=None)
 
 
 def uris(results):

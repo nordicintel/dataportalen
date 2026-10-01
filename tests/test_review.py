@@ -17,7 +17,7 @@ from dataportalen import Catalog, QueryError, text
 @pytest.fixture
 def catalog(tmp_path, transport):
     return Catalog(write_catalog(tmp_path), max_age=None,
-                   _transport=transport)
+                   _transport=transport, access_rights=None)
 
 
 # -- an organisation number is a publisher, not a dead end -------------------
@@ -70,7 +70,7 @@ def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
              keywords={"sv": ["BARNOMSORG"]}),
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport)
+                  _transport=transport, access_rights=None)
     counts = dict((v, c) for v, c in cat.filters()["keyword"])
     assert counts == {"BARN": 1, "BARNOMSORG": 1}
     for value, count in counts.items():
@@ -86,7 +86,7 @@ def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
              keywords={"sv": ["Barn"]}),
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport)
+                  _transport=transport, access_rights=None)
     assert cat.datasets(keyword="BARN", limit=0).total == 1
     assert cat.datasets(keyword="Barn", limit=0).total == 1
 
@@ -94,7 +94,7 @@ def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
 def test_a_keyword_the_file_lacks_still_matches_on_substring(tmp_path, transport):
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Geodata"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                  _transport=transport)
+                  _transport=transport, access_rights=None)
     assert cat.datasets(keyword="geoda", limit=0).total == 1
 
 
@@ -102,7 +102,7 @@ def test_a_blank_value_never_reaches_the_breakdown(tmp_path, transport):
     """33 datasets carry a keyword that is a newline and four spaces."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["\n    ", "riktig"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                  _transport=transport)
+                  _transport=transport, access_rights=None)
     assert [v for v, _ in cat.filters()["keyword"]] == ["riktig"]
 
 
@@ -156,10 +156,10 @@ def test_an_unregistered_rdf_type_gives_a_plain_entry_not_a_keyerror():
 
 
 def test_the_request_path_quotes_the_ids_it_interpolates(tmp_path, transport):
-    """Catalog(path=...) accepts any file; a crafted id must not redirect."""
+    """Catalog(path=..., access_rights=None) accepts any file; a crafted id must not redirect."""
     record = dict(CATALOG_RECORDS[0], context_id="../../evil", entry_id="9")
     fresh = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                    _transport=transport)
+                    _transport=transport, access_rights=None)
     transport.push("x", content_type="text/turtle")
     fresh.get(record["uri"], format="turtle")
     assert "/store/..%2F..%2Fevil/metadata/9" in transport.requests[-1]
@@ -245,7 +245,7 @@ def test_an_empty_file_is_not_a_catalogue(tmp_path, transport):
     path = tmp_path / "empty.jsonl"
     path.write_text("", encoding="utf-8")
     with pytest.raises(ParseError) as info:
-        Catalog(str(path), max_age=None, _transport=transport)
+        Catalog(str(path), max_age=None, _transport=transport, access_rights=None)
     assert "empty" in str(info.value)
 
 

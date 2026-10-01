@@ -978,39 +978,44 @@ def _link_checks(client, counter):
     return checks
 
 
-def _link_of(check: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """One link check as it goes into a record."""
-    if not check:
-        return None
-    return {
-        "status": check.get("status"),
-        "message": check.get("statusMessage") or None,
-        "checked": (check.get("checkedAt") or "")[:19] or None,
-        "attempts": check.get("attempts"),
-    }
+def _urls_of(dist: Dict[str, Any]) -> List[str]:
+    """Every URL a distribution names, whichever shape the field is in."""
+    out: List[str] = []
+    for key in ("download_url", "access_url"):
+        value = dist.get(key)
+        if isinstance(value, str):
+            out.append(value)
+        elif value:
+            out.extend(v for v in value if v)
+    return out
 
 
 def _attach_links(record: Dict[str, Any], checks: Dict[str, Dict[str, Any]]) -> None:
-    """Put the registry's verdict on a record and on each of its files."""
+    """Mark each file the registry's nightly check found broken.
+
+    A broken file carries ``{"reason": ..., "checked": ...}`` under ``broken``;
+    a working one carries nothing. The 18,360 successes and 5,021 the check
+    skipped were a ``link`` dict on every file for the one in three that
+    matters, and a landing-page verdict on the dataset that was ``None`` on
+    10,331 of them -- 277 datasets had a broken landing page and perfectly
+    good files, which is not what "dead" means.
+
+    Only files. The registry checks ``accessURL``, ``downloadURL``,
+    ``landingPage``, ``foaf:page``, ``conformsTo`` and ``endpointDescription``
+    -- never ``endpointURL`` -- so whether a data service's API answers is
+    something it does not know, and this does not pretend to.
+    """
     if not checks:
         return
     for dist in record.get("distributions") or []:
-        urls = (dist.get("download_url") or []) + (dist.get("access_url") or [])
-        found = [checks[u] for u in urls if u in checks]
-        dist["link"] = _link_of(_worst(found))
-    own = [checks[u] for u in [record.get("landing_page")] if u and u in checks]
-    record["link"] = _link_of(_worst(own))
-
-
-#: Worst first: a thing with one broken link and one working one is reported
-#: as broken, because the broken one is the part you would trip over.
-_LINK_ORDER = {"broken": 0, "excluded": 1, "success": 2}
-
-
-def _worst(checks: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if not checks:
-        return None
-    return sorted(checks, key=lambda c: _LINK_ORDER.get(c.get("status"), 3))[0]
+        for url in _urls_of(dist):
+            check = checks.get(url)
+            if check and check.get("status") == "broken":
+                dist["broken"] = {
+                    "reason": check.get("statusMessage") or None,
+                    "checked": (check.get("checkedAt") or "")[:19] or None,
+                }
+                break
 
 
 def _bulk_indexes(client, workers, counter):
@@ -1100,8 +1105,8 @@ def download_catalog(
         are skipped entirely when it is set -- they are the small half, and a
         smoke test should stay small.
     :param client: an existing ``_Registry`` to reuse.
-    :param links: also read the registry's nightly link check and record its
-        verdict on every file. 159 requests, about ten seconds. Skipped for a
+    :param links: also read the registry's nightly link check and mark every
+        file it found broken. 159 requests, about ten seconds. Skipped for a
         partial export, where the reports would dwarf the work.
     :param since: only fetch entries the registry has touched since this
         timestamp, and leave the rest of the database alone. This is what makes
@@ -1178,7 +1183,6 @@ def download_catalog(
                 for entry, record in _service_records(
                         client, workers, counter, agents, contacts, missing,
                         since=since):
-                    _attach_links(record, checks)
                     services_written += 1
                     bytes_written += len(json.dumps(record, ensure_ascii=False).encode())
                     yield "data_service", _iso(entry.modified), record
@@ -1330,6 +1334,29 @@ __all__ = [
 # --- the catalogue on disk ---------------------------------------------------
 
 
+#: What ``access_rights=`` may name. ``none`` is the record that sets nothing.
+_ACCESS_VALUES = ("public", "non_public", "restricted", "none")
+
+
+def _access_scope(value: Any) -> Optional[frozenset]:
+    """The access_rights values a Catalog holds, or ``None`` for all of them."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = (value,)
+    try:
+        wanted = frozenset(str(v).strip().lower() for v in value)
+    except TypeError:
+        raise QueryError("access_rights must be a list of values or None; got %r"
+                         % (value,))
+    unknown = wanted - set(_ACCESS_VALUES)
+    if unknown or not wanted:
+        raise QueryError(
+            "access_rights takes %s; got %r"
+            % (", ".join(_ACCESS_VALUES), sorted(unknown)[0] if unknown else value))
+    return wanted
+
+
 class Catalog:
     """Sweden's open-data catalogue, downloaded once and searched locally.
 
@@ -1359,8 +1386,15 @@ class Catalog:
         schema change asks for, and the only thing that drops a dataset the
         registry has since withdrawn.
     :param exclude_broken: drop every file the registry's nightly link check
-        found broken. About a third of them: of 35,148 distributions, 11,762
-        have no working URL.
+        found broken -- a third of them: 11,762 of 35,148 -- and with them any
+        dataset whose every file was broken, 5,331. A dataset that never had
+        files (1,647: APIs, registers) is not dead and stays. ``False`` keeps
+        everything and marks each broken file with ``{"reason", "checked"}``
+        under ``broken``.
+    :param access_rights: which ``access_rights`` values the catalogue holds.
+        ``"public"``, ``"non_public"``, ``"restricted"``, and ``"none"`` for
+        the 4,167 datasets -- 17.7%, mostly universities -- that set nothing.
+        ``None`` holds everything.
     """
 
     def __init__(
@@ -1369,7 +1403,8 @@ class Catalog:
         *,
         max_age: Optional[int] = DEFAULT_MAX_AGE,
         rebuild: bool = False,
-        exclude_broken: bool = False,
+        exclude_broken: bool = True,
+        access_rights: Optional[Sequence[str]] = ("public",),
         _transport: Optional[BaseTransport] = None,
     ) -> None:
         if max_age is not None and (isinstance(max_age, bool) or max_age < 0):
@@ -1378,6 +1413,7 @@ class Catalog:
         self.database = database or default_catalog_path()
         self.max_age = max_age
         self.exclude_broken = bool(exclude_broken)
+        self.access_rights = _access_scope(access_rights)
         self._registry = _Registry(transport=_transport)
         self._owns_registry = True
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
@@ -1445,23 +1481,46 @@ class Catalog:
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
                 "build the Catalog with rebuild=True to fetch a fresh one."
                 % self.database)
-        if self.exclude_broken:
-            dropped = 0
-            for record in every:
-                keep = [d for d in record.get("distributions") or []
-                        if (d.get("link") or {}).get("status") != "broken"]
-                dropped += len(record.get("distributions") or []) - len(keep)
-                if "distributions" in record:
-                    record["distributions"] = keep
-            if dropped:
-                logger.info("dropped %s files the registry reports broken",
-                            f"{dropped:,}")
+        every = self._scope(every)
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None
         self._seen = {}
         logger.info("read %s datasets and %s data services from %s",
                     f"{len(self._records):,}", f"{len(self._services):,}", self.database)
+
+    def _scope(self, every: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """What this Catalog holds of what the database holds.
+
+        The database is the whole registry; ``access_rights`` and
+        ``exclude_broken`` narrow it when the object is built, so every
+        search and every count after that already agrees with them.
+        """
+        if self.access_rights is not None:
+            before = len(every)
+            every = [r for r in every
+                     if (r.get("access_rights") or "none") in self.access_rights]
+            if before - len(every):
+                logger.info("left out %s records outside access_rights=%s",
+                            f"{before - len(every):,}",
+                            "/".join(sorted(self.access_rights)))
+        if self.exclude_broken:
+            kept, files, dead = [], 0, 0
+            for record in every:
+                dists = record.get("distributions")
+                if dists:
+                    alive = [d for d in dists if not d.get("broken")]
+                    files += len(dists) - len(alive)
+                    if not alive:
+                        dead += 1
+                        continue
+                    record["distributions"] = alive
+                kept.append(record)
+            every = kept
+            if files:
+                logger.info("left out %s broken files and the %s datasets that "
+                            "had nothing else", f"{files:,}", f"{dead:,}")
+        return every
 
     @property
     def first_retrieved(self) -> Optional[str]:
@@ -1805,21 +1864,6 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "service_type":
         value = record.get("service_type")
         return [value] if value else []
-    if filter == "link":
-        # Every verdict anywhere in the record: its own landing page and each
-        # of its files. So `link="broken"` finds a record with at least one
-        # broken link, the same way `format="csv"` finds one with at least one
-        # CSV file. The values are the registry's own -- success, broken,
-        # excluded -- not a judgement of ours.
-        out = []
-        own = (record.get("link") or {}).get("status")
-        if own:
-            out.append(own)
-        for dist in record.get("distributions") or []:
-            status = (dist.get("link") or {}).get("status")
-            if status:
-                out.append(status)
-        return out
     raise QueryError(
         "cannot count values for %r; try one of: %s"
         % (filter, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
@@ -2018,17 +2062,6 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     if name == "publisher":
         wanted = {_org_value(item, name, observed) for item in _as_list(value)}
         return lambda record: bool(wanted & set(_local_values(record, name)))
-
-    if name == "link":
-        # Passed through as the registry states it, so no vocabulary lookup.
-        wanted = {str(v).strip().lower() for v in _as_list(value)}
-        known = {"success", "broken", "excluded"}
-        unknown = wanted - known
-        if unknown:
-            raise QueryError(
-                "link takes %s; got %r"
-                % (", ".join(sorted(known)), sorted(unknown)[0]))
-        return lambda record: bool(wanted & set(_local_values(record, "link")))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
                 "language", "place", "publisher_type", "service_type"):

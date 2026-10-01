@@ -18,7 +18,7 @@ from dataportalen.models import DATA_SERVICE_FILTERS, DATASET_FILTERS
 @pytest.fixture
 def catalog(tmp_path, transport):
     return Catalog(write_catalog(tmp_path), max_age=None,
-                   _transport=transport)
+                   _transport=transport, access_rights=None)
 
 
 # -- filters() ---------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_a_value_filters_to_exactly_the_count_it_claims(tmp_path, transport):
     zipped = dict(CATALOG_RECORDS[1], uri="https://example.org/b",
                   distributions=[{"format": "json_in_a_zip"}])
     catalog = Catalog(write_catalog(tmp_path, [plain, zipped]), max_age=None,
-                      _transport=transport)
+                      _transport=transport, access_rights=None)
 
     counts = dict((value, count) for value, count in catalog.filters()["format"])
     assert counts == {"json": 1, "json_in_a_zip": 1}
@@ -186,7 +186,7 @@ def test_an_alias_still_resolves_when_the_file_has_no_such_slug(tmp_path,
     record = dict(CATALOG_RECORDS[0],
                   distributions=[{"format": "microsoft_excel_xml"}])
     catalog = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                      _transport=transport)
+                      _transport=transport, access_rights=None)
     assert catalog.datasets(limit=0, format="xlsx").total == 1
 
 
