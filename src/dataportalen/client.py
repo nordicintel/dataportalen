@@ -83,6 +83,7 @@ from .rdf import (
     FOAF,
     PROV,
     VCARD,
+    aliases_for,
     label_for,
     publisher_for,
     resolve,
@@ -567,15 +568,22 @@ def local_facets(
     records: Sequence[Dict[str, Any]],
     limit: Optional[int] = None,
     filters: Sequence[str] = DATASET_FILTERS,
+    names: Optional[Mapping[str, Dict[str, Any]]] = None,
 ) -> Facets:
     """Facets counted over records in hand -- one pass, every filter.
+
+    ``names`` labels the publisher facet: ``{id: name}``, from the Catalog's
+    publishers, so a facet row and :meth:`Catalog.publisher` never disagree
+    about what an organisation is called. Without it the name is the first
+    one seen on a record, which for 2 publishers is not the same thing.
 
     ``filters`` is the set that applies to these records, so the facets of a
     data service search carry the keys it has rather than empty lists for
     the ones it does not.
     """
     tallies: Dict[str, Dict[str, int]] = {name: {} for name in filters}
-    names: Dict[str, Dict[str, Any]] = {}
+    collect = names is None
+    names = {} if collect else names
     spellings: Dict[str, Dict[str, int]] = {}
     for record in records:
         for name, counts in tallies.items():
@@ -594,7 +602,8 @@ def local_facets(
                 continue
             for value in set(_local_values(record, name)):
                 counts[value] = counts.get(value, 0) + 1
-        _collect_names(record, names)
+        if collect:
+            _collect_names(record, names)
 
     def rows(name: str, counts: Dict[str, int]) -> List[FacetValue]:
         if name == "keyword":
@@ -1462,6 +1471,7 @@ class Catalog:
         self._registry = _Registry(transport=_transport)
         self._owns_registry = True
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
+        self._publisher_rows: Optional[List[Dict[str, Any]]] = None
         self._seen: Dict[str, set] = {}
         self._records: List[Dict[str, Any]] = []
         self._services: List[Dict[str, Any]] = []
@@ -1526,11 +1536,13 @@ class Catalog:
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
                 "build the Catalog with rebuild=True to fetch a fresh one."
                 % self.database)
+        self._publishers = _Publishers(every)       # before scope, on purpose
         every = self._scope(every)
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None
         self._seen = {}
+        self._publisher_rows = None
         logger.info("read %s datasets and %s data services from %s",
                     f"{len(self._records):,}", f"{len(self._services):,}", self.database)
 
@@ -1636,15 +1648,11 @@ class Catalog:
             "bytes": size,
             "datasets": len(self._records),
             "data_services": len(self._services),
-            # Counted as filter values, so this is the same number
-            # filters()["publisher"] has rows. Eight organisations mint two
-            # URIs each for one name (Folkhälsomyndigheten, SLU, Malmö
+            # The length of publishers(): organisations, not URIs. Eight of
+            # them mint two URIs each (Folkhälsomyndigheten, SLU, Malmö
             # Museer...), and counting URIs would claim 365 next to a list of
             # 356.
-            "publishers": len({
-                slug for r in self._records + self._services
-                if (slug := _org_slug(r.get("publisher")))
-            }),
+            "publishers": len(self._rows()),
         }
 
     # -- lifecycle ---------------------------------------------------------
@@ -1738,9 +1746,82 @@ class Catalog:
                 % (what, name, ", ".join(allowed)))
 
     def _matching(self, records, filters, kind="dataset"):
-        tests = [_local_test(name, value, self._observed(name, kind))
-                 for name, value in filters.items()]
+        tests = []
+        for name, value in filters.items():
+            if name == "publisher":
+                # Resolved by the Catalog, which knows its publishers; the
+                # other filters need only the vocabulary and the record.
+                wanted = {self._publishers.resolve(item)
+                          for item in _require_values(value, name)}
+                tests.append(lambda record, wanted=wanted:
+                             record["publisher"]["id"] in wanted)
+            else:
+                tests.append(_local_test(name, value, self._observed(name, kind)))
         return [r for r in records if all(test(r) for test in tests)]
+
+    # -- publishers --------------------------------------------------------
+
+    def _rows(self) -> List[Dict[str, Any]]:
+        """One row per publisher this Catalog holds something from."""
+        if self._publisher_rows is None:
+            counts: Dict[str, List[int]] = {}
+            for column, records in enumerate((self._records, self._services)):
+                for record in records:
+                    pid = record["publisher"]["id"]
+                    if pid:
+                        counts.setdefault(pid, [0, 0])[column] += 1
+            rows = [dict(self._publishers.entities[pid],
+                         dataset_count=datasets, data_service_count=services)
+                    for pid, (datasets, services) in counts.items()]
+            rows.sort(key=lambda row: (-row["dataset_count"], row["id"]))
+            self._publisher_rows = rows
+        return self._publisher_rows
+
+    def publishers(self) -> List[Dict[str, Any]]:
+        """Every publisher this Catalog holds something from, biggest first.
+
+            >>> catalog.publishers()[0]                    # doctest: +SKIP
+            {'id': 'radet_for_framjande_av_kommunala_analyser_kolada',
+             'uri': 'http://dataportal.se/organisation/SE2220000315',
+             'name': {'sv': 'Rådet för främjande av kommunala analyser - Kolada'},
+             'aliases': ['kolada'], 'type': 'non_governmental_organisation',
+             'homepage': ..., 'email': ..., 'identifiers': ['2220000315'],
+             'dataset_count': 5863, 'data_service_count': 1}
+
+        A plain list, not paginated and without arguments: it is a few hundred
+        rows, and "who publishes the most CSV" is the ``publisher`` facet of a
+        search. ``id`` is what ``publisher=`` takes and what that facet
+        reports. The two counts are this Catalog's -- they equal
+        ``datasets(publisher=id, limit=0).total`` and the same for data
+        services -- so a publisher with nothing in scope is not listed.
+        """
+        return [_copy_publisher(row) for row in self._rows()]
+
+    def publisher(self, value: str) -> Optional[Dict[str, Any]]:
+        """One publisher, with what it publishes; ``None`` if nothing here.
+
+            >>> catalog.publisher("scb")["facets"]["format"]   # doctest: +SKIP
+            {'json': 4270, 'html': 16, ...}
+
+        ``value`` is anything a publisher shows: its ``id``, an alias, its
+        URI, an organisation number, or its name in either language -- the
+        same resolver ``publisher=`` uses. The result is a ``publishers()``
+        row plus ``facets``: exactly
+        ``datasets(publisher=id, limit=0).facets.to_dict()`` over theme,
+        format, license, access_rights, updated and language, so every value
+        in it can be fed back in beside ``publisher=``.
+
+        ``None`` for an organisation with nothing in this Catalog; a value
+        nobody knows raises :class:`QueryError` with suggestions, as the
+        filter does.
+        """
+        pid = self._publishers.resolve(value)
+        row = next((row for row in self._rows() if row["id"] == pid), None)
+        if row is None:
+            return None
+        mine = [r for r in self._records if r["publisher"]["id"] == pid]
+        return dict(_copy_publisher(row),
+                    facets=local_facets(mine, filters=_PUBLISHER_FACETS).to_dict())
 
     def datasets(
         self,
@@ -1774,8 +1855,8 @@ class Catalog:
         self._check(filters, DATASET_FILTERS + ("query",) + _DATE_FILTERS,
                     "datasets")
         found = self._matching(self._records, filters)
-        facets = local_facets(found, limit=facet_limit,
-                                    filters=DATASET_FILTERS)
+        facets = local_facets(found, limit=facet_limit, filters=DATASET_FILTERS,
+                              names=self._publishers.names)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
                        facets=facets)
@@ -1798,8 +1879,8 @@ class Catalog:
         Data service facets are ``data_services(limit=0).facets``, the
         identical structure over that kind's own filters.
         """
-        return local_facets(self._records, limit=limit,
-                               filters=DATASET_FILTERS)
+        return local_facets(self._records, limit=limit, filters=DATASET_FILTERS,
+                            names=self._publishers.names)
 
     def data_services(
         self,
@@ -1833,7 +1914,8 @@ class Catalog:
         self._check(filters, DATA_SERVICE_FILTERS + ("query",), "data services")
         found = self._matching(self._services, filters, "data_service")
         facets = local_facets(found, limit=facet_limit,
-                                    filters=DATA_SERVICE_FILTERS)
+                              filters=DATA_SERVICE_FILTERS,
+                              names=self._publishers.names)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
                        facets=facets)
@@ -1926,7 +2008,130 @@ def _present(record: Dict[str, Any]) -> Dict[str, Any]:
         mark = dist.get("broken")
         if mark is not None and not _is_dead(mark.get("reason")):
             dist["unverified"] = dist.pop("broken")
+
+    # `id` is what publisher= takes and what the publisher facet reports;
+    # without it a record had no public route to its own filter value, and an
+    # alias would point at nothing. Both are the package's, not the
+    # registry's, and both can change between releases (the organisation
+    # table, aliases.json) while the database does not -- so they are added
+    # here rather than stored, and a new alias needs no rebuild.
+    agent = record.get("publisher") or {}
+    slug = _org_slug(agent)
+    record["publisher"] = {
+        "id": slug,
+        "uri": agent.get("uri"),
+        "name": agent.get("name") or {},
+        "aliases": aliases_for(slug) if slug else [],
+        "type": agent.get("type"),
+        "homepage": agent.get("homepage"),
+        "email": agent.get("email"),
+        "identifiers": list(agent.get("identifiers") or []),
+    }
     return record
+
+
+#: The filters whose facets describe a publisher. `keyword` is left out -- one
+#: publisher has 4,230 distinct keywords -- and so are `publisher` and
+#: `publisher_type`, which are the publisher itself.
+_PUBLISHER_FACETS = ("theme", "format", "license", "access_rights",
+                     "updated", "language")
+
+
+class _Publishers:
+    """Who publishes, worked out from every record in the database.
+
+    Built before ``access_rights`` and ``exclude_broken`` narrow anything, so
+    who a publisher *is* does not depend on scope -- only how much of theirs a
+    Catalog holds does. Built from the scoped records, Region Uppsala would
+    be a regional authority in one Catalog and a local one in another.
+
+    A publisher is one or more registry agents, one per URI: 8 of the 356
+    have two. Its attributes are those of **one** of them -- the URI the
+    package's table knows first, then the one on most records, then the
+    lowest URI -- never a merge. Field-by-field majority was measured against
+    this: it differs for 2 publishers and builds an object no agent matches
+    (Folkhälsomyndigheten's fohm-app URI beside an organisation number only
+    its other agent carries).
+    """
+
+    def __init__(self, records: Sequence[Dict[str, Any]]) -> None:
+        agents: Dict[str, Dict[Optional[str], List[Any]]] = {}
+        for record in records:
+            publisher = record.get("publisher") or {}
+            pid = publisher.get("id")
+            if not pid:
+                continue                 # 27 records name no publisher at all
+            slot = agents.setdefault(pid, {}).setdefault(
+                publisher.get("uri"), [publisher, 0])
+            slot[1] += 1
+
+        self.entities: Dict[str, Dict[str, Any]] = {}
+        for pid, by_uri in agents.items():
+            ordered = sorted(by_uri.items(), key=lambda item: (
+                publisher_for(item[0]) is None, -item[1][1], item[0] or ""))
+            self.entities[pid] = ordered[0][1][0]
+        self.names = {pid: agent["name"] for pid, agent in self.entities.items()}
+
+        # What a publisher object shows, the filter takes. In tiers, and the
+        # first tier to claim a key keeps it: an id always means itself, even
+        # where it is also somebody else's slugified name (one such case).
+        keys: Dict[str, str] = {}
+        ordered_ids = sorted(agents)
+        for pid in ordered_ids:
+            keys.setdefault(pid, pid)
+        for pid in ordered_ids:
+            for alias in aliases_for(pid):
+                keys.setdefault(alias, pid)
+        for pid in ordered_ids:
+            for uri in sorted(u for u in agents[pid] if u):
+                keys.setdefault(uri, pid)
+        for pid in ordered_ids:
+            for agent, _ in agents[pid].values():
+                for identifier in agent.get("identifiers") or ():
+                    keys.setdefault(str(identifier).strip(), pid)
+        for pid in ordered_ids:
+            for agent, _ in agents[pid].values():
+                name = agent.get("name")
+                for spelling in (name.values() if isinstance(name, dict) else [name]):
+                    if spelling:
+                        keys.setdefault(slugify(spelling), pid)
+        self._keys = keys
+
+    def resolve(self, value: Any) -> str:
+        """The id of the publisher ``value`` names.
+
+        An id, an alias, a URI, an organisation number or a name in either
+        language. An organisation the package knows but this database does
+        not hold still resolves, to an id nothing carries -- so the filter
+        answers 0 and ``publisher()`` answers ``None`` rather than raising.
+        Only a value nobody knows is an error.
+        """
+        if not isinstance(value, str) or not value.strip():
+            raise QueryError("publisher needs a value; got %r" % (value,))
+        raw = value.strip()
+        for key in (raw, slugify(raw)):
+            if key in self._keys:
+                return self._keys[key]
+        try:
+            uris = resolve_publisher(raw)
+        except QueryError:
+            known = sorted(set(self.entities) | {
+                alias for pid in self.entities for alias in aliases_for(pid)})
+            raise _suggest_from(slugify(raw) or raw, known, "publisher") from None
+        for uri in uris:
+            if uri in self._keys:
+                return self._keys[uri]
+        for uri in uris:
+            known = publisher_for(uri)
+            if known:
+                return known
+        return slugify(raw)
+
+
+def _copy_publisher(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A publisher dict the caller may change without changing ours."""
+    return dict(row, name=dict(row["name"]), aliases=list(row["aliases"]),
+                identifiers=list(row["identifiers"]))
 
 
 def read_catalog(path: str) -> List[Dict[str, Any]]:
@@ -1982,7 +2187,8 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
         value = record.get(filter)
         return [value] if value else []
     if filter == "publisher":
-        slug = _org_slug(record.get("publisher"))
+        publisher = record.get("publisher") or {}
+        slug = publisher.get("id") or _org_slug(publisher)
         return [slug] if slug else []
     if filter == "publisher_type":
         kind = (record.get("publisher") or {}).get("type")
@@ -2076,37 +2282,6 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     return slugs
 
 
-def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
-    """One publisher value, checked against the table and the file.
-
-    A name-derived slug is not in the package's table, so the file it came from
-    is the only thing that can vouch for it. Everything the publisher facet reports
-    has to be usable as a filter, and the facet reports these.
-
-    Where the table does vouch for it, the value is translated to the slug a
-    record actually stores. ``organisations.json`` indexes every publisher
-    under both its slugged name and its organisation number, so
-    ``publisher="SE2021006297"`` validates -- and used to be matched, as
-    itself, against records filed under ``trafikverket``. It matched nothing
-    and said nothing: 186 accepted values could never match, 184 of them
-    naming an organisation that really is in the file.
-    """
-    slug = slugify(value)
-    if observed is not None and slug in observed:
-        return slug
-    try:
-        uris = resolve_publisher(value)                    # raises with a hint
-    except QueryError:
-        if observed is None:
-            raise
-        raise _suggest_from(slug, observed, name) from None
-    for uri in uris:
-        canonical = publisher_for(uri)
-        if canonical and (observed is None or canonical in observed):
-            return canonical
-    return slug
-
-
 def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
     """The unknown-value error, with the suggestions drawn from this file."""
     close = difflib.get_close_matches(value, sorted(observed), n=3, cutoff=0.7)
@@ -2181,10 +2356,6 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
                        for keyword in _local_values(record, "keyword"))
 
         return keyword_test
-
-    if name == "publisher":
-        wanted = {_org_value(item, name, observed) for item in _as_list(value)}
-        return lambda record: bool(wanted & set(_local_values(record, name)))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
                 "language", "publisher_type", "service_type"):

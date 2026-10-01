@@ -1055,6 +1055,15 @@ _PUBLISHERS, _PUBLISHER_BY_URI = _build_publishers()
 _ALIASES = _build_aliases()
 
 
+def aliases_for(slug: Optional[str]) -> List[str]:
+    """The short names a publisher goes by, sorted; ``[]`` for most.
+
+    >>> aliases_for("statistikmyndigheten_scb_statistiska_centralbyran")
+    ['scb']
+    """
+    return sorted(alias for alias, target in _ALIASES.items() if target == slug)
+
+
 def publisher_for(uri: Optional[str]) -> Optional[str]:
     """The name to pass as ``publisher=`` for a publisher's URI.
 
