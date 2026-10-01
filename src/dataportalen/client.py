@@ -91,6 +91,12 @@ from .rdf import (
     slug_for,
     slugify,
 )
+from .records import (
+    DataServiceRecord,
+    DatasetRecord,
+    Publisher,
+    PublisherDetail,
+)
 
 # ==========================================================================
 # client_base: The synchronous client for the Sveriges dataportal registry API.
@@ -1777,7 +1783,7 @@ class Catalog:
             self._publisher_rows = rows
         return self._publisher_rows
 
-    def publishers(self) -> List[Dict[str, Any]]:
+    def publishers(self) -> List[Publisher]:
         """Every publisher this Catalog holds something from, biggest first.
 
             >>> catalog.publishers()[0]                    # doctest: +SKIP
@@ -1797,7 +1803,7 @@ class Catalog:
         """
         return [_copy_publisher(row) for row in self._rows()]
 
-    def publisher(self, value: str) -> Optional[Dict[str, Any]]:
+    def publisher(self, value: str) -> Optional[PublisherDetail]:
         """One publisher, with what it publishes; ``None`` if nothing here.
 
             >>> catalog.publisher("scb")["facets"]["format"]   # doctest: +SKIP
@@ -1831,7 +1837,7 @@ class Catalog:
         offset: int = 0,
         facet_limit: Optional[int] = None,
         **filters: Any,
-    ) -> Results:
+    ) -> Results[DatasetRecord]:
         """Search datasets. A list of dicts that knows its own total.
 
             >>> page = cat.datasets(theme="transport")       # doctest: +SKIP
@@ -1890,7 +1896,7 @@ class Catalog:
         offset: int = 0,
         facet_limit: Optional[int] = None,
         **filters: Any,
-    ) -> Results:
+    ) -> Results[DataServiceRecord]:
         """Search data services -- the registry's APIs rather than its files.
 
             >>> cat.data_services(service_type="view")     # doctest: +SKIP
@@ -2134,7 +2140,7 @@ def _copy_publisher(row: Dict[str, Any]) -> Dict[str, Any]:
                 identifiers=list(row["identifiers"]))
 
 
-def read_catalog(path: str) -> List[Dict[str, Any]]:
+def read_catalog(path: str) -> List[Union[DatasetRecord, DataServiceRecord]]:
     """Every record in a catalogue database, in insertion order.
 
     For reading a copy without building a :class:`Catalog` around it. The

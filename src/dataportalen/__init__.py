@@ -39,6 +39,20 @@ from .core import (
 )
 from .core import __version__ as _version
 from .models import Facet, Facets, FacetValue, Results, text
+from .records import (
+    ContactRecord,
+    DataServiceRecord,
+    DatasetRecord,
+    DistributionRecord,
+    KeywordMap,
+    LanguageMap,
+    LicenseRecord,
+    LinkMark,
+    Publisher,
+    PublisherDetail,
+    PublisherRecord,
+    TemporalRecord,
+)
 
 __version__ = _version
 
@@ -54,6 +68,19 @@ __all__ = [
     "Facets",
     "Facet",
     "FacetValue",
+    # the shapes of the dicts, for editors and type checkers
+    "DatasetRecord",
+    "DataServiceRecord",
+    "DistributionRecord",
+    "PublisherRecord",
+    "Publisher",
+    "PublisherDetail",
+    "LicenseRecord",
+    "ContactRecord",
+    "TemporalRecord",
+    "LinkMark",
+    "LanguageMap",
+    "KeywordMap",
     # errors
     "DataportalError",
     "TransportError",

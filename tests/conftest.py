@@ -92,8 +92,29 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
-#: Two datasets, enough to exercise every filter and the facets. Text is
-#: a language map, as every record written since 0.7.0 is.
+def _file(name: str, format: str) -> Dict[str, Any]:
+    """One distribution as the download stores it: every key, always."""
+    return {
+        "uri": "https://example.org/dist/" + name,
+        "title": {}, "description": {},
+        "access_url": "https://example.org/files/" + name,
+        "download_url": None,
+        "format": format, "license": None, "status": None,
+        "availability": None, "languages": [], "issued": None,
+        "modified": None, "access_service_uris": [],
+    }
+
+
+def _agent(uri: str, name: str) -> Dict[str, Any]:
+    """A publisher as the download stores it; `id` and `aliases` are added
+    when the record is read."""
+    return {"uri": uri, "name": {"sv": name}, "type": "national_authority",
+            "homepage": None, "email": None, "identifiers": []}
+
+
+#: Two datasets, enough to exercise every filter and the facets, in the full
+#: shape a download writes -- so a test that checks record shapes offline is
+#: checking something.
 CATALOG_RECORDS = [
     {
         "uri": "https://example.org/roads",
@@ -112,9 +133,14 @@ CATALOG_RECORDS = [
         "spatial": ["kingdom_of_sweden"],
         "issued": "2020-03-04",
         "modified": "2024-05-06T09:00:00+02:00",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                      "name": {"sv": "Trafikverket"}, "type": "national_authority"},
-        "distributions": [{"format": "csv"}, {"format": "json"}],
+        "identifier": "roads-1",
+        "landing_page": "https://example.org/roads",
+        "temporal": {"start": "2020-01-01", "end": None},
+        "contact_points": [{"uri": None, "name": "Vägdata",
+                            "email": "vag@example.org"}],
+        "publisher": _agent("http://dataportal.se/organisation/SE2021006297",
+                            "Trafikverket"),
+        "distributions": [_file("roads.csv", "csv"), _file("roads.json", "json")],
     },
     {
         "uri": "https://example.org/budget",
@@ -134,10 +160,13 @@ CATALOG_RECORDS = [
         "spatial": [],
         "issued": "2014-01-01",
         "modified": "2019-01-01",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
-                      "name": {"sv": "Försäkringskassan"},
-                      "type": "national_authority"},
-        "distributions": [{"format": "xlsx"}],
+        "identifier": None,
+        "landing_page": None,
+        "temporal": None,
+        "contact_points": [],
+        "publisher": _agent("http://dataportal.se/organisation/SE2021005521",
+                            "Försäkringskassan"),
+        "distributions": [_file("budget.xlsx", "xlsx")],
     },
 ]
 
@@ -156,14 +185,18 @@ SERVICE_RECORDS = [
         "keywords": {"sv": ["Innovation"]},
         "service_type": "rest",
         "endpoint_url": "https://api.example.org/v1",
+        "endpoint_description": "https://api.example.org/docs",
+        "serves_datasets": ["https://example.org/roads"],
+        "conforms_to": [],
+        "landing_page": None,
+        "contact_points": [],
         "themes": ["education_culture_and_sport"],
         "license": {"id": "cc0_1_0",
                     "label": {"en": "CC0 1.0 (Public Domain Dedication, No Copyright)"},
                     "uri": "http://creativecommons.org/publicdomain/zero/1.0/"},
         "access_rights": "public",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                      "name": {"sv": "Trafikverket"},
-                      "type": "national_authority"},
+        "publisher": _agent("http://dataportal.se/organisation/SE2021006297",
+                            "Trafikverket"),
     },
     {
         "uri": "https://geodata.example.org/wms",
@@ -175,13 +208,17 @@ SERVICE_RECORDS = [
         "keywords": {"sv": ["Geodata"]},
         "service_type": "view_service",
         "endpoint_url": "https://geodata.example.org/wms",
+        "endpoint_description": None,
+        "serves_datasets": [],
+        "conforms_to": [],
+        "landing_page": None,
+        "contact_points": [],
         "themes": ["transport"],
         "license": {"id": "cc_by_4_0", "label": {"en": "CC BY 4.0 (Attribution)"},
                     "uri": "http://creativecommons.org/licenses/by/4.0/"},
         "access_rights": "public",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
-                      "name": {"sv": "Försäkringskassan"},
-                      "type": "national_authority"},
+        "publisher": _agent("http://dataportal.se/organisation/SE2021005521",
+                            "Försäkringskassan"),
     },
 ]
 

@@ -72,6 +72,8 @@ __all__ = [
 ]
 
 E = TypeVar("E", bound="Entry")
+#: The record a :class:`Results` holds: a dataset or a data service dict.
+R = TypeVar("R")
 
 _MISSING = object()
 
@@ -1427,8 +1429,8 @@ class Facets(_Mapping):
             "%s=%d" % (name, len(values)) for name, values in self._counts.items())
 
 
-class Results(list):
-    """What a search gives you: a list of dataset dicts, and the total.
+class Results(List[R]):
+    """What a search gives you: a list of record dicts, and the total.
 
     It *is* a list -- index it, slice it, loop over it, pass it to
     ``pandas.DataFrame`` -- and it carries what the registry said about the
@@ -1448,7 +1450,7 @@ class Results(list):
 
     def __init__(
         self,
-        records: Sequence[Dict[str, Any]] = (),
+        records: Sequence[R] = (),
         total: Optional[int] = None,
         offset: int = 0,
         limit: Optional[int] = None,
