@@ -20,7 +20,7 @@ from dataportalen import (
 ## `Catalog(...)`
 
 ```python
-cat = Catalog(
+catalog = Catalog(
     path=None,                    # str | None -> default_catalog_path()
     refresh="if_missing",         # "if_missing" | "if_stale" | "always" | "never"
     exclude_broken_links=False,   # True drops every distribution the registry's
@@ -33,7 +33,7 @@ cat = Catalog(
 )
 ```
 
-## `cat.datasets(...)`
+## `catalog.datasets(...)`
 
 Filters AND together. A list is OR within one filter — except `keyword`, which
 is AND. An unknown filter name, an unknown value, or a negative window raises
@@ -43,7 +43,7 @@ is AND. An unknown filter name, an unknown value, or a negative window raises
 datasets that named one, 6,174 named their own publisher again.
 
 ```python
-page = cat.datasets(
+page = catalog.datasets(
     limit=50,                     # int | None (every match) | 0 (counts only)
     offset=0,                     # int >= 0
     breakdown_limit=None,         # int | None; what it cuts lands in .breakdown.omitted
@@ -181,7 +181,7 @@ page = cat.datasets(
 }
 ```
 
-## `cat.data_services(...)`
+## `catalog.data_services(...)`
 
 Same signature as `datasets()`. Eight filters, not fifteen: `format`,
 `updated`, `place`, `language` and the four date filters are refused with
@@ -190,7 +190,7 @@ distributions, no `accrual_periodicity`, `place` on 8% and one single
 `language` across all 599.
 
 ```python
-page = cat.data_services(
+page = catalog.data_services(
     limit=50,
     offset=0,
     breakdown_limit=None,
@@ -278,14 +278,14 @@ len(page); page[0]; list(page)    # it is a list
 { "total": 67, "offset": 0, "limit": 2, "has_more": true, "len": 2 }
 ```
 
-## `cat.filters(...)`
+## `catalog.filters(...)`
 
 The dataset options before you search — the same `Breakdown` a search carries,
 counted over every dataset. Data-service options are
-`cat.data_services(limit=0).breakdown`, identical in structure over its nine.
+`catalog.data_services(limit=0).breakdown`, identical in structure over its nine.
 
 ```python
-options = cat.filters(
+options = catalog.filters(
     limit=None,                   # int | None, caps each value list
 )
 
@@ -317,10 +317,10 @@ list(options); "format" in options
 }
 ```
 
-## `cat.get(...)`
+## `catalog.get(...)`
 
 ```python
-record = cat.get(
+record = catalog.get(
     "https://metadata.boverket.se/store/1/resource/8",
     format="dict",                # "dict" (local, immediate) | "turtle" | "ttl"
                                   # | "rdf/xml" | "rdfxml" | "xml" | "n-triples"
@@ -335,10 +335,10 @@ otherwise -> str of RDF, fetched live; the only request Catalog makes outside a
              download. None if the URI is not in this copy.
 ```
 
-## `cat.info()`
+## `catalog.info()`
 
 ```python
-cat.info()
+catalog.info()
 ```
 
 ```json
@@ -359,18 +359,18 @@ cat.info()
 ## `Catalog` properties and lifecycle
 
 ```python
-cat.path                          # str
-cat.first_retrieved               # "2026-09-30T17:57:14" | None, when built
-cat.last_refreshed                # "2026-09-30T17:58:16" | None, what a refresh asks from
-cat.downloaded                    # datetime | None
-cat.age_days                      # int >= 0 | None
-cat.stale                         # bool, age_days >= stale_after
-cat.exclude_broken_links          # bool
-cat.stale_after                   # int
+catalog.path                          # str
+catalog.first_retrieved               # "2026-09-30T17:57:14" | None, when built
+catalog.last_refreshed                # "2026-09-30T17:58:16" | None, what a refresh asks from
+catalog.downloaded                    # datetime | None
+catalog.age_days                      # int >= 0 | None
+catalog.stale                         # bool, age_days >= stale_after
+catalog.exclude_broken_links          # bool
+catalog.stale_after                   # int
 
 len(cat)                          # 23581, datasets only
 for record in cat: ...            # datasets only
-cat.close()                       # releases the HTTP connection; never required
+catalog.close()                       # releases the HTTP connection; never required
 with Catalog() as cat: ...        # same thing
 ```
 
