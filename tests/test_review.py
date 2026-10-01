@@ -57,7 +57,7 @@ def test_a_record_without_a_publisher_still_has_a_publisher_dict():
     assert record["publisher"]["identifiers"] == []
 
 
-# -- a breakdown value filters to exactly its own count ----------------------
+# -- a facet value filters to exactly its own count ----------------------
 
 
 def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
@@ -71,14 +71,14 @@ def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
                   _transport=transport, access_rights=None)
-    counts = dict((v, c) for v, c in cat.filters()["keyword"])
+    counts = dict((v, c) for v, c in cat.facets()["keyword"])
     assert counts == {"BARN": 1, "BARNOMSORG": 1}
     for value, count in counts.items():
         assert cat.datasets(keyword=value, limit=0).total == count, value
 
 
 def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
-    """The breakdown counts `BARN` and `Barn` separately, so matching must."""
+    """The facet counts `BARN` and `Barn` separately, so matching must."""
     records = [
         dict(CATALOG_RECORDS[0], uri="https://example.org/a",
              keywords={"sv": ["BARN"]}),
@@ -98,12 +98,12 @@ def test_a_keyword_the_file_lacks_still_matches_on_substring(tmp_path, transport
     assert cat.datasets(keyword="geoda", limit=0).total == 1
 
 
-def test_a_blank_value_never_reaches_the_breakdown(tmp_path, transport):
+def test_a_blank_value_never_reaches_the_facets(tmp_path, transport):
     """33 datasets carry a keyword that is a newline and four spaces."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["\n    ", "riktig"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport, access_rights=None)
-    assert [v for v, _ in cat.filters()["keyword"]] == ["riktig"]
+    assert [v for v, _ in cat.facets()["keyword"]] == ["riktig"]
 
 
 # -- garbage is refused, not coerced into a plausible number -----------------

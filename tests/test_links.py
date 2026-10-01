@@ -103,8 +103,8 @@ def test_link_is_not_a_filter(path, transport):
     with pytest.raises(QueryError) as info:
         cat.datasets(link="broken")
     assert "unknown filter" in str(info.value)
-    assert "link" not in cat.filters()
-    assert "link" not in cat.data_services(limit=0).breakdown
+    assert "link" not in cat.facets()
+    assert "link" not in cat.data_services(limit=0).facets
 
 
 # -- a file the check never saw -----------------------------------------------

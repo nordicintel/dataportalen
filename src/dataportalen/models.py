@@ -59,11 +59,10 @@ __all__ = [
     "DataService",
     "Agent",
     "ContactPoint",
-    "ValueCount",
+    "FacetValue",
     "PeriodOfTime",
-    "Breakdown",
-    "ValueList",
-    "BREAKDOWN_FILTERS",
+    "Facets",
+    "Facet",
     "text",
     "DATASET_FILTERS",
     "DATA_SERVICE_FILTERS",
@@ -1214,13 +1213,16 @@ class Dataset(Entry):
         return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
 
 
-class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
+class FacetValue(_namedtuple("FacetValue", "value count")):
     """One value a filter accepts, and how many records carry it.
 
-    Still a plain ``(value, dataset_count)`` pair, so it unpacks in a loop and
-    compares equal to one::
+    Still a plain ``(value, count)`` pair, so it unpacks in a loop and
+    compares equal to one. ``count`` is records of whatever was searched --
+    datasets from ``datasets()``, data services from ``data_services()`` --
+    which is why it is not called ``count`` any more. It shadows
+    ``tuple.count`` on purpose: nobody counts occurrences in a pair::
 
-        for value, count in page.breakdown["theme"]:
+        for value, count in page.facets["theme"]:
             ...
 
     :attr:`label` rides alongside rather than in the tuple -- ``{"sv": ...,
@@ -1228,7 +1230,7 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     records themselves for a publisher. It is ``{}`` for values
     that are their own label, such as keywords.
 
-        row = page.breakdown["publisher"][0]
+        row = page.facets["publisher"][0]
         row.value                     # 'trafikverket', what you filter with
         row.label["sv"]               # 'Trafikverket', what you show
 
@@ -1237,8 +1239,8 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     cannot use ``__slots__``.
     """
 
-    def __new__(cls, value, dataset_count, label=None):
-        row = super().__new__(cls, value, dataset_count)
+    def __new__(cls, value, count, label=None):
+        row = super().__new__(cls, value, count)
         row.label = label or {}
         return row
 
@@ -1246,7 +1248,7 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 # --- search results ---------------------------------------------------------
 
 
-#: What a dataset can be filtered and broken down by. Every one was measured
+#: What a dataset can be filtered and faceted by. Every one was measured
 #: over all 23,575 datasets: publisher and license are on 100% of them,
 #: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
 #: 69.7%, updated 63.3%.
@@ -1279,47 +1281,45 @@ DATA_SERVICE_FILTERS = ("publisher", "publisher_type",
                         "service_type", "theme", "keyword", "license",
                         "access_rights")
 
-#: Kept as the union, for code that asks "is this a filter at all".
-BREAKDOWN_FILTERS = DATASET_FILTERS
 
+class Facet(list):
+    """One facet: the values of one filter, with a count of any left out.
 
-class ValueList(list):
-    """The values for one filter, with a count of any left out.
+    A plain list of ``(value, count)`` pairs, biggest first::
 
-    A plain list of ``(value, dataset_count)`` pairs::
-
-        for value, count in page.breakdown["publisher"]:
+        for value, count in page.facets["publisher"]:
             ...
 
     ``omitted`` is how many further values there were, above whatever
-    ``breakdown_limit`` the search was given -- 0 when nothing was cut.
+    ``facet_limit`` the search was given -- 0 when nothing was cut.
     """
 
     __slots__ = ("omitted",)
 
-    def __init__(self, values: Sequence["ValueCount"] = (), omitted: int = 0) -> None:
+    def __init__(self, values: Sequence["FacetValue"] = (), omitted: int = 0) -> None:
         super().__init__(values)
         self.omitted = omitted
 
     def __repr__(self) -> str:                            # pragma: no cover
         more = " +%d more" % self.omitted if self.omitted else ""
-        return "<ValueList %d%s>" % (len(self), more)
+        return "<Facet %d%s>" % (len(self), more)
 
 
-class Breakdown(_Mapping):
-    """What a search result is made of, per filter, biggest first.
+class Facets(_Mapping):
+    """The facets of a result: per filter, which values exist and how often.
 
     Every filter you can search by, counted over everything that matched --
     not just the rows you are holding::
 
-        page = dp.datasets(text="cykel")
-        page.total                      # 388
-        page.breakdown["publisher"]     # [('trafikverket', 88), ...]
-        page.breakdown["theme"]         # [('transport', 201), ...]
+        page = catalog.datasets(query="cykel")
+        page.total                   # 388
+        page.facets["publisher"]     # [('trafikverket', 88), ...]
+        page.facets["theme"]         # [('transport', 201), ...]
 
-    Each value is one you can feed straight back in to narrow the search::
+    You filter with a value; a facet tells you which values there are. Each
+    one can be fed straight back in to narrow the search::
 
-        dp.datasets(text="cykel", publisher="trafikverket")
+        catalog.datasets(query="cykel", publisher="trafikverket")
 
     Counts are per dataset: a dataset with three CSV files counts once under
     ``format`` -> ``csv``.
@@ -1329,36 +1329,36 @@ class Breakdown(_Mapping):
 
     def __init__(
         self,
-        counts: Mapping[str, Sequence["ValueCount"]],
+        counts: Mapping[str, Sequence["FacetValue"]],
         limit: Optional[int] = None,
     ) -> None:
         self._counts = {}
         for name in counts:
             values = list(counts[name])
             if limit is not None and len(values) > limit:
-                self._counts[name] = ValueList(values[:limit], len(values) - limit)
+                self._counts[name] = Facet(values[:limit], len(values) - limit)
             else:
-                self._counts[name] = ValueList(values)
+                self._counts[name] = Facet(values)
 
     @property
     def omitted(self) -> Dict[str, int]:
         """``{filter: how many values were cut}``, for the ones that were.
 
-        Empty unless the search was given a ``breakdown_limit``.
+        Empty unless the search was given a ``facet_limit``.
         """
         return {name: values.omitted
                 for name, values in self._counts.items() if values.omitted}
 
-    def __getitem__(self, filter: str) -> "ValueList":
+    def __getitem__(self, filter: str) -> "Facet":
         if filter in self._counts:
             return self._counts[filter]
         raise QueryError(
-            "nothing is broken down by %r; this result knows: %s"
+            "no facet %r; this result has: %s"
             % (filter, ", ".join(self._counts)))
 
     def __contains__(self, filter: object) -> bool:
         # Mapping's default catches KeyError, and __getitem__ raises
-        # QueryError -- so `"format" in breakdown` would propagate instead of
+        # QueryError -- so `"format" in facets` would propagate instead of
         # answering False.
         return filter in self._counts
 
@@ -1368,7 +1368,7 @@ class Breakdown(_Mapping):
     def __len__(self) -> int:
         return len(self._counts)
 
-    def top(self, filter: str) -> Optional["ValueCount"]:  # noqa: D401
+    def top(self, filter: str) -> Optional["FacetValue"]:  # noqa: D401
         """The commonest value for one filter, or ``None`` if there is none."""
         found = self[filter]
         return found[0] if found else None
@@ -1376,7 +1376,7 @@ class Breakdown(_Mapping):
     def to_dict(self) -> Dict[str, Dict[str, int]]:
         """``{filter: {value: count}}``, JSON-serializable and still ordered.
 
-        Any values cut by a ``breakdown_limit`` are counted in
+        Any values cut by a ``facet_limit`` are counted in
         :attr:`omitted` rather than here.
         """
         return {
@@ -1385,7 +1385,7 @@ class Breakdown(_Mapping):
         }
 
     def __repr__(self) -> str:                            # pragma: no cover
-        return "<Breakdown %s>" % " ".join(
+        return "<Facets %s>" % " ".join(
             "%s=%d" % (name, len(values)) for name, values in self._counts.items())
 
 
@@ -1396,17 +1396,17 @@ class Results(list):
     ``pandas.DataFrame`` -- and it carries what the registry said about the
     wider result::
 
-        page = dp.datasets(theme="transport")
+        page = catalog.datasets(theme="transport")
         len(page)        # what you got, at most `limit`
         page.total       # how many matched altogether
         page.has_more    # whether anything follows
-        page.breakdown   # what all of them are made of, per filter
+        page.facets      # what all of them are made of, per filter
 
     The same type comes back whether the search ran against the local
     catalogue or the registry, so code does not care which it used.
     """
 
-    __slots__ = ("total", "offset", "limit", "facets", "breakdown")
+    __slots__ = ("total", "offset", "limit", "facets")
 
     def __init__(
         self,
@@ -1414,16 +1414,14 @@ class Results(list):
         total: Optional[int] = None,
         offset: int = 0,
         limit: Optional[int] = None,
-        facets: Sequence[Any] = (),
-        breakdown: Optional[Breakdown] = None,
+        facets: Optional["Facets"] = None,
     ) -> None:
         super().__init__(records)
         self.total = len(self) if total is None else int(total)
         self.offset = offset
         self.limit = limit
-        self.facets = list(facets)
-        #: What everything that matched is made of -- see :class:`Breakdown`.
-        self.breakdown = breakdown if breakdown is not None else Breakdown({})
+        #: What everything that matched is made of -- see :class:`Facets`.
+        self.facets = facets if facets is not None else Facets({})
 
     @property
     def has_more(self) -> bool:
@@ -1434,12 +1432,6 @@ class Results(list):
         """
         return self.offset + len(self) < self.total
 
-    def facet(self, name: str) -> Optional[Any]:
-        for facet in self.facets:
-            if facet.name == name:
-                return facet
-        return None
-
     def __repr__(self) -> str:                            # pragma: no cover
         return "<Results %d of %d>" % (len(self), self.total)
 
@@ -1448,10 +1440,11 @@ class SearchPage(_ABCSequence):
     """One page of search results.
 
     Behaves like a list of entries and additionally carries ``total``,
-    ``offset``, ``limit`` and any requested facets.
+    ``offset`` and ``limit``. The registry's own facet response, when one was
+    asked for, is in ``raw["facetFields"]``.
     """
 
-    __slots__ = ("entries", "total", "offset", "limit", "facets", "raw", "_client", "_params")
+    __slots__ = ("entries", "total", "offset", "limit", "raw", "_client", "_params")
 
     def __init__(
         self,
@@ -1459,7 +1452,6 @@ class SearchPage(_ABCSequence):
         total: int,
         offset: int,
         limit: int,
-        facets: Sequence[Any] = (),
         raw: Optional[Mapping[str, Any]] = None,
         client: Any = None,
         params: Optional[Mapping[str, Any]] = None,
@@ -1468,7 +1460,6 @@ class SearchPage(_ABCSequence):
         self.total = total
         self.offset = offset
         self.limit = limit
-        self.facets = list(facets)
         self.raw = dict(raw or {})
         self._client = client
         self._params = dict(params or {})
@@ -1492,7 +1483,7 @@ class SearchPage(_ABCSequence):
         return self.offset + len(self.entries) < self.total and bool(self.entries)
 
     def to_dict(self) -> Dict[str, Any]:
-        """The whole page as a plain dict: totals, entries and facets."""
+        """The whole page as a plain dict: totals and entries."""
         return {
             "total": self.total,
             "offset": self.offset,

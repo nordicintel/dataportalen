@@ -92,7 +92,7 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
-#: Two datasets, enough to exercise every filter and the breakdown. Text is
+#: Two datasets, enough to exercise every filter and the facets. Text is
 #: a language map, as every record written since 0.7.0 is.
 CATALOG_RECORDS = [
     {

@@ -187,7 +187,7 @@ def test_every_dataset_filter_matches_something_locally(cat):
     """A filter that matches nothing across 23k datasets is a broken filter."""
     from dataportalen.models import DATASET_FILTERS
 
-    options = cat.filters()
+    options = cat.facets()
     for name in DATASET_FILTERS:
         values = options[name]
         assert values, "%s has no values at all" % name
@@ -198,7 +198,7 @@ def test_every_dataset_filter_matches_something_locally(cat):
 def test_every_data_service_filter_matches_something_locally(cat):
     from dataportalen.models import DATA_SERVICE_FILTERS
 
-    options = cat.data_services(limit=0).breakdown
+    options = cat.data_services(limit=0).facets
     for name in DATA_SERVICE_FILTERS:
         if not options[name]:
             continue            # some are sparse on services; not an error
@@ -221,7 +221,7 @@ def test_vocabulary_labels_resolve_on_live_data(cat):
     """A short value with no label would leak a URI tail into the output."""
     from dataportalen.rdf import label_for
 
-    options = cat.filters()
+    options = cat.facets()
     for name in ("theme", "access_rights", "updated", "license"):
         labelled = sum(1 for row in options[name] if label_for(row.value))
         assert labelled >= len(options[name]) * 0.7, (
@@ -230,8 +230,8 @@ def test_vocabulary_labels_resolve_on_live_data(cat):
 
 
 def test_publishers_lead_into_a_search(cat):
-    for row in cat.filters()["publisher"][:5]:
-        assert cat.datasets(limit=0, publisher=row.value).total == row.dataset_count
+    for row in cat.facets()["publisher"][:5]:
+        assert cat.datasets(limit=0, publisher=row.value).total == row.count
         assert row.label, "a publisher row without a name is not much use"
 
 

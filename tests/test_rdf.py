@@ -397,7 +397,7 @@ def test_an_alias_is_the_publisher_it_names():
 
     long = "statistikmyndigheten_scb_statistiska_centralbyran"
     assert resolve_publisher("scb") == resolve_publisher(long)
-    # The breakdown and the records keep the canonical slug; the alias is
+    # The facets and the records keep the canonical slug; the alias is
     # input only.
     assert publisher_for(resolve_publisher("scb")[0]) == long
     assert "scb" in known_publishers("scb")

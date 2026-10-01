@@ -9,7 +9,7 @@ from that copy, in short lowercase names::
     cat = Catalog()
     page = cat.datasets(theme="transport", format="csv")
     print(page.total)                    # 72
-    print(page.breakdown["publisher"])   # who publishes them
+    print(page.facets["publisher"])      # who publishes them
     for dataset in page:
         print(dataset["title"]["sv"], dataset["distributions"])
 
@@ -38,7 +38,7 @@ from .core import (
     logger,
 )
 from .core import __version__ as _version
-from .models import Breakdown, Results, ValueCount, ValueList, text
+from .models import Facet, Facets, FacetValue, Results, text
 
 __version__ = _version
 
@@ -51,9 +51,9 @@ __all__ = [
     "text",
     # what a search gives you
     "Results",
-    "Breakdown",
-    "ValueList",
-    "ValueCount",
+    "Facets",
+    "Facet",
+    "FacetValue",
     # errors
     "DataportalError",
     "TransportError",

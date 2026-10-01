@@ -63,15 +63,15 @@ from .models import (
     DATA_SERVICE_FILTERS,
     DATASET_FILTERS,
     Agent,
-    Breakdown,
     ContactPoint,
     DataService,
     Dataset,
     Distribution,
     Entry,
+    Facets,
+    FacetValue,
     Results,
     SearchPage,
-    ValueCount,
     _iso,
     wrap_entry,
 )
@@ -562,16 +562,16 @@ class _Registry:
         out = [found[u] for u in wanted if u in found]
         return [e.as_(model) for e in out] if model else out
 
-def local_breakdown(
+def local_facets(
     records: Sequence[Dict[str, Any]],
     limit: Optional[int] = None,
     filters: Sequence[str] = DATASET_FILTERS,
-) -> Breakdown:
-    """A breakdown counted over records in hand -- one pass, every filter.
+) -> Facets:
+    """Facets counted over records in hand -- one pass, every filter.
 
-    ``filters`` is the set that applies to these records, so a data service
-    breakdown carries the seven keys it has rather than empty lists for the
-    four it does not.
+    ``filters`` is the set that applies to these records, so the facets of a
+    data service search carry the keys it has rather than empty lists for
+    the ones it does not.
     """
     tallies: Dict[str, Dict[str, int]] = {name: {} for name in filters}
     names: Dict[str, Dict[str, Any]] = {}
@@ -580,8 +580,8 @@ def local_breakdown(
             for value in set(_local_values(record, name)):
                 counts[value] = counts.get(value, 0) + 1
         _collect_names(record, names)
-    return Breakdown({
-        name: [ValueCount(value, count, names.get(value) or label_for(value))
+    return Facets({
+        name: [FacetValue(value, count, names.get(value) or label_for(value))
                for value, count in
                sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
         for name, counts in tallies.items()
@@ -1369,7 +1369,7 @@ class Catalog:
         cat = Catalog()                                  # downloads on first use
         page = cat.datasets(theme="transport", format="csv")
         page.total                                       # 72
-        page.breakdown["publisher"]                      # who publishes them
+        page.facets["publisher"]                      # who publishes them
         for dataset in page:
             print(dataset["title"]["sv"], dataset["distributions"])
 
@@ -1628,7 +1628,7 @@ class Catalog:
     def _observed(self, filter: str, kind: str = "dataset") -> Optional[set]:
         """Every value this file actually holds for one filter.
 
-        What makes "the breakdown reports it, so you can filter on it" true
+        What makes "a facet reports it, so you can filter on it" true
         even where the vocabulary table has no entry for the value. Kept per
         kind of record, because a data service's values are its own.
         """
@@ -1688,7 +1688,7 @@ class Catalog:
         query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
-        breakdown_limit: Optional[int] = None,
+        facet_limit: Optional[int] = None,
         **filters: Any,
     ) -> Results:
         """Search datasets. A list of dicts that knows its own total.
@@ -1700,9 +1700,8 @@ class Catalog:
             'Ändamålskatalogen'
 
         ``limit`` caps the rows you hold -- ``None`` for every match, ``0`` for
-        the count and the breakdown alone. ``breakdown_limit`` caps each list
-        in the breakdown, and what it cuts is counted in
-        :attr:`~dataportalen.Breakdown.omitted`.
+        the count and the facets alone. ``facet_limit`` caps each facet, and
+        what it cuts is counted in :attr:`~dataportalen.Facets.omitted`.
         """
         for unsupported in ("sort", "page_size"):
             if unsupported in filters:
@@ -1715,31 +1714,31 @@ class Catalog:
         self._check(filters, DATASET_FILTERS + ("query",) + _DATE_FILTERS,
                     "datasets")
         found = self._matching(self._records, filters)
-        breakdown = local_breakdown(found, limit=breakdown_limit,
+        facets = local_facets(found, limit=facet_limit,
                                     filters=DATASET_FILTERS)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
-                       breakdown=breakdown)
+                       facets=facets)
 
-    def filters(self, limit: Optional[int] = None) -> Breakdown:
-        """What you can filter datasets by, with counts and readable names.
+    def facets(self, limit: Optional[int] = None) -> Facets:
+        """Every dataset facet: which values each filter has, with counts.
 
         The one thing a search cannot tell you: the options, before you search.
 
-            >>> cat.filters()["publisher"][0]              # doctest: +SKIP
-            ValueCount(value='radet_for_..._kolada', dataset_count=5863)
-            >>> list(cat.filters())                        # doctest: +SKIP
+            >>> catalog.facets()["publisher"][0]           # doctest: +SKIP
+            FacetValue(value='radet_for_..._kolada', count=5863)
+            >>> list(catalog.facets())                     # doctest: +SKIP
             ['publisher', 'publisher_type', 'theme', 'keyword', ...]
 
-        The same :class:`~dataportalen.Breakdown` a search carries, counted
-        over every dataset -- about a third of a second for the whole corpus.
-        ``limit`` caps each list and what it cuts is counted in
-        :attr:`~dataportalen.Breakdown.omitted`.
+        The same :class:`~dataportalen.Facets` a search carries as
+        ``page.facets``, counted over every dataset this Catalog holds --
+        about half a second for the whole corpus. ``limit`` caps each facet
+        and what it cuts is counted in :attr:`~dataportalen.Facets.omitted`.
 
-        Data service options come from ``data_services(limit=0).breakdown``,
-        which is the identical structure over the other seven filters.
+        Data service facets are ``data_services(limit=0).facets``, the
+        identical structure over that kind's own filters.
         """
-        return local_breakdown(self._records, limit=limit,
+        return local_facets(self._records, limit=limit,
                                filters=DATASET_FILTERS)
 
     def data_services(
@@ -1748,7 +1747,7 @@ class Catalog:
         query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
-        breakdown_limit: Optional[int] = None,
+        facet_limit: Optional[int] = None,
         **filters: Any,
     ) -> Results:
         """Search data services -- the registry's APIs rather than its files.
@@ -1773,11 +1772,11 @@ class Catalog:
         self._window(limit, offset)
         self._check(filters, DATA_SERVICE_FILTERS + ("query",), "data services")
         found = self._matching(self._services, filters, "data_service")
-        breakdown = local_breakdown(found, limit=breakdown_limit,
+        facets = local_facets(found, limit=facet_limit,
                                     filters=DATA_SERVICE_FILTERS)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
-                       breakdown=breakdown)
+                       facets=facets)
 
     def get(self, uri: str, format: str = "dict") -> Any:
         """One record by its URI, or ``None`` if this copy has no such thing.
@@ -1832,7 +1831,7 @@ def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
 
     33 datasets carry a keyword that is nothing but a newline and four
     spaces. It is not a value anybody can filter on, so it does not belong in
-    a breakdown that promises every row can be fed back in.
+    facets that promise every row can be fed back in.
     """
     return [v for v in _local_values_raw(record, filter) if str(v).strip()]
 
@@ -1931,14 +1930,14 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     the value as given then that value is the whole answer. Expanding it
     through the vocabulary would over-match: ``json`` also resolves to
     ``application/json+zip``, whose own slug is ``json_in_a_zip``, so
-    ``format="json"`` would quietly return 54 datasets the breakdown counts
-    under a different name -- and the breakdown's counts would stop agreeing
+    ``format="json"`` would quietly return 54 datasets the facet counts
+    under a different name -- and the facet's counts would stop agreeing
     with the searches its values produce.
 
     Failing that, the vocabulary resolves synonyms and extension aliases, so
     ``xlsx`` still finds what is stored as ``microsoft_excel_xml_xlsx``. And a
     value the table has never heard of but the file does contain -- ``parquet``,
-    a bare GeoNames id -- resolves to itself, because everything a breakdown
+    a bare GeoNames id -- resolves to itself, because everything a facet
     reports has to be usable as a filter. Only a value that is neither known
     nor present is an error, and then the suggestions come from the file.
     """
@@ -1958,8 +1957,8 @@ def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
     """One publisher value, checked against the table and the file.
 
     A name-derived slug is not in the package's table, so the file it came from
-    is the only thing that can vouch for it. Everything the breakdown reports
-    has to be usable as a filter, and the breakdown reports these.
+    is the only thing that can vouch for it. Everything the publisher facet reports
+    has to be usable as a filter, and the facet reports these.
 
     Where the table does vouch for it, the value is translated to the slug a
     record actually stores. ``organisations.json`` indexes every publisher
@@ -2044,11 +2043,11 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     if name == "keyword":
         # Exact when the file holds the keyword, substring otherwise -- the
         # same rule the vocabulary filters use, and for the same reason. A
-        # pure substring match broke the contract the breakdown states: the
+        # pure substring match broke the contract the facet states: the
         # keyword `BARN` is carried by 24 datasets and matched 680, because
         # it is inside `BARNOMSORG` and the rest. 68 of the 120 commonest
         # keywords disagreed with their own count.
-        # Case matters in the exact branch: the breakdown counts `BARN` and
+        # Case matters in the exact branch: the facet counts `BARN` and
         # `Barn` as the two different values they are, so folding case here
         # would make a value match more datasets than its own row claims.
         given = [str(v) for v in _as_list(value)]

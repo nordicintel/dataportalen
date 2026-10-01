@@ -24,55 +24,55 @@ def catalog(tmp_path, transport):
 # -- filters() ---------------------------------------------------------------
 
 
-def test_filters_lists_every_dataset_filter(catalog):
-    found = catalog.filters()
+def test_facets_lists_every_dataset_filter(catalog):
+    found = catalog.facets()
     assert list(found) == list(DATASET_FILTERS)
 
 
-def test_filters_agrees_with_a_search_breakdown(catalog):
+def test_facets_agree_with_a_search_s_facets(catalog):
     """The same structure, so browsing and reading a result are one thing."""
-    assert catalog.filters().to_dict() == \
-        catalog.datasets(limit=0).breakdown.to_dict()
+    assert catalog.facets().to_dict() == \
+        catalog.datasets(limit=0).facets.to_dict()
 
 
-def test_filters_values_are_what_you_feed_back_in(catalog):
-    value, count = catalog.filters()["theme"][0]
+def test_facets_values_are_what_you_feed_back_in(catalog):
+    value, count = catalog.facets()["theme"][0]
     assert catalog.datasets(theme=value).total == count
 
 
-def test_filters_limit_reports_what_it_cut(catalog):
-    found = catalog.filters(limit=1)
+def test_facets_limit_reports_what_it_cut(catalog):
+    found = catalog.facets(limit=1)
     assert len(found["theme"]) == 1
     assert found.omitted["theme"] == 1
 
 
-def test_filters_is_json_serializable(catalog):
-    json.dumps(catalog.filters().to_dict())
+def test_facets_is_json_serializable(catalog):
+    json.dumps(catalog.facets().to_dict())
 
 
 # -- labels ------------------------------------------------------------------
 
 
 def test_a_controlled_value_carries_its_vocabulary_label(catalog):
-    rows = {row.value: row.label for row in catalog.filters()["access_rights"]}
+    rows = {row.value: row.label for row in catalog.facets()["access_rights"]}
     assert rows["public"] == {"en": "Public", "sv": "Publik"}
     assert rows["non_public"] == {"en": "Non-public", "sv": "Ej offentlig"}
 
 
 def test_a_publisher_carries_the_name_from_the_records(catalog):
     """The vocabulary has no entry for an organisation; the file does."""
-    rows = {row.value: row.label for row in catalog.filters()["publisher"]}
+    rows = {row.value: row.label for row in catalog.facets()["publisher"]}
     assert rows["trafikverket"] == {"sv": "Trafikverket"}
 
 
 def test_a_keyword_is_its_own_label(catalog):
-    for row in catalog.filters()["keyword"]:
+    for row in catalog.facets()["keyword"]:
         assert row.label == {}
 
 
 def test_a_value_count_still_unpacks_and_compares_as_a_pair(catalog):
     """The label rides alongside the tuple, it is not part of it."""
-    row = next(r for r in catalog.filters()["access_rights"]
+    row = next(r for r in catalog.facets()["access_rights"]
                if r.value == "public")
     value, count = row
     assert (value, count) == row == ("public", 1)
@@ -104,8 +104,8 @@ def test_the_seven_that_apply_to_a_data_service(catalog, filters, expected):
     assert [r["uri"] for r in catalog.data_services(limit=None, **filters)] == expected
 
 
-def test_a_data_service_breakdown_has_only_the_keys_it_has(catalog):
-    found = catalog.data_services(limit=0).breakdown
+def test_data_service_facets_have_only_the_keys_they_have(catalog):
+    found = catalog.data_services(limit=0).facets
     assert list(found) == list(DATA_SERVICE_FILTERS)
     assert "format" not in found
     assert "updated" not in found
@@ -140,7 +140,7 @@ def test_place_is_not_a_filter_but_spatial_is_still_on_the_record(catalog):
     with pytest.raises(QueryError) as info:
         catalog.datasets(place="kingdom_of_sweden")
     assert "unknown filter" in str(info.value)
-    assert "place" not in catalog.filters()
+    assert "place" not in catalog.facets()
     assert catalog.datasets()[0]["spatial"] == ["kingdom_of_sweden"]
 
 
@@ -167,7 +167,7 @@ def test_an_alias_filters_like_the_publisher_it_names(tmp_path, transport):
     assert catalog.datasets(publisher="scb", limit=0).total == 1
     by_alias = catalog.datasets(publisher="scb", limit=0).total
     assert by_alias == catalog.datasets(publisher=long, limit=0).total
-    values = {row.value for row in catalog.filters()["publisher"]}
+    values = {row.value for row in catalog.facets()["publisher"]}
     assert long in values and "scb" not in values, "canonical slug in output"
 
 
@@ -184,18 +184,18 @@ def test_creator_is_not_a_filter(catalog):
     with pytest.raises(QueryError) as info:
         catalog.datasets(creator="trafikverket")
     assert "unknown filter" in str(info.value)
-    assert "creator" not in catalog.filters()
-    assert "creator" not in catalog.data_services(limit=0).breakdown
+    assert "creator" not in catalog.facets()
+    assert "creator" not in catalog.data_services(limit=0).facets
 
 
-# -- a breakdown value must filter to exactly its own count ------------------
+# -- a facet value must filter to exactly its own count ------------------
 
 
 def test_a_value_filters_to_exactly_the_count_it_claims(tmp_path, transport):
     """`json` also resolves to application/json+zip, whose slug is different.
 
     Expanding a local value through the vocabulary made `format="json"` match
-    datasets the breakdown counted under `json_in_a_zip` -- 54 of them in the
+    datasets the facet counted under `json_in_a_zip` -- 54 of them in the
     real corpus -- so the counts and the searches disagreed.
     """
     plain = dict(CATALOG_RECORDS[0], uri="https://example.org/a",
@@ -205,7 +205,7 @@ def test_a_value_filters_to_exactly_the_count_it_claims(tmp_path, transport):
     catalog = Catalog(write_catalog(tmp_path, [plain, zipped]), max_age=None,
                       _transport=transport, access_rights=None)
 
-    counts = dict((value, count) for value, count in catalog.filters()["format"])
+    counts = dict((value, count) for value, count in catalog.facets()["format"])
     assert counts == {"json": 1, "json_in_a_zip": 1}
     for value, count in counts.items():
         assert catalog.datasets(limit=0, format=value).total == count, value
@@ -225,9 +225,9 @@ def test_an_alias_still_resolves_when_the_file_has_no_such_slug(tmp_path,
     assert catalog.datasets(limit=0, format="xlsx").total == 1
 
 
-def test_every_breakdown_value_round_trips(catalog):
+def test_every_facet_value_round_trips(catalog):
     """The contract the docs state: a value goes straight back in."""
-    options = catalog.filters()
+    options = catalog.facets()
     for name in options:
         for value, count in options[name]:
             assert catalog.datasets(limit=0, **{name: value}).total == count, (
