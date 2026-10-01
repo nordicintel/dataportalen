@@ -143,17 +143,6 @@ def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
     assert record["distributions"] == []
 
 
-def test_progress_is_called_for_every_dataset(wired, tmp_path, dataset_children):
-    seen = []
-    download_catalog(
-        str(tmp_path / "c.jsonl"),
-        limit=len(dataset_children),
-        client=_Registry(transport=wired),
-        progress=lambda done, total: seen.append(done),
-    )
-    assert seen == list(range(1, len(dataset_children) + 1))
-
-
 def test_a_supplied_client_is_left_open(wired, tmp_path, dataset_children):
     client = _Registry(transport=wired)
     download_catalog(
@@ -181,7 +170,7 @@ def test_the_output_directory_is_created(tmp_path, transport, search_response):
     transport.push(_page([], 0))             # agents
     transport.push(_page([], 0))             # contacts
     out = tmp_path / "does" / "not" / "exist" / "catalog.jsonl"
-    download_catalog(str(out), limit=1, progress=None,
+    download_catalog(str(out), limit=1,
                      client=_Registry(transport=transport))
     assert out.exists()
 
@@ -384,7 +373,6 @@ def test_a_failed_download_leaves_no_file(transport, tmp_path, name):
     0-byte file that `refresh="if_missing"` then read as a valid catalogue of
     no datasets -- forever, because a file was there.
     """
-    from dataportalen import Catalog
 
     transport.push(_page([], 5))          # count(datasets)
     for _ in range(3):
@@ -396,9 +384,8 @@ def test_a_failed_download_leaves_no_file(transport, tmp_path, name):
         download_catalog(str(out), client=_Registry(transport=transport,
                                                     max_retries=0))
     assert not out.exists(), "a failed download must not leave the target"
-
     with pytest.raises(FileNotFoundError):
-        Catalog(str(out), refresh="never", transport=transport)
+        read_catalog(str(out))
 
 
 def test_a_failed_rebuild_leaves_the_old_catalogue_intact(transport, tmp_path):
@@ -440,7 +427,7 @@ def test_a_full_build_replaces_the_rows_rather_than_merging(transport, tmp_path)
     path = write_catalog(tmp_path, [CATALOG_RECORDS[0], withdrawn])
     for _ in range(8):                    # a registry that now holds nothing
         transport.push(_page([], 0))
-    download_catalog(path, client=_Registry(transport=transport), progress=None)
+    download_catalog(path, client=_Registry(transport=transport))
     assert sqlite3.connect(path).execute(
         "SELECT count(*) FROM record").fetchone()[0] == 0
 
@@ -454,7 +441,7 @@ def test_a_refresh_merges_rather_than_replacing(transport, tmp_path):
     path = write_catalog(tmp_path, [CATALOG_RECORDS[0], CATALOG_RECORDS[1]])
     for _ in range(8):
         transport.push(_page([], 0))
-    download_catalog(path, client=_Registry(transport=transport), progress=None,
+    download_catalog(path, client=_Registry(transport=transport),
                      since="2026-09-29T00:00:00")
     assert sqlite3.connect(path).execute(
         "SELECT count(*) FROM record").fetchone()[0] == 2

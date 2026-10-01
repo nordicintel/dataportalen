@@ -31,8 +31,8 @@ def catalog(tmp_path, transport):
         with_links(CATALOG_RECORDS[1],
                    ("https://example.org/c.csv", "broken", "Too Many Requests")),
     ]
-    return Catalog(write_catalog(tmp_path, records), refresh="never",
-                   transport=transport, progress=None)
+    return Catalog(write_catalog(tmp_path, records), max_age=None,
+                   _transport=transport)
 
 
 # -- the verdict is on the record -------------------------------------------
@@ -88,7 +88,7 @@ def test_data_services_take_link_too(cat):
 # -- excluding them at init --------------------------------------------------
 
 
-def test_exclude_broken_links_drops_the_broken_files(tmp_path, transport):
+def test_exclude_broken_drops_the_broken_files(tmp_path, transport):
     records = [
         with_links(CATALOG_RECORDS[0],
                    ("https://example.org/a.csv", "broken", "Not Found"),
@@ -96,11 +96,11 @@ def test_exclude_broken_links_drops_the_broken_files(tmp_path, transport):
     ]
     path = write_catalog(tmp_path, records)
 
-    kept = Catalog(path, refresh="never", transport=transport)
+    kept = Catalog(path, max_age=None, _transport=transport)
     assert len(kept.datasets()[0]["distributions"]) == 2
 
-    pruned = Catalog(path, refresh="never", transport=transport,
-                     exclude_broken_links=True)
+    pruned = Catalog(path, max_age=None, _transport=transport,
+                     exclude_broken=True)
     dists = pruned.datasets()[0]["distributions"]
     assert len(dists) == 1
     assert dists[0]["link"]["status"] == "success"
@@ -110,8 +110,8 @@ def test_a_dataset_whose_files_all_break_keeps_its_metadata(tmp_path, transport)
     """It is still a dataset; it just has nothing you can fetch."""
     records = [with_links(CATALOG_RECORDS[0],
                           ("https://example.org/a.csv", "broken", "Gone"))]
-    cat = Catalog(write_catalog(tmp_path, records), refresh="never",
-                  transport=transport, exclude_broken_links=True)
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, exclude_broken=True)
     record = cat.datasets()[0]
     assert record["distributions"] == []
     assert record["title"]
@@ -120,8 +120,8 @@ def test_a_dataset_whose_files_all_break_keeps_its_metadata(tmp_path, transport)
 def test_excluding_is_off_by_default(tmp_path, transport):
     records = [with_links(CATALOG_RECORDS[0],
                           ("https://example.org/a.csv", "broken", "Gone"))]
-    cat = Catalog(write_catalog(tmp_path, records), refresh="never",
-                  transport=transport)
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport)
     assert len(cat.datasets()[0]["distributions"]) == 1
 
 
@@ -130,7 +130,7 @@ def test_excluding_is_off_by_default(tmp_path, transport):
 
 def test_a_file_the_check_never_saw_has_no_link_key(tmp_path, transport):
     """An older file, or one written with links=False."""
-    cat = Catalog(write_catalog(tmp_path), refresh="never", transport=transport)
+    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport)
     dist = cat.datasets()[0]["distributions"][0]
     assert dist.get("link") is None
     assert cat.datasets(limit=0).breakdown["link"] == []

@@ -45,7 +45,7 @@ def cat():
     path = default_catalog_path()
     if not os.path.exists(path):
         pytest.skip("no catalogue downloaded; run Catalog() once first")
-    return Catalog(path, refresh="never")
+    return Catalog(path, max_age=None)
 
 
 # -- what the registry can do, which the design depends on -------------------
@@ -106,7 +106,7 @@ def test_the_transport_reaches_the_registry():
 
 def test_a_small_export_is_complete_and_parseable(tmp_path):
     out = tmp_path / "sample.sqlite"
-    summary = download_catalog(str(out), limit=200, progress=None)
+    summary = download_catalog(str(out), limit=200)
     assert summary.datasets == 200
 
     records = read_catalog(str(out))
@@ -131,7 +131,7 @@ def test_an_export_is_a_usable_database(tmp_path):
     import sqlite3
 
     out = tmp_path / "sample.sqlite"
-    download_catalog(str(out), limit=20, progress=None)
+    download_catalog(str(out), limit=20)
     assert out.read_bytes()[:15] == b"SQLite format 3"
 
     db = sqlite3.connect(str(out))
@@ -278,7 +278,7 @@ def test_an_incremental_refresh_replaces_rows_without_dropping_any(tmp_path):
     from dataportalen.client import _connect, _meta_get, _meta_set
 
     out = str(tmp_path / "inc.sqlite")
-    download_catalog(out, limit=200, progress=None)
+    download_catalog(out, limit=200)
     before = sqlite3.connect(out).execute(
         "SELECT count(*) FROM record").fetchone()[0]
     assert before == 200
@@ -290,7 +290,7 @@ def test_an_incremental_refresh_replaces_rows_without_dropping_any(tmp_path):
     with db:
         _meta_set(db, last_refreshed="2026-09-29T00:00:00")
     db.close()
-    download_catalog(out, progress=None, since="2026-09-29T00:00:00")
+    download_catalog(out, since="2026-09-29T00:00:00")
 
     after = sqlite3.connect(out).execute(
         "SELECT count(*) FROM record").fetchone()[0]

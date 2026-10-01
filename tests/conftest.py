@@ -235,8 +235,8 @@ def cat(transport: FakeTransport, tmp_path):
     """A Catalog over the two canned records; nothing is downloaded."""
     from dataportalen import Catalog
 
-    with Catalog(write_catalog(tmp_path), refresh="never",
-                 transport=transport, progress=None) as catalog:
+    with Catalog(write_catalog(tmp_path), max_age=None,
+                 _transport=transport) as catalog:
         yield catalog
 
 

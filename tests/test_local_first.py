@@ -55,47 +55,73 @@ def test_it_reads_the_file(cat):
 # -- when it is written ------------------------------------------------------
 
 
-def test_refresh_never_will_not_download_a_missing_file(tmp_path, transport):
-    with pytest.raises(FileNotFoundError) as info:
-        Catalog(str(tmp_path / "nope.jsonl"), refresh="never", transport=transport)
-    assert "never" in str(info.value)
-    assert transport.requests == []
-
-
-def test_an_unknown_refresh_mode_is_rejected(tmp_path, transport):
+def test_a_bad_max_age_is_rejected(tmp_path, transport):
     from dataportalen import QueryError
 
-    with pytest.raises(QueryError) as info:
-        Catalog(write_catalog(tmp_path), refresh="sometimes", transport=transport)
-    assert "if_missing" in str(info.value)
+    for bad in (-1, True, "week"):
+        with pytest.raises((QueryError, TypeError)):
+            Catalog(write_catalog(tmp_path), max_age=bad, _transport=transport)
 
 
-def test_a_stale_copy_warns_and_is_not_refreshed(tmp_path, transport, caplog):
-    """A program that answered in a second yesterday must not block today."""
+def test_max_age_none_uses_an_old_copy_as_is(tmp_path, transport, caplog):
+    """None is the caller saying: I know, and I do not want the network."""
     path = write_catalog(tmp_path)
     age(path, 30)
-    with caplog.at_level(logging.WARNING, logger="dataportalen"):
-        cat = Catalog(path, refresh="if_missing", transport=transport)
+    with caplog.at_level(logging.INFO, logger="dataportalen"):
+        cat = Catalog(path, max_age=None, _transport=transport)
     assert "30 days old" in caplog.text
-    assert cat.stale is True
+    assert cat.age_days == 30
     assert cat.datasets().total == 2
-    assert transport.requests == [], "a stale copy must not trigger a download"
+    assert transport.requests == [], "max_age=None must not touch the network"
 
 
-def test_stale_after_is_the_caller_s_definition_of_old(tmp_path, transport):
+def refresh_pages(transport, n=8):
+    for _ in range(n):
+        transport.push({"results": 0, "offset": 0, "limit": 100,
+                        "resource": {"children": []}, "facetFields": []})
+
+
+def test_max_age_is_the_caller_s_definition_of_old(tmp_path, transport):
+    """Three days old: fine under a week, refreshed under two days."""
     path = write_catalog(tmp_path)
     age(path, 3)
-    assert Catalog(path, refresh="never", transport=transport,
-                   stale_after=7).stale is False
-    assert Catalog(path, refresh="never", transport=transport,
-                   stale_after=2).stale is True
+    Catalog(path, max_age=7, _transport=transport)
+    assert transport.requests == []
+
+    refresh_pages(transport)
+    cat = Catalog(path, max_age=2, _transport=transport)
+    assert transport.requests, "an old copy under max_age must refresh"
+    assert cat.age_days == 0, "and then it is current"
+    assert cat.datasets().total == 2, "a refresh keeps what it did not touch"
 
 
-def test_a_fresh_copy_is_used_under_if_stale(tmp_path, transport):
+def test_a_fresh_copy_is_used_under_the_default(tmp_path, transport):
     path = write_catalog(tmp_path)
-    cat = Catalog(path, refresh="if_stale", transport=transport)
+    cat = Catalog(path, _transport=transport)
     assert cat.datasets().total == 2
     assert transport.requests == []
+
+
+def test_a_refresh_is_incremental_not_a_rebuild(tmp_path, transport):
+    """The query carries the bound; the registry does the narrowing."""
+    path = write_catalog(tmp_path)
+    age(path, 10)
+    refresh_pages(transport)
+    Catalog(path, _transport=transport)
+    asked = " ".join(transport.requests)
+    assert "modified" in asked, "a refresh asks only for what changed"
+
+
+def test_rebuild_fetches_everything_whatever_is_there(tmp_path, transport):
+    path = write_catalog(tmp_path)
+    refresh_pages(transport)
+    with pytest.raises(Exception):
+        # A full build against a registry that answers nothing ends with zero
+        # rows, which _read refuses -- the point here is only that it asked
+        # for everything rather than for what changed.
+        Catalog(path, rebuild=True, _transport=transport)
+    asked = " ".join(transport.requests)
+    assert asked and "modified" not in asked
 
 
 # -- what it says about itself ----------------------------------------------
@@ -103,20 +129,18 @@ def test_a_fresh_copy_is_used_under_if_stale(tmp_path, transport):
 
 def test_a_fresh_file_is_never_negative_days_old(tmp_path, transport):
     """A just-written file can be stamped a hair ahead of the clock."""
-    cat = Catalog(write_catalog(tmp_path), refresh="never", transport=transport)
+    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport)
     assert cat.age_days == 0
-    assert cat.stale is False
 
 
 def test_info_reports_the_file_and_its_age(cat):
     info = cat.info()
-    assert info["path"].endswith("catalog.sqlite")
+    assert info["database"].endswith("catalog.sqlite")
     assert info["datasets"] == 2
     assert info["data_services"] == 2
     assert info["publishers"] == 2
     assert info["bytes"] > 0
     assert info["age_days"] == 0
-    assert info["stale"] is False
     assert info["downloaded"] is not None
     json.dumps(info)                       # it is a plain dict, all the way down
 
@@ -139,7 +163,7 @@ def test_get_returns_the_first_of_two_records_sharing_a_uri(tmp_path, transport)
     """Four real datasets are harvested into two catalogues under one URI."""
     twin = dict(CATALOG_RECORDS[0], context_id="99", entry_id="9")
     path = write_catalog(tmp_path, [CATALOG_RECORDS[0], twin])
-    cat = Catalog(path, refresh="never", transport=transport)
+    cat = Catalog(path, max_age=None, _transport=transport)
     assert cat.get(CATALOG_RECORDS[0]["uri"])["context_id"] == "50"
 
 

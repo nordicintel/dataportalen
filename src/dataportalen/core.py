@@ -175,24 +175,16 @@ def _duration(seconds: float) -> str:
 
 
 def progress_reporter(
-    progress: Any,
     label: str,
     log_every: int = 2000,
-) -> Optional[Callable[[int, int], None]]:
-    """Turn the ``progress`` argument into a callback.
+) -> Callable[[int, int], None]:
+    """A ``(done, total)`` callback for a long operation.
 
-    ``"auto"`` (the default for long operations) draws a live line when
-    stderr is a terminal, and otherwise logs a line every ``log_every`` items
-    so a redirected run still leaves a trail. ``None`` is silent, and a
-    callable is used as given.
+    Draws a live line when stderr is a terminal, and otherwise logs a line
+    every ``log_every`` items so a redirected run still leaves a trail. There
+    is no silent mode: a five-minute download that prints nothing looks like
+    a hang, and that was a bug once.
     """
-    if progress is None:
-        return None
-    if callable(progress):
-        return progress
-    if progress != "auto":
-        raise ValueError("progress must be 'auto', None, or a callable")
-
     stream = sys.stderr
     if getattr(stream, "isatty", lambda: False)():
         return _TerminalProgress(label)

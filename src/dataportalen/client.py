@@ -177,9 +177,16 @@ def default_catalog_path() -> str:
     return os.path.join(base, "dataportalen", "catalog.sqlite")
 
 
-#: A copy older than this is reported as stale. Nothing is re-downloaded on
-#: its own -- a six-minute download should never surprise a running program.
-STALE_AFTER_DAYS = 7
+#: How old a copy may be before :class:`Catalog` brings it up to date. A
+#: refresh is incremental -- a day's churn is about 630 datasets, under a
+#: minute -- which is why it can happen on its own where a rebuild could not.
+DEFAULT_MAX_AGE = 7
+
+#: Parallel requests while downloading. Measured against the real registry:
+#: one thread gets 0.84 requests/second, two get 2.26, and four and eight get
+#: the same 2.26 -- the registry is the limit, not the client. Two is the
+#: whole gain; a full build is 6 minutes with it and 17 without.
+_WORKERS = 2
 
 #: The date filters, which only datasets support: `modified` is on 89.1% of
 #: them and `issued` on 42.1%, against 7.5% and 0.8% of the 599 data services.
@@ -190,11 +197,6 @@ _DATE_FILTERS = ("updated_after", "updated_before",
 #: typo, not a question the wrong kind of record cannot answer.
 _EVERY_FILTER = frozenset(
     DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("text",))
-
-#: When :class:`Catalog` is allowed to write the file. Anything that replaces
-#: 58 MB on disk is a decision made when the object is built, never a side
-#: effect of something that read like a search.
-_REFRESH_MODES = ("if_missing", "if_stale", "always", "never")
 
 #: Shorthands for the RDF serializations ``get(format=...)`` accepts. Anything
 #: else is passed to the registry as a media type unchanged, so a format this
@@ -778,9 +780,9 @@ CREATE INDEX IF NOT EXISTS record_type ON record(type);
 
 #: Bumped when the layout changes in a way an older file cannot satisfy --
 #: including a change to the record shape, since `doc` holds the record as it
-#: was written. Version 2 dropped `creators`, which a version 1 file still
-#: carries in every row it wrote.
-SCHEMA_VERSION = "2"
+#: was written. Version 2 dropped `creators`; version 3 is the 0.10.0 record
+#: shape (licence dicts, ISO language codes, no ids below the top level).
+SCHEMA_VERSION = "3"
 
 
 def _connect(path: str) -> Any:
@@ -1081,11 +1083,8 @@ def _targeted_indexes(client, datasets, workers, counter):
 def download_catalog(
     path: str,
     *,
-    workers: int = 8,
     limit: Optional[int] = None,
-    progress: Any = "auto",
     client: Any = None,
-    base_url: Optional[str] = None,
     links: bool = True,
     since: Optional[str] = None,
 ) -> CatalogSummary:
@@ -1097,16 +1096,10 @@ def download_catalog(
     resolved and nested, so nothing needs a further lookup.
 
     :param path: the SQLite database to fill.
-    :param workers: parallel requests. The registry tolerates 8 comfortably.
     :param limit: stop after this many datasets, for smoke tests. Data services
         are skipped entirely when it is set -- they are the small half, and a
         smoke test should stay small.
-    :param progress: ``"auto"`` (the default) draws a live progress line on
-        stderr when it is a terminal, and otherwise logs progress periodically
-        -- a five-minute run should never look like a hang. ``None`` is
-        silent; a callable is invoked as ``progress(done, total)``.
     :param client: an existing ``_Registry`` to reuse.
-    :param base_url: registry root, when not passing ``client``.
     :param links: also read the registry's nightly link check and record its
         verdict on every file. 159 requests, about ten seconds. Skipped for a
         partial export, where the reports would dwarf the work.
@@ -1118,13 +1111,13 @@ def download_catalog(
     """
     owned = client is None
     if owned:
-        kwargs = {}
-        if base_url:
-            kwargs["base_url"] = base_url
-        client = _Registry(**kwargs)
+        client = _Registry()
+    workers = _WORKERS
 
     started_all = time.time()
-    report = progress_reporter(progress, "datasets")
+    # A live line on a terminal, a log line every so often otherwise: a
+    # five-minute run must never look like a hang, and nobody needs silence.
+    report = progress_reporter("datasets")
     counter = _Counter()
     written = 0
     services_written = 0
@@ -1353,62 +1346,39 @@ class Catalog:
         for dataset in page:
             print(dataset["title"]["sv"], dataset["distributions"])
 
-    Everything that creates or replaces the file is an argument here, so
-    nothing downloads 58 MB behind a call that looked like a search.
+    Everything that creates or replaces the database is an argument here, so
+    nothing downloads 94 MB behind a call that looked like a search.
 
-    :param path: the SQLite database. Defaults to
-        :func:`default_catalog_path`.
-    :param refresh: when to download.
-
-        ``"if_missing"`` (the default)
-            download only when the file is not there. An old file is used and
-            reported, never replaced behind your back.
-        ``"if_stale"``
-            also download when it is older than ``stale_after`` days.
-        ``"always"``
-            download now, whatever is there.
-        ``"never"``
-            never download; a missing file raises
-            :class:`FileNotFoundError`. For a program that must not reach the
-            network.
-
-    :param exclude_broken_links: drop every file the registry's nightly link
-        check found broken. About a third of them: of 35,140 distributions,
-        11,871 have no working URL. A dataset whose every file is broken keeps
-        its metadata and an empty ``distributions`` list -- use
-        ``datasets(link="success")`` to leave those out of a search too.
-    :param stale_after: days before a copy counts as stale. The registry
-        re-harvests nightly, so a week is already behind.
-    :param progress: ``"auto"`` draws a progress line on a terminal and logs
-        periodically otherwise -- a five-minute download should never look
-        like a hang. ``None`` is silent; a callable gets ``(done, total)``.
-    :param workers: parallel requests while downloading. Eight is comfortable.
-    :param base_url: registry root, to point at another EntryStore.
-    :param transport: your own :class:`~dataportalen.core.BaseTransport`.
+    :param database: the SQLite file. Defaults to :func:`default_catalog_path`.
+    :param max_age: days. A copy older than this -- or missing -- is brought
+        up to date when the object is built: a download if there is nothing,
+        otherwise an incremental refresh of what the registry has touched
+        since, under a minute. ``None`` means use whatever is there and only
+        download if there is nothing.
+    :param rebuild: fetch everything again now, whatever is there. What a
+        schema change asks for, and the only thing that drops a dataset the
+        registry has since withdrawn.
+    :param exclude_broken: drop every file the registry's nightly link check
+        found broken. About a third of them: of 35,148 distributions, 11,762
+        have no working URL.
     """
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        database: Optional[str] = None,
         *,
-        refresh: str = "if_missing",
-        exclude_broken_links: bool = False,
-        stale_after: int = STALE_AFTER_DAYS,
-        progress: Any = "auto",
-        workers: int = 8,
-        base_url: str = DEFAULT_BASE_URL,
-        transport: Optional[BaseTransport] = None,
+        max_age: Optional[int] = DEFAULT_MAX_AGE,
+        rebuild: bool = False,
+        exclude_broken: bool = False,
+        _transport: Optional[BaseTransport] = None,
     ) -> None:
-        if refresh not in _REFRESH_MODES:
-            raise QueryError(
-                "refresh must be one of %s; got %r"
-                % (", ".join(map(repr, _REFRESH_MODES)), refresh))
-        self.path = path or default_catalog_path()
-        self.exclude_broken_links = bool(exclude_broken_links)
-        self.stale_after = int(stale_after)
-        self._progress = progress
-        self._workers = workers
-        self._registry = _Registry(base_url, transport=transport)
+        if max_age is not None and (isinstance(max_age, bool) or max_age < 0):
+            raise QueryError("max_age must be a number of days, or None; got %r"
+                             % (max_age,))
+        self.database = database or default_catalog_path()
+        self.max_age = max_age
+        self.exclude_broken = bool(exclude_broken)
+        self._registry = _Registry(transport=_transport)
         self._owns_registry = True
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
         self._seen: Dict[str, set] = {}
@@ -1416,63 +1386,50 @@ class Catalog:
         self._services: List[Dict[str, Any]] = []
         self._first_retrieved: Optional[str] = None
         self._last_refreshed: Optional[str] = None
-        self._load(refresh)
+        self._load(rebuild)
 
     # -- the file ----------------------------------------------------------
 
-    def _load(self, refresh: str) -> None:
-        """Read the database, fetching first if this mode says to."""
-        exists = os.path.exists(self.path)
-        if refresh == "always" or not exists:
-            if refresh == "never":
-                raise FileNotFoundError(
-                    "%s does not exist and refresh=\"never\" forbids downloading "
-                    "it; use refresh=\"if_missing\" or point path= at a copy"
-                    % self.path)
+    def _load(self, rebuild: bool) -> None:
+        """Read the database, bringing it up to date first if asked to."""
+        if rebuild or not os.path.exists(self.database):
             self._download(full=True)
             return
         self._read()
-        if refresh == "if_stale" and self.stale:
+        age = self.age_days
+        if self.max_age is not None and age is not None and age >= self.max_age:
             # Incremental: only what the registry has touched since we looked.
             # A day of churn is about 630 datasets, seven pages -- so keeping a
-            # copy current costs seconds rather than the seven minutes a
-            # rebuild does.
+            # copy current costs seconds rather than the minutes a rebuild does.
             logger.info("%s is %d days old; refreshing what changed",
-                        self.path, self.age_days)
+                        self.database, age)
             self._download(full=False)
-        elif self.stale:
-            # Never on its own: a program that answered in a second yesterday
-            # must not block for six minutes today. The age is reported so the
-            # decision stays yours.
-            logger.warning(
-                "%s is %d days old; the registry re-harvests nightly. Build "
-                "the Catalog with refresh=\"if_stale\" for current data.",
-                self.path, self.age_days)
+        elif age:
+            logger.info("%s is %d days old and max_age is %s; used as is",
+                        self.database, age, self.max_age)
 
     def _download(self, full: bool = True) -> None:
         """Fill the database, or bring it up to date.
 
         ``full=False`` asks the registry only for entries it has touched since
-        our last refresh, and every row it returns replaces its own by URI.
-        It cannot see a deletion: a dataset withdrawn from the registry keeps
-        its row until a full rebuild, which ``refresh="always"`` does.
+        our last refresh, and every row it returns replaces its own. It cannot
+        see a deletion: a dataset withdrawn from the registry keeps its row
+        until a full rebuild, which ``rebuild=True`` does.
         """
         since = None if full else self.last_refreshed
-        download_catalog(self.path, progress=self._progress,
-                         workers=self._workers, client=self._registry,
-                         since=since)
+        download_catalog(self.database, client=self._registry, since=since)
         self._read()
 
     def _read(self) -> None:
         """Load the database and split its rows by type."""
-        db = _connect(self.path)
+        db = _connect(self.database)
         try:
             version = _meta_get(db, "schema")
             if version is not None and version != SCHEMA_VERSION:
                 raise ParseError(
                     "%s was written with catalogue schema %s and this is "
-                    "version %s. Build the Catalog with refresh=\"always\" to "
-                    "rebuild it." % (self.path, version, SCHEMA_VERSION))
+                    "version %s. Build the Catalog with rebuild=True."
+                    % (self.database, version, SCHEMA_VERSION))
             self._first_retrieved = _meta_get(db, "first_retrieved")
             self._last_refreshed = _meta_get(db, "last_refreshed")
             every = [json.loads(row["doc"])
@@ -1486,9 +1443,9 @@ class Catalog:
             # nothing" would hide that for as long as the file sat there.
             raise ParseError(
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
-                "build the Catalog with refresh=\"always\" to fetch a fresh "
-                "one." % self.path)
-        if self.exclude_broken_links:
+                "build the Catalog with rebuild=True to fetch a fresh one."
+                % self.database)
+        if self.exclude_broken:
             dropped = 0
             for record in every:
                 keep = [d for d in record.get("distributions") or []
@@ -1504,7 +1461,7 @@ class Catalog:
         self._by_uri = None
         self._seen = {}
         logger.info("read %s datasets and %s data services from %s",
-                    f"{len(self._records):,}", f"{len(self._services):,}", self.path)
+                    f"{len(self._records):,}", f"{len(self._services):,}", self.database)
 
     @property
     def first_retrieved(self) -> Optional[str]:
@@ -1531,7 +1488,7 @@ class Catalog:
             except ValueError:                            # pragma: no cover
                 pass
         try:
-            return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
+            return _dt.datetime.fromtimestamp(os.path.getmtime(self.database))
         except OSError:                                   # pragma: no cover
             return None
 
@@ -1549,31 +1506,27 @@ class Catalog:
             return None
         return max(0, (_dt.datetime.now() - when).days)
 
-    @property
-    def stale(self) -> bool:
-        age = self.age_days
-        return age is not None and age >= self.stale_after
-
     def info(self) -> Dict[str, Any]:
         """What this copy is and how old::
 
-            {"path": "...\\catalog.jsonl",
-             "downloaded": "2026-09-30T08:12:41",
-             "age_days": 0, "stale": False, "bytes": 67527943,
-             "datasets": 23576, "data_services": 599, "publishers": 356}
+            {"database": "...\\catalog.sqlite",
+             "first_retrieved": "2026-09-30T17:57:14",
+             "last_refreshed": "2026-10-01T06:38:13",
+             "downloaded": "2026-10-01T06:38:13",
+             "age_days": 0, "bytes": 98725888,
+             "datasets": 23582, "data_services": 599, "publishers": 356}
         """
         when = self.downloaded
         try:
-            size = os.path.getsize(self.path)
+            size = os.path.getsize(self.database)
         except OSError:                                   # pragma: no cover
             size = 0
         return {
-            "path": self.path,
+            "database": self.database,
             "first_retrieved": self._first_retrieved,
             "last_refreshed": self._last_refreshed,
             "downloaded": when.isoformat() if when else None,
             "age_days": self.age_days,
-            "stale": self.stale,
             "bytes": size,
             "datasets": len(self._records),
             "data_services": len(self._services),
@@ -1609,7 +1562,7 @@ class Catalog:
 
     def __repr__(self) -> str:                            # pragma: no cover
         return "<Catalog %s: %d datasets, %d data services>" % (
-            self.path, len(self._records), len(self._services))
+            self.database, len(self._records), len(self._services))
 
     # -- searching ---------------------------------------------------------
 
@@ -1798,6 +1751,10 @@ def read_catalog(path: str) -> List[Dict[str, Any]]:
 
     For reading a copy without building a :class:`Catalog` around it.
     """
+    if not os.path.exists(path):
+        # _connect would create an empty database here and this would return
+        # [] -- a typo in the path read as "a catalogue with nothing in it".
+        raise FileNotFoundError("%s does not exist" % path)
     db = _connect(path)
     try:
         return [json.loads(row["doc"]) for row in db.execute("SELECT doc FROM record")]
