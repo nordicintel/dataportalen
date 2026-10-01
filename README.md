@@ -27,11 +27,12 @@ Distribution and import name are both `dataportalen`. The unrelated
 ```python
 from dataportalen import Catalog, text
 
-catalog = Catalog()      # downloads the catalogue the first time: ~6 min, ~95 MB
-print(catalog.info())    # {'datasets': 12653, 'data_services': 578, ...}
+catalog = Catalog()      # downloads the catalogue the first time: ~7 min, ~95 MB
+print(catalog.info())    # {'datasets': 17601, 'data_services': 578, ...}
 
 page = catalog.datasets(theme="transport", format="csv")
-print(page.total)
+print(page.total)                    # 44
+print(page.facets["publisher"][:3])  # who publishes them
 
 for dataset in page:
     print(text(dataset["title"]), text(dataset["publisher"]["name"]))
@@ -39,15 +40,17 @@ for dataset in page:
         print("   ", dist["format"], dist["access_url"])
 ```
 
-**That first line takes about six minutes.** It downloads the whole catalogue
+**That first line takes about seven minutes.** It downloads the whole catalogue
 once, and every search after that is local and takes hundredths of a second.
 When the copy is over a week old, the next `Catalog()` catches up in under a
 minute.
 
-By default the catalogue holds the datasets that say `public` and have at
-least one file the registry's nightly link check could actually fetch — a
-third of all files are broken. `Catalog(access_rights=None,
-exclude_broken=False)` holds everything.
+By default the catalogue holds the datasets that say `public`, minus the
+files the registry's nightly link check got an HTTP error for.
+`Catalog(access_rights=None, exclude_broken=False)` holds everything.
+
+Publishers are there too: `catalog.publishers()` lists them, and
+`catalog.publisher("scb")` is one of them with what it publishes.
 
 ## Documentation
 

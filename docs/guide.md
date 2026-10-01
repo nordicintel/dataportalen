@@ -7,13 +7,14 @@ worth reading once.
 1. [The first run](#the-first-run)
 2. [What the catalogue holds](#what-the-catalogue-holds)
 3. [Searching](#searching)
-4. [Finding out what you can filter by](#finding-out-what-you-can-filter-by)
+4. [Facets: finding out what you can filter by](#facets-finding-out-what-you-can-filter-by)
 5. [Reading a result](#reading-a-result)
-6. [Data services](#data-services)
-7. [Recipes](#recipes)
-8. [What it does not do](#what-it-does-not-do)
-9. [Why it works this way](#why-it-works-this-way)
-10. [When something goes wrong](#when-something-goes-wrong)
+6. [Publishers](#publishers)
+7. [Data services](#data-services)
+8. [Recipes](#recipes)
+9. [What it does not do](#what-it-does-not-do)
+10. [Why it works this way](#why-it-works-this-way)
+11. [When something goes wrong](#when-something-goes-wrong)
 
 ## The first run
 
@@ -23,7 +24,7 @@ from dataportalen import Catalog
 catalog = Catalog()
 ```
 
-**That takes about six minutes the first time** and writes ~95 MB to disk. Do
+**That takes about seven minutes the first time** and writes ~95 MB to disk. Do
 it deliberately rather than inside something you expect to be quick — it prints
 a progress line, so it never looks like a hang.
 
@@ -40,17 +41,17 @@ project and nothing lands in a repository.
 catalog.info()
 # {'database': 'C:\\Users\\you\\AppData\\Local\\dataportalen\\catalog.sqlite',
 #  'first_retrieved': '2026-09-30T17:57:14',
-#  'last_refreshed': '2026-10-01T06:38:13',
-#  'downloaded': '2026-10-01T06:38:13', 'age_days': 0,
-#  'bytes': 98951168, 'datasets': 12653, 'data_services': 578,
-#  'publishers': 210}
+#  'last_refreshed': '2026-10-01T13:04:54',
+#  'downloaded': '2026-10-01T13:04:54', 'age_days': 0,
+#  'bytes': 98951168, 'datasets': 17601, 'data_services': 578,
+#  'publishers': 294}
 ```
 
 **It keeps itself current, cheaply.** The registry re-harvests nightly. When
 your copy is older than `max_age` days — seven by default — building the
 `Catalog` asks the registry only for the entries it has touched since you last
 looked and replaces those rows. A day's churn is about 630 datasets, seven
-pages: **under a minute, against six for a rebuild.** It logs when it does.
+pages: **under a minute, against seven for a rebuild.** It logs when it does.
 
 ```python
 Catalog()                       # refresh if over a week old; download if missing
@@ -73,28 +74,35 @@ first.
 
 ## What the catalogue holds
 
-Two decisions are made when you build the `Catalog`, because a third of the
-registry would otherwise get in the way of every search.
+Two decisions are made when you build the `Catalog`, because otherwise they
+would get in the way of every search.
 
-**Broken files are left out.** The registry checks every file URL nightly and
-finds 11,762 of 35,148 broken. By default those files are gone from the
-records, and so are the 5,331 datasets whose every file was broken — metadata
-with nothing to fetch is what dead means. A dataset that never had files
-(1,647 of them: APIs, registers) is not dead and stays.
+**Dead files are left out.** The registry checks every file URL nightly and
+calls 11,761 of 35,148 broken — but its message says two different things:
 
-```python
-Catalog(exclude_broken=False)   # keep every file; broken ones say so
-```
+| The registry's message | Files | |
+| --- | --- | --- |
+| an HTTP error: Not Found, Forbidden, Too Many Requests, … | 3,342 | a server said no: **dead** |
+| nothing usable: no message, a failed connection, a timeout | 8,419 | the checker did not get through: **unverified** |
 
-With that, a broken file carries one extra key and a working one carries
-nothing:
+By default the dead files are gone from the records, and so are the 81 public
+datasets whose every file is dead. An unverified file stays, and says so:
 
 ```python
-dist["broken"]    # {'reason': 'Not Found', 'checked': '2026-09-30T02:52:17'}
+dist["unverified"]    # {'reason': 'timeout', 'checked': '2026-10-01T02:52:59'}
 ```
 
-The verdict is the registry's, passed through as it stands. `broken` means its
-checker could not fetch the URL, whatever the reason it gave.
+The difference matters. Statistics Sweden's API resets the registry's
+checker, so 7,091 of its links are "broken" while every one of them answers an
+ordinary request. Treating those as dead removed 4,270 of SCB's 4,306 datasets.
+
+```python
+Catalog(exclude_broken=False)   # keep every file; the dead ones say `broken`
+```
+
+A dataset that never had files (1,647 of them: APIs, registers) is not dead
+and stays either way. Both verdicts are the registry's own data; this package
+tests no link itself.
 
 **Only public datasets are held.** 17,682 say `access_rights="public"`. 1,489
 say `non_public`, 244 `restricted`, and 4,167 — 17.7%, mostly universities —
@@ -106,24 +114,29 @@ Catalog(access_rights=["public", "none"])   # public, plus the ones that set not
 Catalog(access_rights=None)                  # everything
 ```
 
-`info()["datasets"]` is what the `Catalog` holds after both; the database
-underneath always holds all 23,582, so changing either is a new `Catalog`, not
-a new download.
+`info()["datasets"]` is what the `Catalog` holds after both — 17,601 by
+default; the database underneath always holds all 23,582, so changing either is
+a new `Catalog`, not a new download.
 
 ## Searching
 
 ```python
 from dataportalen import text
 
-page = catalog.datasets(text="cykel")
+page = catalog.datasets(query="cykel")
 
-page.total                                 # how many matched
+page.total                                 # 330 — how many matched
 for dataset in page:
     print(text(dataset["title"]))
 ```
 
 `page` is an ordinary list of dictionaries that also knows its own total, so it
 slices and goes straight into anything that takes records.
+
+`query` is a phrase: it matches where those words appear together, ignoring
+case, in the title, the description or the keywords, in either language.
+`query="air quality"` finds the 14 datasets where those words sit together,
+not the hundreds that have both somewhere.
 
 **Filters combine, and all of them have to match:**
 
@@ -132,11 +145,11 @@ catalog.datasets(theme="transport", format="csv", publisher="trafikverket")
 ```
 
 Values are short and lowercase; you never type a web address. There are nine,
-plus free text and four dates, and [reference.md](reference.md#dataset-filters)
+plus `query` and four dates, and [reference.md](reference.md#dataset-filters)
 lists each with how much of the corpus it covers. The ones you will reach for:
 
 ```python
-catalog.datasets(text="cykel")                     # title, description, keywords
+catalog.datasets(query="cykel")                    # a phrase, anywhere in the text
 catalog.datasets(publisher="scb")                  # who put it on the portal
 catalog.datasets(theme="transport")                # the subject
 catalog.datasets(format="csv")                     # a format you can download
@@ -145,85 +158,83 @@ catalog.datasets(language="en")                    # the language of the data
 catalog.datasets(modified_after="2024-01-01")      # changed since
 ```
 
-`publisher=` takes a slug, an organisation's name, its organisation number, its
-URI — or an alias. `scb`, `fhm`, `slu`, `smhi`, `uhr`, `kolada` and
-`energimyndigheten` ship in
-[aliases.json](../src/dataportalen/aliases.json); add your own there.
-
-A list means any of them will do:
+A list means any of them will do, for every filter:
 
 ```python
 catalog.datasets(format=["csv", "xlsx"])           # either format
-catalog.datasets(keyword=["geodata", "trafik"])    # but keywords must all match
+catalog.datasets(keyword=["geodata", "trafik"])    # either keyword
 ```
+
+`keyword` is exact and ignores case — `Kommun`, `kommun` and `KOMMUN` are one
+keyword — and a keyword nobody uses is an error with suggestions, like any
+other filter. For a part of a word, use `query`.
 
 **How much comes back.** There are no pages. A search scans the file and `limit`
 says how much of the result you want to hold:
 
 ```python
 catalog.datasets(theme="transport")               # the first 50 (the default)
-catalog.datasets(theme="transport", limit=None)   # all of them
+catalog.datasets(theme="transport", limit=None)   # all 429
 catalog.datasets(theme="transport", limit=10, offset=100)
-catalog.datasets(theme="transport", limit=0)      # the count and breakdown, no rows
+catalog.datasets(theme="transport", limit=0)      # the count and facets, no rows
 ```
 
 `page.total` is exactly how many matched — not an estimate — and that last line
 is how you count things:
 
 ```python
-catalog.datasets(publisher="trafikverket", limit=0).total
+catalog.datasets(publisher="trafikverket", limit=0).total     # 294
 ```
 
-## Finding out what you can filter by
+## Facets: finding out what you can filter by
 
-`catalog.filters()` is the one thing a search cannot tell you: the options, with
-counts, before you search.
+You filter with a value; a facet tells you which values exist. `catalog.facets()`
+is every facet, with counts, before you search.
 
 ```python
-for row in catalog.filters()["publisher"][:3]:
-    print(row.dataset_count, row.value, "-", text(row.label))
+for row in catalog.facets()["publisher"][:3]:
+    print(row.count, row.value, "-", text(row.label))
 ```
 
 ```text
 5863 radet_for_framjande_av_kommunala_analyser_kolada - Rådet för främjande av kommunala analyser - Kolada
-4306 statistikmyndigheten_scb_statistiska_centralbyran - Statistikmyndigheten SCB - Statistiska centralbyrån
-2246 goteborgs_universitet - Göteborgs universitet
+4303 statistikmyndigheten_scb_statistiska_centralbyran - Statistikmyndigheten SCB - Statistiska centralbyrån
+1676 folkhalsomyndigheten - Folkhälsomyndigheten
 ```
 
 `row.value` is what you filter with, `row.label` is what you show a person, and
-`row.dataset_count` is how many there are. A row is also a plain
-`(value, count)` pair, so it unpacks in a loop.
+`row.count` is how many there are. A row is also a plain `(value, count)` pair,
+so it unpacks in a loop.
 
 ```python
-list(catalog.filters())
+list(catalog.facets())
 # ['publisher', 'publisher_type', 'theme', 'keyword', 'format',
 #  'license', 'access_rights', 'updated', 'language']
 ```
 
 **Every value round-trips.** `catalog.datasets(theme=value, limit=0).total` is
-exactly the count the row claimed, for every filter and every value. That is
-tested, not hoped.
+exactly the count the row claimed, for every filter and every value. The test
+suite holds that as an invariant.
 
-Some lists are long — tens of thousands of distinct keywords. Cap them, and
-what was cut is counted rather than dropped quietly:
+Some facets are long — 16,135 distinct keywords. Cap them, and what was cut is
+counted rather than dropped quietly:
 
 ```python
-options = catalog.filters(limit=10)
-options["keyword"]           # the top 10
-options["keyword"].omitted   # how many more there were
-options.omitted              # {'keyword': ..., 'publisher': ...}
+facets = catalog.facets(limit=10)
+facets["keyword"]            # the top 10
+facets["keyword"].omitted    # 16125
+facets.omitted               # {'keyword': 16125, 'publisher': 284, ...}
 ```
 
-Reading the whole catalogue takes about half a second. If you already have a
-result in hand its own breakdown is free, and it is the same structure counted
-over **what matched** rather than over everything:
+A search carries its own facets, and they are the same structure counted over
+**what matched** rather than over everything:
 
 ```python
-page = catalog.datasets(text="cykel")
-page.breakdown["publisher"]       # [('radet_..._kolada', 213), ('trafikverket', 51), ...]
-page.breakdown["theme"]           # [('population_and_society', 233), ...]
-page.breakdown.top("format")      # the commonest value
-page.breakdown.to_dict()          # {filter: {value: count}}, for JSON
+page = catalog.datasets(query="cykel")
+page.facets["publisher"]       # [('radet_..._kolada', 213), ('sodertalje_kommun', 18), ...]
+page.facets["theme"]           # [('government_and_public_sector', 214), ...]
+page.facets.top("format")      # the commonest value
+page.facets.to_dict()          # {filter: {value: count}}, for JSON
 ```
 
 So one structure answers both "what can I filter by?" and "what is in this
@@ -240,7 +251,8 @@ catalog.datasets(theme="transprot")
 
 Every result is the same dictionary.
 [reference.md](reference.md#a-dataset-record) lists every key with how often it
-is filled. Five things are worth knowing before you write any of it down.
+is filled, and each has a `TypedDict` your editor can complete from. Five things
+are worth knowing before you write any of it down.
 
 **Text is a map of languages, always.** `{"sv": ...}`, `{"en": ...}`, or both. A
 key is there only when that language is: 53% of datasets are Swedish only, 36%
@@ -284,15 +296,14 @@ dataset["license"]
 `otherlicense` — DIGG's own categories — and those have a label too.
 
 **A language is its ISO code.** `languages` is `["sv"]`, `["sv", "en"]`, or
-one of 64 others down to `fit` (Tornedalen Finnish, which has no two-letter
-code), and `language="sv"` filters on it. Not `"swedish"` — that was an English
-word describing a Swedish dataset, which read oddly next to a title in Swedish.
+one of 63 others down to `fit` (Tornedalen Finnish, which has no two-letter
+code), and `language="sv"` filters on it.
 
 **The filter is singular, the field is plural.** You search `theme="transport"`
 and read `dataset["themes"]`. Three differ this way — `theme`/`themes`,
 `language`/`languages`, `updated`/`accrual_periodicity`. The rest read as you
-would guess, and a breakdown is keyed by the _filter_ name, because that is what
-you feed back in.
+would guess, and a facet is keyed by the _filter_ name, because that is what you
+feed back in.
 
 **The files are under `distributions`, and `access_url` is the one to read.**
 
@@ -303,12 +314,79 @@ for dist in dataset["distributions"]:
     dist["download_url"]  # a direct file link — only 7.4% have one
 ```
 
-Each is one URL or `None`. Of 35,148 distributions, 32,536 carry **only**
-`access_url` and 2,592 carry both; none carries `download_url` alone. Reading
+Each is one URL or `None`. Of 35,148 distributions, 32,548 carry **only**
+`access_url` and 2,595 carry both; none carries `download_url` alone. Reading
 only `download_url` would miss nine files in ten.
 
-Anything the publisher left out is `null` or `[]`, never missing — a key is
-always there, so you never need `.get()`.
+Anything the publisher left out is `null`, `[]` or `{}`, never missing — a key
+is always there, so you never need `.get()`. Three keys on a file are the
+exception, present only when they have something to say: `unverified`,
+`broken`, and `byte_size`, which is on the 1.4% of files whose publisher states
+a size.
+
+## Publishers
+
+A publisher is the third kind of thing in the catalogue, next to datasets and
+data services.
+
+```python
+for publisher in catalog.publishers()[:3]:
+    print(publisher["dataset_count"], publisher["id"], text(publisher["name"]))
+```
+
+`publishers()` is a plain list, most datasets first — 294 by default. Each row
+is who they are and how much of theirs is here:
+
+```python
+catalog.publisher("skolverket")
+# {'id': 'skolverket',
+#  'uri': 'http://dataportal.se/organisation/SE2021004185',
+#  'name': {'sv': 'Skolverket'}, 'aliases': [],
+#  'type': 'national_authority',
+#  'homepage': 'https://www.skolverket.se/',
+#  'email': 'support.oppnadata@skolverket.se',
+#  'identifiers': ['2021004185'],
+#  'dataset_count': 6, 'data_service_count': 5,
+#  'facets': {'theme': {'education_culture_and_sport': 5, ...},
+#             'format': {'json': 5, 'html': 1, ...},
+#             'license': {'cc0_1_0': 5, 'nolicense': 1}, ...}}
+```
+
+**`id` is the thing to hold on to.** It is what `publisher=` takes, what the
+`publisher` facet reports, and what is on `dataset["publisher"]["id"]` — so it
+joins the three. Not the URI: eight organisations have two.
+
+**You can name a publisher any way it shows itself** — to `publisher()` and to
+the `publisher=` filter alike:
+
+```python
+catalog.publisher("scb")                                             # an alias
+catalog.publisher("statistikmyndigheten_scb_statistiska_centralbyran")  # its id
+catalog.publisher("Statistikmyndigheten SCB - Statistiska centralbyrån")
+catalog.publisher("2021000837")                                      # organisation number
+catalog.publisher("http://dataportal.se/organisation/SE2021000837")  # URI
+```
+
+Aliases — `scb`, `fohm`, `slu`, `smhi`, `uhr`, `kolada`, `energimyndigheten` —
+are kept by hand in [aliases.json](../src/dataportalen/aliases.json) and show in
+the publisher's `aliases`. Add your own there.
+
+`publisher()` adds `facets`: what that publisher's datasets are made of. It is
+exactly `catalog.datasets(publisher=id, limit=0).facets` for six filters, so
+any value in it narrows a search:
+
+```python
+scb = catalog.publisher("scb")
+scb["facets"]["updated"]                           # {'annual': 3001, 'monthly': 547, ...}
+catalog.datasets(publisher="scb", updated="monthly")
+```
+
+The counts are this catalogue's. A publisher with nothing in it is not listed,
+and `publisher()` returns `None` for it; a name nobody knows is an error with
+suggestions.
+
+For "who publishes the most CSV?", ask a search rather than the list:
+`catalog.datasets(format="csv", limit=0).facets["publisher"]`.
 
 ## Data services
 
@@ -334,12 +412,12 @@ A record looks like a dataset's, minus what a service does not have and plus
 what it does: `endpoint_url`, `endpoint_description`, `serves_datasets`,
 `conforms_to`, and no `distributions`.
 
-**Four kinds of filter do not apply, and saying so is the point:**
+**Some filters do not apply, and saying so is the point:**
 
 ```python
 catalog.data_services(format="csv")
 # QueryError: data services have no 'format'. Available: publisher,
-# publisher_type, service_type, theme, keyword, license, access_rights, text
+# publisher_type, service_type, theme, keyword, license, access_rights, query
 ```
 
 A data service has no distributions, so no `format`; no accrual periodicity, so
@@ -375,8 +453,15 @@ it, but do not trust it as a fact about the world.
 **Who publishes a subject**
 
 ```python
-for row in catalog.datasets(theme="environment", limit=0).breakdown["publisher"][:3]:
-    print(row.dataset_count, text(row.label))
+for row in catalog.datasets(theme="environment", limit=0).facets["publisher"][:3]:
+    print(row.count, text(row.label))
+```
+
+**Only files the registry actually reached**
+
+```python
+sure = [dist for dataset in catalog.datasets(theme="transport", limit=None)
+        for dist in dataset["distributions"] if "unverified" not in dist]
 ```
 
 **Into a dataframe**
@@ -391,7 +476,7 @@ Nested columns stay nested. One row per file is usually more useful:
 ```python
 rows = [
     {"dataset": text(d["title"]),
-     "publisher": text(d["publisher"]["name"]),
+     "publisher": d["publisher"]["id"],
      "format": dist["format"],
      "url": dist["access_url"]}
     for d in catalog.datasets(theme="transport", limit=None)
@@ -416,8 +501,8 @@ for record in read_catalog(catalog.database):
     record["type"]            # 'dataset' or 'data_service'
 ```
 
-That is every record, unscoped — every access_rights value, every file, with
-`broken` on the broken ones. Or open it with anything that speaks SQLite — the
+That is every record, unscoped — every access_rights value and every file, the
+dead ones carrying `broken`. Or open it with anything that speaks SQLite — the
 records are JSON text in a `doc` column, keyed by the registry's own
 `context_id` and `entry_id`:
 
@@ -426,6 +511,10 @@ SELECT type, count(*) FROM record GROUP BY type;
 SELECT doc FROM record WHERE uri = 'https://example.org/data/roads';
 SELECT key, value FROM meta;     -- first_retrieved, last_refreshed, schema
 ```
+
+The stored JSON is what the registry said. `publisher["id"]`, `aliases` and the
+split of `broken` into `broken` and `unverified` are added when a record is
+read, so raw SQL shows a slightly plainer record than `read_catalog` does.
 
 ## What it does not do
 
@@ -439,8 +528,8 @@ reason, because they are the likeliest things to go looking for:
   duplicates `publisher`. Where a dataset came in through an aggregator,
   `record["context_id"]` identifies it.
 - **Agents.** 7,609 exist and 365 publish anything; 4,916 are individual
-  researchers who reach no dataset. `catalog.filters()["publisher"]` is the one
-  that matters, and it comes with names.
+  researchers who reach no dataset. `catalog.publishers()` is the ones that
+  matter.
 - **Creators.** `dcterms:creator` is on 7,104 datasets, and on 6,174 of those
   it names the publisher a second time. The ~930 that name someone else are
   citing a source. Not a search axis, so not a field.
@@ -448,9 +537,8 @@ reason, because they are the likeliest things to go looking for:
   "Sweden"; the rest are mostly municipalities tagging themselves, which
   `publisher=` already finds. `dataset["spatial"]` is still on the record; it
   is not a filter.
-- **Link verdicts on every file.** 18,360 successes and 5,021 the check never
-  reached were a `link` dict on every file for the one in three that mattered.
-  Now a broken file says `broken` and a working one says nothing.
+- **A link verdict on every file.** Only a problem is marked; a file the
+  registry reached carries nothing.
 - **The registry's own reports** — nightly dataset counts, link checks, DCAT-AP
   quality scores. They describe the registry, not the data.
 
@@ -462,16 +550,16 @@ text. That is the only call that reaches the network after the download.
 The registry caps a page at **100 entries** and answers about **two requests a
 second** no matter how many you have in flight — one thread gets 0.84, two get
 2.26, and four, eight, sixteen and thirty-two get the same 2.26. So reading the
-whole corpus costs about six minutes whenever you do it, and the package uses
+whole corpus costs about seven minutes whenever you do it, and the package uses
 two threads to do it, because that is where the whole gain is.
 
-That leaves two designs: pay six minutes once, or pay a slice of it on every
+That leaves two designs: pay seven minutes once, or pay a slice of it on every
 question. This package pays once, and then keeps the copy current for seconds a
 week. The consequences are worth knowing:
 
-- Searching, counting and every breakdown are local and immediate. A
-  whole-corpus breakdown over every dataset takes half a second, which is not
-  something the registry's index can do at all.
+- Searching, counting and every facet are local and immediate. Facets over
+  every dataset take a third of a second, which is not something the
+  registry's index can do at all for keywords.
 - Your copy is a snapshot that catches up when you build a `Catalog` and it
   is over `max_age` days old. Between those, it drifts;
   `catalog.info()["age_days"]` says by how much.
@@ -501,16 +589,19 @@ really errors:
 that off.
 
 **"My counts differ from dataportal.se."** Three reasons, in order of
-likelihood: the default holds only `public` datasets with a working file;
-your copy is a snapshot (`catalog.info()["age_days"]`); and the registry's
-own counts are estimates. `Catalog(access_rights=None, exclude_broken=False, rebuild=True)` is the whole registry as of now.
+likelihood: the default holds only `public` datasets with a file that is not
+dead; your copy is a snapshot (`catalog.info()["age_days"]`); and the
+registry's own counts are estimates. `Catalog(access_rights=None,
+exclude_broken=False, rebuild=True)` is the whole registry as of now.
 
 **"`KeyError: 'sv'`."** 10% of datasets have no Swedish text. Use `text()`.
 
+**"`unknown keyword`."** `keyword=` is exact. For part of a word, use `query=`.
+
 **"It came back empty and I expected something."** If the filter does not apply
 to what you searched you get a `QueryError` naming the ones that do, so an empty
-result really is an empty result. Check the value against `catalog.filters()`,
+result really is an empty result. Check the value against `catalog.facets()`,
 and remember what the `Catalog` holds.
 
 **"It says the database is the wrong schema."** The record shape changed in a
-release. `Catalog(rebuild=True)` once, and it is six minutes.
+release. `Catalog(rebuild=True)` once, and it is seven minutes.

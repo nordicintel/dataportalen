@@ -4,14 +4,18 @@ Every public name in `dataportalen`, once, with every argument spelled out and
 every output shape printed underneath. One Python snippet per function; a JSON
 snippet under it when the shape has not been shown yet.
 
-Written against 0.10.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
+Written against 0.11.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
 data services, 35,148 distributions). When the public interface changes, this
 file changes with it.
 
 ```python
 from dataportalen import (
     Catalog, default_catalog_path, read_catalog, text,
-    Results, eBreakdown, ValueList, ValueCount,
+    Results, Facets, Facet, FacetValue,
+    DatasetRecord, DataServiceRecord, DistributionRecord,
+    PublisherRecord, Publisher, PublisherDetail,
+    LicenseRecord, ContactRecord, TemporalRecord, LinkMark,
+    LanguageMap, KeywordMap,
     DataportalError, TransportError, TimeoutError, HTTPError, NotFoundError,
     RateLimitError, ServerError, ParseError, QueryError,
     logger, enable_logging, __version__,
@@ -21,8 +25,8 @@ from dataportalen import (
 ## `Catalog(...)`
 
 What the catalogue holds is decided here. By default it holds the datasets that
-say `public` and have at least one file the registry's nightly check could
-fetch — and nothing that is downloaded is ever downloaded behind a search.
+say `public`, minus the files the registry found dead — and nothing that is
+downloaded is ever downloaded behind a search.
 
 ```python
 catalog = Catalog(
@@ -36,11 +40,13 @@ catalog = Catalog(
     rebuild=False,              # True: fetch everything again now. What a
                                 #   schema change asks for, and the only thing
                                 #   that drops a dataset the registry withdrew.
-    exclude_broken=True,        # drop every file the registry found broken
-                                #   (11,762 of 35,148) and every dataset whose
-                                #   every file was broken (5,331). A dataset
-                                #   that never had files (1,647) stays.
-                                #   False: keep all, mark the broken ones.
+    exclude_broken=True,        # drop every dead file -- one the registry's
+                                #   nightly check got an HTTP error for (3,342
+                                #   of 35,148) -- and every dataset left with
+                                #   none (81). A file its checker could not
+                                #   reach at all (8,419) is not dead: it stays,
+                                #   marked `unverified`.
+                                #   False: keep all, mark the dead `broken`.
     access_rights=("public",),  # which access_rights values to hold:
                                 #   "public" | "non_public" | "restricted"
                                 #   | "none" (the 4,167 that set nothing).
@@ -50,19 +56,20 @@ catalog = Catalog(
 
 ## `catalog.datasets(...)`
 
-Filters AND together. A list is OR within one filter — except `keyword`, which
-is AND. An unknown filter name, an unknown value, or a negative window raises
-`QueryError` rather than matching nothing.
+Filters AND together; a list is OR within one filter. An unknown filter name,
+an unknown value, or a negative window raises `QueryError` rather than matching
+nothing.
 
 ```python
 page = catalog.datasets(
+    query="cykel",                # a phrase: case-insensitive substring of the
+                                  #   title, description and keywords, both languages
     limit=50,                     # int | None (every match) | 0 (counts only)
     offset=0,                     # int >= 0
-    breakdown_limit=None,         # int | None; what it cuts lands in .breakdown.omitted
+    facet_limit=None,             # int | None; what it cuts lands in .facets.omitted
 
-    text="cykel",                 # substring, both languages, title + description + keywords
-    publisher="scb",              # alias | slug | name | org.nr "2021000837" | URI
-    keyword="Kommun",             # case-sensitive exact when known, substring otherwise
+    publisher="scb",              # id | alias | name | organisation number | URI
+    keyword="Kommun",             # exact, case-insensitive; 16,135 values
     publisher_type="national_authority",
         # national_authority | non_governmental_organisation | local_authority
         # | academia_scientific_organisation | company | regional_authority
@@ -127,11 +134,13 @@ page = catalog.datasets(
     "identifier": null,
     "landing_page": "https://www.uhr.se/studier-och-antagning/antagningsstatistik/",
     "publisher": {
+        "id": "universitets_och_hogskoleradet",
         "uri": "http://dataportal.se/organisation/SE2021006487",
         "name": {
             "sv": "Universitets- och högskolerådet",
             "en": "Swedish Council for Higher Education"
         },
+        "aliases": ["uhr"],
         "type": "national_authority",
         "homepage": "https://www.uhr.se/",
         "email": "registrator@uhr.se",
@@ -140,7 +149,9 @@ page = catalog.datasets(
     "themes": ["education_culture_and_sport"],
     "license": {
         "id": "cc0_1_0",
-        "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+        "label": {
+            "en": "CC0 1.0 (Public Domain Dedication, No Copyright)"
+        },
         "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
     },
     "access_rights": "public",
@@ -187,15 +198,28 @@ page = catalog.datasets(
 }
 ```
 
-`broken` is on a file only when the registry's check found it broken, and only
-in a `Catalog(exclude_broken=False)`. Under the default that file, and this
-dataset with it (its only file), are not there.
+A distribution has three keys that are there only when they say something:
+
+```json
+{
+    "broken": { "reason": "Not Found", "checked": "2026-09-30T02:52:17" },
+    "unverified": { "reason": "timeout", "checked": "2026-10-01T02:52:59" },
+    "byte_size": 5420000
+}
+```
+
+`broken` is a dead file — the registry got an HTTP error for it — and shows
+only in a `Catalog(exclude_broken=False)`; under the default that file, and
+this dataset with it (its only file), are not there. `unverified` is a file the
+registry's checker could not reach at all, which says nothing about the file;
+it is never removed. `byte_size` is on the 484 files (1.4%) whose publisher
+states a size. A file never carries both `broken` and `unverified`.
 
 ## `catalog.data_services(...)`
 
-Same signature as `datasets()`. Eight filters, not thirteen: `format`,
-`updated`, `language` and the four date filters are refused with `QueryError`
-naming the ones that work, because a data service has no distributions, no
+Same signature as `datasets()`. Seven filters, not nine: `format`, `updated`,
+`language` and the four date filters are refused with `QueryError` naming the
+ones that work, because a data service has no distributions, no
 `accrual_periodicity`, one single `language` across all 599, and `modified` on
 7.5% of them. The registry's link check never tests `endpointURL`, so whether
 an API answers is not something this can tell you; `exclude_broken` leaves
@@ -203,11 +227,11 @@ data services alone.
 
 ```python
 page = catalog.data_services(
+    query="skola",
     limit=50,
     offset=0,
-    breakdown_limit=None,
+    facet_limit=None,
 
-    text="skola",
     publisher="skolverket",
     keyword="grundskola",
     publisher_type="national_authority",   # also: company | non_governmental_organisation
@@ -238,8 +262,10 @@ page = catalog.data_services(
     "serves_datasets": ["https://editera.dataportal.se/store/162/resource/26"],
     "conforms_to": [],
     "publisher": {
+        "id": "skolverket",
         "uri": "http://dataportal.se/organisation/SE2021004185",
         "name": { "sv": "Skolverket" },
+        "aliases": [],
         "type": "national_authority",
         "homepage": "https://www.skolverket.se/",
         "email": "support.oppnadata@skolverket.se",
@@ -248,7 +274,9 @@ page = catalog.data_services(
     "themes": ["education_culture_and_sport"],
     "license": {
         "id": "cc0_1_0",
-        "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+        "label": {
+            "en": "CC0 1.0 (Public Domain Dedication, No Copyright)"
+        },
         "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
     },
     "access_rights": "public",
@@ -272,45 +300,46 @@ page.total                        # int, exact: how many matched altogether
 page.offset                       # int, what you asked for
 page.limit                        # int | None, what you asked for
 page.has_more                     # bool: offset + len(page) < total
-page.breakdown                    # Breakdown over everything that matched
+page.facets                       # Facets over everything that matched
 len(page); page[0]; list(page)    # it is a list
 ```
 
 ```json
-{ "total": 67, "offset": 0, "limit": 2, "has_more": true, "len": 2 }
+{ "total": 44, "offset": 0, "limit": 2, "has_more": true, "len": 2 }
 ```
 
-## `catalog.filters(...)`
+## `catalog.facets(...)`
 
-The dataset options before you search — the same `Breakdown` a search carries,
-counted over every dataset the catalogue holds. Data-service options are
-`catalog.data_services(limit=0).breakdown`, identical in structure over its
-eight.
+You filter with a value; a facet tells you which values exist. This is every
+dataset facet before you search — the same `Facets` a search carries as
+`page.facets`, counted over every dataset the catalogue holds. Data-service
+facets are `catalog.data_services(limit=0).facets`, identical in structure over
+its seven.
 
 ```python
-options = catalog.filters(
-    limit=None,                   # int | None, caps each value list
+facets = catalog.facets(
+    limit=None,                   # int | None, caps each facet
 )
 
-options["theme"]                  # ValueList of ValueCount, biggest first
-options["theme"][0].value         # 'population_and_society'  <- feed back into datasets()
-options["theme"][0].dataset_count # 6460
-options["theme"][0].label         # {"sv": "Befolkning och samhälle", "en": "Population and society"}
-value, count = options["theme"][0]        # still a 2-tuple
-options["theme"].omitted          # int, values cut by limit
-options.omitted                   # {filter: cut}, only the non-zero ones
-options.top("theme")              # ValueCount | None
-options.to_dict()                 # {filter: {value: count}}, JSON-serializable
-list(options); "format" in options
+facets["theme"]                   # Facet: a list of FacetValue, biggest first
+facets["theme"][0].value          # 'government_and_public_sector'  <- feed back into datasets()
+facets["theme"][0].count          # 6249
+facets["theme"][0].label          # {"en": "Government and public sector", "sv": "Regeringen och ..."}
+value, count = facets["theme"][0] # still a 2-tuple
+facets["theme"].omitted           # int, values cut by limit
+facets.omitted                    # {filter: cut}, only the non-zero ones
+facets.top("theme")               # FacetValue | None
+facets.to_dict()                  # {filter: {value: count}}, JSON-serializable
+list(facets); "format" in facets
 ```
 
 ```json
 {
-    "publisher": 210,
+    "publisher": 294,
     "publisher_type": 8,
     "theme": 31,
-    "keyword": 15592,
-    "format": 47,
+    "keyword": 16135,
+    "format": 36,
     "license": 9,
     "access_rights": 1,
     "updated": 18,
@@ -319,7 +348,87 @@ list(options); "format" in options
 ```
 
 Counted over the default catalogue — `public` only, so `access_rights` has one
-value; `Catalog(access_rights=None)` has three.
+value; `Catalog(access_rights=None, exclude_broken=False)` has 356 publishers,
+21,359 keywords, 47 formats, 3 access rights and 65 languages.
+
+A `keyword` value is shown as the publisher spelt it — the commonest spelling
+of each — and matched case-insensitively, so `Kommun`, `kommun` and `KOMMUN`
+are one keyword and all three find the same 4,615 datasets.
+
+## `catalog.publishers()`
+
+Every publisher this catalogue holds something from, most datasets first. A
+plain list; no arguments, no pages. `id` is what `publisher=` takes and what
+the `publisher` facet reports.
+
+```python
+publishers = catalog.publishers()
+```
+
+```json
+{
+    "id": "radet_for_framjande_av_kommunala_analyser_kolada",
+    "uri": "http://dataportal.se/organisation/SE2220000315",
+    "name": {
+        "sv": "Rådet för främjande av kommunala analyser - Kolada",
+        "en": "The Council for Advocacy of Municipal Analysis - Kolada"
+    },
+    "aliases": ["kolada"],
+    "type": "non_governmental_organisation",
+    "homepage": "https://rka.nu/",
+    "email": "rka@rka.nu",
+    "identifiers": [],
+    "dataset_count": 5863,
+    "data_service_count": 1
+}
+```
+
+294 of them by default, 356 unscoped. The counts are this catalogue's:
+`dataset_count == catalog.datasets(publisher=id, limit=0).total`, for every
+row.
+
+## `catalog.publisher(...)`
+
+One publisher, with what it publishes. `None` if it has nothing in this
+catalogue; a value nobody knows raises `QueryError` with suggestions.
+
+```python
+publisher = catalog.publisher(
+    "skolverket",                 # id | alias | name (either language)
+                                  # | organisation number | URI -- the same
+                                  # resolver publisher= uses
+)
+```
+
+```json
+{
+    "id": "skolverket",
+    "uri": "http://dataportal.se/organisation/SE2021004185",
+    "name": { "sv": "Skolverket" },
+    "aliases": [],
+    "type": "national_authority",
+    "homepage": "https://www.skolverket.se/",
+    "email": "support.oppnadata@skolverket.se",
+    "identifiers": ["2021004185"],
+    "dataset_count": 6,
+    "data_service_count": 5,
+    "facets": {
+        "theme": {
+            "education_culture_and_sport": 5,
+            "utility_and_governmental_services": 1
+        },
+        "format": { "json": 5, "html": 1, "iso_19139_xml": 1, "xml": 1, "zip": 1 },
+        "license": { "cc0_1_0": 5, "nolicense": 1 },
+        "access_rights": { "public": 6 },
+        "updated": { "semiannual": 1 },
+        "language": { "sv": 2 }
+    }
+}
+```
+
+The row from `publishers()` plus `facets`, which is exactly
+`catalog.datasets(publisher=id, limit=0).facets.to_dict()` over those six
+filters — so every value in it can be fed back in beside `publisher=`.
 
 ## `catalog.get(...)`
 
@@ -349,13 +458,13 @@ catalog.info()
 {
     "database": "C:\\Users\\ruben\\AppData\\Local\\dataportalen\\catalog.sqlite",
     "first_retrieved": "2026-09-30T17:57:14",
-    "last_refreshed": "2026-10-01T09:52:16",
-    "downloaded": "2026-10-01T09:52:16",
+    "last_refreshed": "2026-10-01T13:04:54",
+    "downloaded": "2026-10-01T13:04:54",
     "age_days": 0,
     "bytes": 98951168,
-    "datasets": 12653,
+    "datasets": 17601,
     "data_services": 578,
-    "publishers": 210
+    "publishers": 294
 }
 ```
 
@@ -370,7 +479,7 @@ catalog.max_age                   # int | None
 catalog.exclude_broken            # bool
 catalog.access_rights             # frozenset | None
 catalog.first_retrieved           # "2026-09-30T17:57:14" | None, when built
-catalog.last_refreshed            # "2026-10-01T06:38:13" | None, what a refresh asks from
+catalog.last_refreshed            # "2026-10-01T13:04:54" | None, what a refresh asks from
 catalog.downloaded                # datetime | None
 catalog.age_days                  # int >= 0 | None
 
@@ -412,11 +521,42 @@ else    -> $XDG_CACHE_HOME/dataportalen/catalog.sqlite
 
 Every record in a database file without building a `Catalog` around it — both
 types, in insertion order, each the dict shown above, unscoped: every
-access_rights value, every file, with `broken` on the broken ones. A path that
-does not exist raises `FileNotFoundError`.
+access_rights value and every file, the dead ones carrying `broken`. A path
+that does not exist raises `FileNotFoundError`.
 
 ```python
 records = read_catalog(default_catalog_path())
+```
+
+## Typed records
+
+Every dict above has a `TypedDict`, so an editor completes `dataset["` and a
+type checker catches `"licence"`. Nothing changes at run time: they are still
+plain dicts.
+
+```python
+from typing import List, Optional
+
+def files(page: Results[DatasetRecord]) -> List[DistributionRecord]:
+    return [dist for dataset in page for dist in dataset["distributions"]]
+
+row: Publisher = catalog.publishers()[0]
+detail: Optional[PublisherDetail] = catalog.publisher("scb")
+```
+
+```text
+DatasetRecord       catalog.datasets(), catalog.get()
+DataServiceRecord   catalog.data_services()
+DistributionRecord  dataset["distributions"][i]
+PublisherRecord     record["publisher"]                  (8 keys)
+Publisher           catalog.publishers()[i]              (+ 2 counts)
+PublisherDetail     catalog.publisher(x)                 (+ facets)
+LicenseRecord       record["license"]                    {id, label, uri}
+ContactRecord       record["contact_points"][i]          {uri, name, email}
+TemporalRecord      dataset["temporal"]                  {start, end}
+LinkMark            dist["broken"], dist["unverified"]   {reason, checked}
+LanguageMap         title, description, name, label      {sv, en}, either or both
+KeywordMap          record["keywords"]                   {sv: [...], en: [...]}
 ```
 
 ## `enable_logging(...)` and `logger`
@@ -436,13 +576,12 @@ logger.setLevel(logging.WARNING)  # the same logger, for apps that configure the
 ## Publisher aliases
 
 `src/dataportalen/aliases.json`, kept by hand and shipped in the wheel. An alias
-is accepted wherever a publisher is and resolves to the slug the breakdown
-reports; the records and the breakdown keep the canonical slug.
+is accepted wherever a publisher is, and shows in the publisher's `aliases`.
 
 ```json
 {
     "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
-    "fhm": "folkhalsomyndigheten",
+    "fohm": "folkhalsomyndigheten",
     "slu": "sveriges_lantbruksuniversitet",
     "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
     "uhr": "universitets_och_hogskoleradet",
@@ -470,12 +609,14 @@ FileNotFoundError                 # read_catalog() on a path that is not there
 
 ## Not built yet
 
-`LiveCatalog()` — the agreed next change: same filters, every call straight to
-the registry, no local copy. It cannot promise `total`, `breakdown` or
-`filters()`, which is why it is a second class and not a flag on `Catalog`.
-Nothing of it exists yet; this section is the placeholder it fills.
+`LiveCatalog()` — the next version: the same methods, every call straight to
+the registry, no local copy. An earlier version of this section said it could
+not offer `total` or facets; that was wrong. The registry's exact-string index
+gives exact totals and eight facets in one request. What it cannot do is listed
+in the plan for 0.12.0: link health, `publisher_type`, a keyword facet,
+`limit=None`. Nothing of it exists yet.
 
 ## IMPORTANT NOTES
 
-- A list is OR for every filter except keyword, which is AND. theme=["transport","environment"] gives 3,485 (the union); keyword=["Kommun","Region"] gives 1,141 (the intersection of 4,611 and 2,397). That inconsistency was invisible until the arguments sat next to each other. Two meanings for one syntax, should be looked over, and possibly revised for clarity.
-- datasets() takes 9 vocabulary filters plus text and 4 dates; data_services() takes 8 plus text. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.
+- Resolved in 0.11.0: a list used to be OR for every filter except keyword, which was AND. keyword is an ordinary filter now — a list is OR, matching is exact and case-insensitive, and an unknown keyword raises. keyword=["Kommun","Region"] gives the union.
+- datasets() takes 9 vocabulary filters plus query and 4 dates; data_services() takes 7 plus query. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.

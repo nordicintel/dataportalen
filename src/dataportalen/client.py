@@ -1980,7 +1980,7 @@ def _is_dead(reason: Any) -> bool:
     Forbidden 212, Internal Server Error 40, Bad Request 33,
     Unauthorized 14, Access Denied 8, ...                     3,342
     no usable answer: no message 5,263, `request to ...
-    failed` 2,890, `maximum redirect` 321, `timeout` 255,
+    failed` 2,883, `timeout` 255, `maximum redirect` 11,
     an ftp:// URL with credentials in it 7                    8,419
     ========================================================  =====
 

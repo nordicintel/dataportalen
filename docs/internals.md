@@ -40,7 +40,7 @@ The mapping lives in two generated data files shipped inside the package:
 organisation number). Nothing is fetched at runtime.
 
 `label_for()` is the reverse, and is what puts a readable name beside a
-breakdown value:
+facet value:
 
 ```python
 from dataportalen.rdf import label_for
@@ -137,14 +137,16 @@ Six modules; callers import from the package root.
 | `models.py` | `Dataset`, `DataService`, `Distribution`, `Agent` and friends, `to_dict()`, and the result types |
 | `query.py` | the `Q` Solr query builder |
 | `client.py` | `Catalog` (the whole public surface), `_Registry` (HTTP and Solr), the store, the download |
-| `__init__.py` | 19 exports, and nothing else |
+| `__init__.py` | 32 exports, and nothing else |
+| `records.py` | `TypedDict`s for every dict handed out; no behaviour |
 
 ### Public and internal
 
-`Catalog` is the public surface: `datasets()`, `data_services()`, `filters()`,
-`get()`, `info()`, `close()`. Five methods where 0.6.0 had 32 on `Dataportal`
-plus 7 on `LocalCatalog`. Plus `text()`, `default_catalog_path()` and the
-result types -- see [reference.md](reference.md#everything-exported).
+`Catalog` is the public surface: `datasets()`, `data_services()`, `facets()`,
+`publishers()`, `publisher()`, `get()`, `info()`, `close()`. Seven methods
+where 0.6.0 had 32 on `Dataportal` plus 7 on `LocalCatalog`. Plus `text()`,
+`default_catalog_path()`, the result types and the record `TypedDict`s -- see
+[reference.md](reference.md#everything-exported).
 
 Everything that talks to the registry sits behind `_Registry`, and the RDF layer
 -- `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` -- is internal but very much
@@ -208,12 +210,13 @@ the URL, the entry it belongs to, `status`, `statusMessage`, `checkedAt` and
 is easy to miss if you only read the metadata graph.
 
 159 catalogues, one latest report each, ~29 MiB, about ten seconds -- 165
-requests on top of 691. The download reads them and marks every file the
-check found broken: `{"reason", "checked"}` under `broken`, and nothing on a
-file that passed or that the check never reached. Until 0.10.0 every file
-carried a `link` dict -- 18,360 successes and 5,021 the check skipped, for the
-11,762 that mattered -- and every record carried a landing-page verdict that
-was `None` on 10,331 datasets and `broken` on 277 whose files were all fine.
+requests on top of 691. The download reads them and stores, on every file the
+check called broken, the registry's message and when it looked:
+`{"reason", "checked"}` under `broken`. Nothing goes on a file that passed or
+that the check never reached. Until 0.10.0 every file carried a `link` dict --
+18,360 successes and 5,021 the check skipped, for the 11,761 that mattered --
+and every record carried a landing-page verdict that was `None` on 10,331
+datasets and `broken` on 277 whose files were all fine.
 
 What the check covers, counted over 40 reports: `dcat:downloadURL` 3,072,
 `dcat:accessURL` 1,426, `dcat:landingPage` 130, `foaf:page` 78,
@@ -222,27 +225,47 @@ What the check covers, counted over 40 reports: `dcat:downloadURL` 3,072,
 something the registry does not know, and `exclude_broken` leaves data
 services alone rather than pretending.
 
-The verdict is passed through exactly as stated. `broken` covers everything the
-checker could not fetch, and its `statusMessage` is whatever reason it gave --
-`Not Found`, `Too Many Requests`, `No Content`, or nothing at all for 5,990 of
-them. `Catalog(exclude_broken=True)`, the default, acts on it: the broken
-files go, and so does a dataset whose every file was broken (5,331), because
-metadata with nothing to fetch is what dead means. A dataset that never had
-files (1,647) is not dead and stays.
+**`broken` is two different things, and only one of them is dead.** The
+registry records no status code for a broken link -- `statusCode` is null on
+all 11,900 -- only a message. On 3,342 files the message is an HTTP error
+(Too Many Requests 2,624, Not Found 395, Forbidden 212, Internal Server Error
+40, Bad Request 33, Unauthorized 14, Access Denied 8, Gone 4, `404` 4, File
+not found 3, Service Unavailable 2, Method Not Allowed 2, `400` 1): a server
+answered and said no. On 8,419 it is no usable answer (no message 5,263,
+`request to ... failed` 2,883, `timeout` 255, `maximum redirect` 11, an
+`ftp://` URL with credentials in it 7): the registry's checker did not get
+through, which says nothing about the file.
+
+0.10.0 treated both as dead, and Statistics Sweden went from 4,306 datasets
+to 33: api.scb.se resets the checker's connection, so 7,091 of its 14,228
+links are "broken", and each answers 200 to an ordinary GET. Since 0.11.0 the
+stored `broken` is split when a record is read (`client._present`, which both
+`Catalog` and `read_catalog` go through): a reason on the HTTP-error list
+stays `broken`, anything else becomes `unverified` with the same two keys.
+`Catalog(exclude_broken=True)` drops `broken` files and a dataset left with
+none -- 81 public datasets -- and never an unverified one. A dataset that
+never had files (1,647) is not dead and stays.
+
+`_DEAD_REASONS` is an allow-list on purpose: every standard HTTP reason phrase
+from 400 up, the bare numbers, and three phrasings the checker has been seen
+to use. A message it invents next year is unverified until someone adds it,
+so the default keeps files rather than dropping them. Written the other way
+round -- a list of non-answers, everything else dead -- it would have dropped
+the seven `ftp://` files.
 
 A catalogue keeps about three days of reports; only the newest is read. Verdicts
 are current: of 12,718 broken records, 12,711 were checked this year.
 
 ### Where each call goes
 
-Everything but one reads the file. `datasets()`, `data_services()`, `filters()`,
-`get()` and `info()` never touch the network; `get(uri, format=...)` is the
+Everything but one reads the file. `datasets()`, `data_services()`, `facets()`,
+`publishers()`, `publisher()`, `get()` and `info()` never touch the network; `get(uri, format=...)` is the
 single exception, and you have to name a format to get it. The download is the
 only other thing that makes requests. There is no mode switch, so there is
 nothing to get wrong.
 
 Searches return `Results`, a `list` of dicts carrying `total`, `offset`,
-`limit`, `has_more` and `breakdown`.
+`limit`, `has_more` and `facets`.
 
 The download writes one file with both kinds of line, each tagged `type`. A
 record written before 0.7.0 has no `type` and is read as a dataset, which is all
@@ -258,7 +281,7 @@ build against the cost of silently naming a publisher absent.
 
 A value that the vocabulary table does not know but the file does contain --
 `parquet`, a bare GeoNames id -- is still a valid filter value: `_local_slugs`
-falls back to what the catalogue actually holds, so everything a breakdown
+falls back to what the catalogue actually holds, so everything a facet
 reports can be filtered on. A value that is neither known nor present is
 still an error, with suggestions.
 
@@ -268,16 +291,42 @@ still an error, with suggestions.
 then does it fall back to vocabulary expansion. That ordering is load-bearing:
 `json` also resolves to `application/json+zip`, whose own slug is
 `json_in_a_zip`, so expanding first made `format="json"` return 14,173 where the
-breakdown said 14,119 -- and the breakdown's counts stopped agreeing with the
+facet said 14,119 -- and the facet's counts stopped agreeing with the
 searches its values produce. `tests/test_filters.py` round-trips every value of
 every filter, which is the invariant to keep.
 
 **An organisation's slug comes from the URI table first and its own name
 second.** Dropping the fallback silently loses 13 of the 365 publishers,
 because they mint URIs the table never saw. Dropping the table and using only
-names would break every slug users have written down. An alias
-(`aliases.json`) is resolved before either, to the canonical slug; the
-records and the breakdown never show the alias.
+names would break every slug users have written down.
+
+**A publisher is its `id`, and one resolver finds it.** `client._Publishers` is
+built in `Catalog._read` from every record in the database, before
+`access_rights` and `exclude_broken` narrow anything, so who a publisher is
+does not depend on scope -- only its counts do. 8 of the 356 have two URIs; the
+entity is one real agent (the URI the table knows, then the one on most
+records, then the lowest URI), never a merge. Its resolver is tiered -- id,
+alias, URI, identifier, slugified name -- and the first tier to claim a key
+keeps it, which settles the one collision in the registry (a museum whose
+Swedish name slugifies to another museum's id). `publisher=` and
+`publisher()` both go through it. Before 0.11.0 a URI, a bare organisation
+number and 24 names raised, though the docs said they worked, and
+`data_services(publisher=id)` raised for a publisher with only datasets
+because ids were vouched for per kind of record.
+
+`id` and `aliases` on the nested `publisher` dict are added by `_present`
+when a record is read, not stored: the organisation table and `aliases.json`
+change between releases and the database does not.
+
+**A keyword is matched folded and shown as written.** Strip and casefold --
+23,373 spellings of 21,359 keywords -- but not `slugify`, which would merge
+169 groups that are different words. A facet row shows the commonest spelling
+(first alphabetically on a tie), because showing the folded form would rewrite
+60% of all values into spellings no record carries. "Known" is checked across
+datasets and data services together: a keyword has no vocabulary to vouch for
+it, and per kind `data_services(keyword="kommun")` would raise. Facet labels
+are looked up per filter; by bare value, 45 keywords wore a vocabulary term's
+label.
 
 **A URI is looked up in every spelling it comes in, not just as written.**
 `rdf._variants` knew that `.../by/4.0/deed.sv`, `.../legalcode` and the
@@ -398,16 +447,24 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Fact | Value |
 | --- | --- |
 | Datasets / data services / distributions | 23,582 / 599 / 35,148 in the file (2026-10-01) |
-| The default `Catalog`: public, with a working file | 12,653 datasets |
+| The default `Catalog`: public, minus the dead | 17,601 datasets, 578 data services, 294 publishers |
+| Unscoped | 23,582 / 599 / 356 |
 | `access_rights`: public / non_public / restricted / unset | 17,682 / 1,489 / 244 / 4,167 |
-| Link verdicts on files: success / broken / excluded | 18,360 / 11,762 / 5,021 |
-| Datasets with every file broken / with no files at all | 5,331 / 1,647 |
+| Link verdicts on files: success / broken / excluded | 18,360 / 11,761 / 5,021 |
+| ...of the broken: an HTTP error (dead) / no usable answer (unverified) | 3,342 / 8,419 |
+| Datasets with every file broken / every file dead / with no files at all | 5,330 / 81 public / 1,647 |
+| SCB under 0.10.0's rule / under this one | 33 / 4,303 of 4,306 |
+| Files stating `dcat:byteSize` / readable as a size | 485 / 484, from 13 catalogues |
+| Records whose `keywords` was `[]` rather than `{}` before schema 4 | 1,324 (5.5%) |
+| Keyword spellings / keywords once folded / groups with >1 spelling | 23,373 / 21,359 / 1,765 |
+| Publishers with two URIs / two names / two types | 8 / 4 / 6 of 356 |
+| Records naming no publisher | 27 |
 | Landing-page verdicts: none / success / excluded / broken | 10,331 / 7,791 / 5,021 / 439 |
 | ...of the broken landing pages, with every file fine | 277 |
 | What the link check covers (40 reports) | downloadURL 3,072, accessURL 1,426, landingPage 130, foaf:page 78, conformsTo 42, endpointDescription 9, endpointURL 0 |
 | Link-check reports: requests / time | 165 / ~10 s |
 | Registry throughput by threads: 1 / 2 / 4 / 8 | 0.84 / 2.26 / 2.46 / 2.31 req/s |
-| Full build: requests / time / size | 856 / ~6 min with 2 threads (17 with 1) / 94 MiB |
+| Full build: requests / time / size | 856 / 441 s with 2 threads (about 17 min with 1) / 94 MiB |
 | Incremental refresh, one day of churn | 630 datasets, ~38 s |
 | Loading the database | ~1.4 s (of which json.loads ~1.2 s) |
 | Distributions with >1 access URL / >1 download URL | 147 / 130 of 35,148 |
@@ -417,8 +474,9 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Distinct languages on datasets / with a two-letter code | 66 / 50 |
 | Datasets with a spatial coverage / of those, "Sweden" | 4,471 / 3,068 |
 | Sub-national place values / on exactly one dataset | 540 / 223 |
-| A filtered search | ~0.06 s |
-| `filters()` over the whole corpus | ~0.5 s |
+| A filtered search / an unfiltered one (facets over everything) | ~0.07 s / ~0.5 s |
+| `facets()` over the default catalogue | ~0.35 s |
+| `publishers()` / `publisher("scb")` | under a millisecond once built / ~0.06 s |
 | `data_services(limit=0)` | 0.005 s |
 | Distinct `rdfType` values in the registry | 42 (6 DCAT, 36 platform) |
 | Catalogs registered / holding a dataset | 656 / 157 |
@@ -438,11 +496,11 @@ Four of these changed a decision:
 **Concurrency has one useful step.** One thread gets 0.84 requests a second
 and two get 2.26; four and eight get the same 2.26. So the pool is fixed at
 two and the `workers=` argument went: the only choice it offered was between
-six minutes and seventeen.
+seven minutes and seventeen.
 
 **The counter was slower than the thing it replaced.** `count_datasets(theme=
 "transport")` measured 53.1 ms against 43.9 ms for `datasets(theme="transport",
-limit=0)` -- and the cheap version threw away the breakdown it got for free. It
+limit=0)` -- and the cheap version threw away the facets it got for free. It
 made sense against the API, where a count was one request and a list was 236.
 Locally the scan *is* the count, so it went.
 
