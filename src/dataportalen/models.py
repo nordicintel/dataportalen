@@ -152,6 +152,26 @@ def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
     return found
 
 
+_SPACES = dict.fromkeys(map(ord, " \t\n\r\u00a0\u202f\u2009"))
+
+
+def _whole_number(text: Any) -> Optional[int]:
+    """A non-negative whole number as publishers write one, or ``None``.
+
+        >>> _whole_number("5 420 000")
+        5420000
+        >>> _whole_number("39000.0")
+        39000
+        >>> _whole_number("2022-02-09") is None
+        True
+    """
+    digits = str(text).translate(_SPACES)
+    whole, dot, fraction = digits.partition(".")
+    if whole.isdigit() and (not dot or fraction.strip("0") == ""):
+        return int(whole)
+    return None
+
+
 #: The shape a publisher always has, even when there is none. A record never
 #: hands back a bare None where a dict is documented.
 _EMPTY_AGENT = {
@@ -466,16 +486,16 @@ class Entry:
             "entry_id": self.entry_id,
         }
 
-    def _text(self, values: Dict[Optional[str], Any], empty: Any = None) -> Any:
-        """Localized values as ``{"sv": ..., "en": ...}``.
+    def _text(self, values: Dict[Optional[str], Any]) -> Dict[str, Any]:
+        """Localized values as ``{"sv": ..., "en": ...}``, ``{}`` when empty.
 
         There is no language setting: the record carries what the publisher
-        wrote, in both languages when both exist. ``empty`` is kept for the
-        few callers that want ``None`` over ``{}`` for a field with nothing
-        in it at all.
+        wrote, in both languages when both exist. Always a dict. `keywords`
+        used to come back as ``[]`` when a record had none -- 1,324 records,
+        5.5% -- so ``record["keywords"].get("sv")`` raised on exactly the
+        records with nothing to say.
         """
-        mapped = _langmap(values)
-        return mapped if mapped else ({} if empty is None else empty)
+        return _langmap(values) or {}
 
     def _term(self, uri: Optional[str]) -> Optional[str]:
         """One controlled value as a short name: ``"local_authority"``.
@@ -792,7 +812,19 @@ class Distribution(Entry):
 
     @property
     def byte_size(self) -> Optional[int]:
-        return self.resource.integer(DCAT.byteSize)
+        """The file's size in bytes, where the publisher states one.
+
+        485 of 34,931 distributions do. A plain integer parse reads 470 of
+        them: 11 are written with a space or a no-break space between the
+        thousands (``5 420 000``), 3 are typed as decimals, and 1 is a date.
+        This reads 484; the date stays unread. Two distributions give two
+        sizes, and the first readable one is used.
+        """
+        for raw in self.resource.values(DCAT.byteSize):
+            size = _whole_number(raw)
+            if size is not None:
+                return size
+        return None
 
     @property
     def license(self) -> Optional[str]:
@@ -837,7 +869,7 @@ class Distribution(Entry):
         # One field per URL. 147 of 35,148 distributions name two access
         # URLs and 130 two download URLs; the first is kept, and a reader
         # stops writing `["..."]` around the other 99.6%.
-        return dict(uri=self.resource_uri, **{
+        out = dict(uri=self.resource_uri, **{
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
             "access_url": self.access_url,
@@ -851,6 +883,12 @@ class Distribution(Entry):
             "modified": _iso(self.modified_date),
             "access_service_uris": self.access_service_uris,
         })
+        # Present only when known, like `broken`: 1.4% of files state a size,
+        # and a null on the other 98.6% would be a key that says nothing.
+        size = self.byte_size
+        if size is not None:
+            out["byte_size"] = size
+        return out
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Distribution %r %s>" % (self.title, self.download_url or self.access_url or "")
@@ -947,7 +985,7 @@ class DataService(Entry):
             "type": "data_service",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language, empty=[]),
+            "keywords": self._text(self.keywords_by_language),
             "service_type": self.service_type,
             # One field per thing. Over all 599: four name more than one
             # endpoint URL and one more than one description -- the first is
@@ -1186,7 +1224,7 @@ class Dataset(Entry):
             "type": "dataset",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language, empty=[]),
+            "keywords": self._text(self.keywords_by_language),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),

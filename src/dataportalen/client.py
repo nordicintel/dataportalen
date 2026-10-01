@@ -821,8 +821,10 @@ CREATE INDEX IF NOT EXISTS record_type ON record(type);
 #: Bumped when the layout changes in a way an older file cannot satisfy --
 #: including a change to the record shape, since `doc` holds the record as it
 #: was written. Version 2 dropped `creators`; version 3 is the 0.10.0 record
-#: shape (licence dicts, ISO language codes, no ids below the top level).
-SCHEMA_VERSION = "3"
+#: shape (licence dicts, ISO language codes, no ids below the top level);
+#: version 4 adds `byte_size` where a file states one and makes an empty
+#: `keywords` a dict.
+SCHEMA_VERSION = "4"
 
 
 def _connect(path: str) -> Any:
