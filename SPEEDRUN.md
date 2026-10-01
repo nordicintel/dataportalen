@@ -4,8 +4,9 @@ Every public name in `dataportalen`, once, with every argument spelled out and
 every output shape printed underneath. One Python snippet per function; a JSON
 snippet under it when the shape has not been shown yet.
 
-Written against 0.9.0 and the corpus as of 2026-09-30 (23,581 datasets, 599
-data services). When the public interface changes, this file changes with it.
+Written against 0.10.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
+data services, 35,148 distributions). When the public interface changes, this
+file changes with it.
 
 ```python
 from dataportalen import (
@@ -19,17 +20,31 @@ from dataportalen import (
 
 ## `Catalog(...)`
 
+What the catalogue holds is decided here. By default it holds the datasets that
+say `public` and have at least one file the registry's nightly check could
+fetch — and nothing that is downloaded is ever downloaded behind a search.
+
 ```python
 catalog = Catalog(
-    path=None,                    # str | None -> default_catalog_path()
-    refresh="if_missing",         # "if_missing" | "if_stale" | "always" | "never"
-    exclude_broken_links=False,   # True drops every distribution the registry's
-                                  #   nightly check found broken (11,871 of 35,140)
-    stale_after=7,                # int days
-    progress="auto",              # "auto" | None | callable(done, total)
-    workers=8,                    # int, parallel requests while downloading
-    base_url="https://admin.dataportal.se",
-    transport=None,               # BaseTransport | None
+    database=None,              # str | None -> default_catalog_path()
+    max_age=7,                  # int days | None. Older than this, or missing,
+                                #   -> brought up to date when built (a download
+                                #   if there is nothing, else an incremental
+                                #   refresh of what changed, under a minute).
+                                #   None: use what is there; download only if
+                                #   there is nothing.
+    rebuild=False,              # True: fetch everything again now. What a
+                                #   schema change asks for, and the only thing
+                                #   that drops a dataset the registry withdrew.
+    exclude_broken=True,        # drop every file the registry found broken
+                                #   (11,762 of 35,148) and every dataset whose
+                                #   every file was broken (5,331). A dataset
+                                #   that never had files (1,647) stays.
+                                #   False: keep all, mark the broken ones.
+    access_rights=("public",),  # which access_rights values to hold:
+                                #   "public" | "non_public" | "restricted"
+                                #   | "none" (the 4,167 that set nothing).
+                                #   A list, a single string, or None for all.
 )
 ```
 
@@ -39,9 +54,6 @@ Filters AND together. A list is OR within one filter — except `keyword`, which
 is AND. An unknown filter name, an unknown value, or a negative window raises
 `QueryError` rather than matching nothing.
 
-`creator` was a filter until 0.9.0 and is now an unknown name: of the 7,104
-datasets that named one, 6,174 named their own publisher again.
-
 ```python
 page = catalog.datasets(
     limit=50,                     # int | None (every match) | 0 (counts only)
@@ -49,8 +61,8 @@ page = catalog.datasets(
     breakdown_limit=None,         # int | None; what it cuts lands in .breakdown.omitted
 
     text="cykel",                 # substring, both languages, title + description + keywords
-    publisher="trafikverket",     # slug | name | org.nr "2021000639" | URI; 356 values
-    keyword="Kommun",             # case-sensitive exact when known, substring otherwise; 23,370
+    publisher="scb",              # alias | slug | name | org.nr "2021000837" | URI
+    keyword="Kommun",             # case-sensitive exact when known, substring otherwise
     publisher_type="national_authority",
         # national_authority | non_governmental_organisation | local_authority
         # | academia_scientific_organisation | company | regional_authority
@@ -78,7 +90,7 @@ page = catalog.datasets(
         # | shape | tif | dwg | raster | raster_pdf | rdf_query | svg_xml | vnd_dwg
         # | vnd_openxmlformats_officedocument_wordprocessingml_document
         # | wcs_service | x_tab | zip_csv                             (47 values)
-    license="cc0_1_0",
+    license="cc0_1_0",            # the licence's id, see the record below
         # cc0_1_0 | nolicense | cc_by_4_0 | otherlicense | cc_by_nc_4_0
         # | cc_by_nc_sa_4_0 | cc_by_sa_4_0 | cc_by_nc_nd_4_0 | cc_by_nd_4_0
     access_rights="public",       # public | non_public | restricted
@@ -87,15 +99,13 @@ page = catalog.datasets(
         # | weekly | daily | semiannual | every_two_weeks | continuously_updated
         # | never | biennial | as_needed | triennial | every_two_months
         # | three_times_a_year                                        (18 values)
-    language="swedish",           # swedish | english
-    place="kingdom_of_sweden",    # slug | name; 542 values
-    link="success",               # success | broken | excluded  (the worst verdict
-                                  #   across the dataset's own files)
+    language="sv",                # ISO 639-1 where one exists, else 639-3:
+                                  #   sv | en | fi | de | no | ... | fit | swl
 
-    updated_after="2025-01-01",   # dcterms:modified; "YYYY-MM-DD" | date | datetime
-    updated_before="2026-01-01",
-    published_after="2020-01-01", # dcterms:issued
-    published_before="2026-01-01",
+    modified_after="2025-01-01",  # record["modified"]; "YYYY-MM-DD" | date | datetime
+    modified_before="2026-01-01",
+    issued_after="2020-01-01",    # record["issued"]
+    issued_before="2026-01-01",
 )
 ```
 
@@ -118,8 +128,6 @@ page = catalog.datasets(
     "landing_page": "https://www.uhr.se/studier-och-antagning/antagningsstatistik/",
     "publisher": {
         "uri": "http://dataportal.se/organisation/SE2021006487",
-        "context_id": "827",
-        "entry_id": "208",
         "name": {
             "sv": "Universitets- och högskolerådet",
             "en": "Swedish Council for Higher Education"
@@ -130,10 +138,14 @@ page = catalog.datasets(
         "identifiers": ["2021006487"]
     },
     "themes": ["education_culture_and_sport"],
-    "license": "cc0_1_0",
+    "license": {
+        "id": "cc0_1_0",
+        "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+        "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
+    },
     "access_rights": "public",
     "accrual_periodicity": null,
-    "languages": ["swedish"],
+    "languages": ["sv"],
     "spatial": ["kingdom_of_sweden"],
     "temporal": { "start": "2022-10-17", "end": "2023-01-09" },
     "issued": "2022-10-20",
@@ -148,46 +160,41 @@ page = catalog.datasets(
     "distributions": [
         {
             "uri": "https://editera.dataportal.se/store/163/resource/8",
-            "context_id": "110",
-            "entry_id": "2544",
             "title": {},
             "description": {},
-            "access_url": [
-                "https://www.uhr.se/.../ikvt23_antagna_urval1_kurser.xlsx"
-            ],
-            "download_url": [],
+            "access_url": "https://www.uhr.se/.../ikvt23_antagna_urval1_kurser.xlsx",
+            "download_url": null,
             "format": "microsoft_excel_xml",
-            "license": "cc0_1_0",
+            "license": {
+                "id": "cc0_1_0",
+                "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+                "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
+            },
             "status": null,
             "availability": "stable",
             "languages": [],
             "issued": null,
             "modified": null,
             "access_service_uris": [],
-            "link": {
-                "status": "broken",
-                "message": "Not Found",
-                "checked": "2026-09-30T02:52:17",
-                "attempts": 2
-            }
+            "broken": { "reason": "Not Found", "checked": "2026-09-30T02:52:17" }
         }
-    ],
-    "link": {
-        "status": "success",
-        "message": "OK",
-        "checked": "2026-09-30T02:52:17",
-        "attempts": null
-    }
+    ]
 }
 ```
 
+`broken` is on a file only when the registry's check found it broken, and only
+in a `Catalog(exclude_broken=False)`. Under the default that file, and this
+dataset with it (its only file), are not there.
+
 ## `catalog.data_services(...)`
 
-Same signature as `datasets()`. Eight filters, not fifteen: `format`,
-`updated`, `place`, `language` and the four date filters are refused with
-`QueryError` naming the ones that work, because a data service has no
-distributions, no `accrual_periodicity`, `place` on 8% and one single
-`language` across all 599.
+Same signature as `datasets()`. Eight filters, not thirteen: `format`,
+`updated`, `language` and the four date filters are refused with `QueryError`
+naming the ones that work, because a data service has no distributions, no
+`accrual_periodicity`, one single `language` across all 599, and `modified` on
+7.5% of them. The registry's link check never tests `endpointURL`, so whether
+an API answers is not something this can tell you; `exclude_broken` leaves
+data services alone.
 
 ```python
 page = catalog.data_services(
@@ -205,7 +212,6 @@ page = catalog.data_services(
     theme="education_culture_and_sport",
     license="cc0_1_0",
     access_rights="public",
-    link="success",                        # success | broken
 )
 ```
 
@@ -223,18 +229,11 @@ page = catalog.data_services(
     "keywords": { "sv": ["grundskola", "skolor"], "en": ["school units"] },
     "service_type": "rest",
     "endpoint_url": "https://api.skolverket.se/skolenhetsregistret/swagger-ui/index.html",
-    "endpoint_urls": [
-        "https://api.skolverket.se/skolenhetsregistret/swagger-ui/index.html"
-    ],
-    "endpoint_descriptions": [],
-    "serves_dataset_uris": [
-        "https://editera.dataportal.se/store/162/resource/26"
-    ],
+    "endpoint_description": null,
+    "serves_datasets": ["https://editera.dataportal.se/store/162/resource/26"],
     "conforms_to": [],
     "publisher": {
         "uri": "http://dataportal.se/organisation/SE2021004185",
-        "context_id": "827",
-        "entry_id": "207",
         "name": { "sv": "Skolverket" },
         "type": "national_authority",
         "homepage": "https://www.skolverket.se/",
@@ -242,7 +241,11 @@ page = catalog.data_services(
         "identifiers": ["2021004185"]
     },
     "themes": ["education_culture_and_sport"],
-    "license": "cc0_1_0",
+    "license": {
+        "id": "cc0_1_0",
+        "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+        "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
+    },
     "access_rights": "public",
     "landing_page": "https://www.skolverket.se/om-oss/oppna-data/api-for-skolenhetsregistret",
     "contact_points": [
@@ -251,13 +254,7 @@ page = catalog.data_services(
             "name": "Centralsupport Skolverket",
             "email": "supporten@skolverket.se"
         }
-    ],
-    "link": {
-        "status": "broken",
-        "message": null,
-        "checked": "2026-09-30T02:51:10",
-        "attempts": 1
-    }
+    ]
 }
 ```
 
@@ -281,8 +278,9 @@ len(page); page[0]; list(page)    # it is a list
 ## `catalog.filters(...)`
 
 The dataset options before you search — the same `Breakdown` a search carries,
-counted over every dataset. Data-service options are
-`catalog.data_services(limit=0).breakdown`, identical in structure over its nine.
+counted over every dataset the catalogue holds. Data-service options are
+`catalog.data_services(limit=0).breakdown`, identical in structure over its
+eight.
 
 ```python
 options = catalog.filters(
@@ -303,19 +301,20 @@ list(options); "format" in options
 
 ```json
 {
-    "publisher": 356,
+    "publisher": 210,
     "publisher_type": 8,
     "theme": 31,
-    "keyword": 23370,
+    "keyword": 15592,
     "format": 47,
     "license": 9,
-    "access_rights": 3,
+    "access_rights": 1,
     "updated": 18,
-    "language": 2,
-    "place": 542,
-    "link": 3
+    "language": 55
 }
 ```
+
+Counted over the default catalogue — `public` only, so `access_rights` has one
+value; `Catalog(access_rights=None)` has three.
 
 ## `catalog.get(...)`
 
@@ -343,35 +342,37 @@ catalog.info()
 
 ```json
 {
-    "path": "C:\\Users\\ruben\\AppData\\Local\\dataportalen\\catalog.sqlite",
+    "database": "C:\\Users\\ruben\\AppData\\Local\\dataportalen\\catalog.sqlite",
     "first_retrieved": "2026-09-30T17:57:14",
-    "last_refreshed": "2026-09-30T17:58:16",
-    "downloaded": "2026-09-30T17:58:16",
+    "last_refreshed": "2026-10-01T09:52:16",
+    "downloaded": "2026-10-01T09:52:16",
     "age_days": 0,
-    "stale": false,
-    "bytes": 98725888,
-    "datasets": 23581,
-    "data_services": 599,
-    "publishers": 356
+    "bytes": 98951168,
+    "datasets": 12653,
+    "data_services": 578,
+    "publishers": 210
 }
 ```
+
+`datasets` is what this `Catalog` holds, after `access_rights` and
+`exclude_broken`; the database underneath holds all 23,582.
 
 ## `Catalog` properties and lifecycle
 
 ```python
-catalog.path                          # str
-catalog.first_retrieved               # "2026-09-30T17:57:14" | None, when built
-catalog.last_refreshed                # "2026-09-30T17:58:16" | None, what a refresh asks from
-catalog.downloaded                    # datetime | None
-catalog.age_days                      # int >= 0 | None
-catalog.stale                         # bool, age_days >= stale_after
-catalog.exclude_broken_links          # bool
-catalog.stale_after                   # int
+catalog.database                  # str
+catalog.max_age                   # int | None
+catalog.exclude_broken            # bool
+catalog.access_rights             # frozenset | None
+catalog.first_retrieved           # "2026-09-30T17:57:14" | None, when built
+catalog.last_refreshed            # "2026-10-01T06:38:13" | None, what a refresh asks from
+catalog.downloaded                # datetime | None
+catalog.age_days                  # int >= 0 | None
 
-len(cat)                          # 23581, datasets only
-for record in cat: ...            # datasets only
-catalog.close()                       # releases the HTTP connection; never required
-with Catalog() as cat: ...        # same thing
+len(catalog)                      # datasets only
+for record in catalog: ...        # datasets only
+catalog.close()                   # releases the HTTP connection; never required
+with Catalog() as catalog: ...    # same thing
 ```
 
 ## `text(...)`
@@ -405,10 +406,12 @@ else    -> $XDG_CACHE_HOME/dataportalen/catalog.sqlite
 ## `read_catalog(...)`
 
 Every record in a database file without building a `Catalog` around it — both
-types, in insertion order, each the dict shown above.
+types, in insertion order, each the dict shown above, unscoped: every
+access_rights value, every file, with `broken` on the broken ones. A path that
+does not exist raises `FileNotFoundError`.
 
 ```python
-records = read_catalog("catalog.sqlite")
+records = read_catalog(default_catalog_path())
 ```
 
 ## `enable_logging(...)` and `logger`
@@ -425,6 +428,22 @@ enable_logging(
 logger.setLevel(logging.WARNING)  # the same logger, for apps that configure their own
 ```
 
+## Publisher aliases
+
+`src/dataportalen/aliases.json`, kept by hand and shipped in the wheel. An alias
+is accepted wherever a publisher is and resolves to the slug the breakdown
+reports; the records and the breakdown keep the canonical slug.
+
+```json
+{ "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
+  "fhm": "folkhalsomyndigheten",
+  "slu": "sveriges_lantbruksuniversitet",
+  "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
+  "uhr": "universitets_och_hogskoleradet",
+  "kolada": "radet_for_framjande_av_kommunala_analyser_kolada",
+  "energimyndigheten": "statens_energimyndighet" }
+```
+
 ## Errors
 
 ```text
@@ -436,9 +455,10 @@ DataportalError                   # base; catch this one
     RateLimitError                #     429
     ServerError                   #     5xx
   ParseError                      #   the answer, or the database, was not what it claims
-  QueryError                      #   the call was wrong: bad filter, value, or window
+  QueryError                      #   the call was wrong: bad filter, value, window, or
+                                  #     Catalog argument
 
-FileNotFoundError                 # refresh="never" and no file (not a DataportalError)
+FileNotFoundError                 # read_catalog() on a path that is not there
 ```
 
 ## Not built yet
@@ -451,4 +471,4 @@ Nothing of it exists yet; this section is the placeholder it fills.
 ## IMPORTANT NOTES
 
 - A list is OR for every filter except keyword, which is AND. theme=["transport","environment"] gives 3,485 (the union); keyword=["Kommun","Region"] gives 1,141 (the intersection of 4,611 and 2,397). That inconsistency was invisible until the arguments sat next to each other. Two meanings for one syntax, should be looked over, and possibly revised for clarity.
-- datasets() takes 16 filters, data_services() takes 9. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.
+- datasets() takes 9 vocabulary filters plus text and 4 dates; data_services() takes 8 plus text. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.

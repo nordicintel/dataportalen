@@ -1,11 +1,12 @@
 # Reference
 
 Everything the package exposes, as tables. [guide.md](guide.md) is the part
-you read; this is the part you look up.
+you read; this is the part you look up. [SPEEDRUN.md](../SPEEDRUN.md) is the
+same surface as code: every argument once, the output underneath.
 
 Percentages are measured over the whole corpus — every dataset and every data
 service, not a sample. The registry grows by a handful a day, so treat the
-absolute counts as "as of 2026-09-30" and the percentages as stable.
+absolute counts as "as of 2026-10-01" and the percentages as stable.
 
 1. [The five methods](#the-five-methods)
 2. [Building a Catalog](#building-a-catalog)
@@ -21,25 +22,25 @@ absolute counts as "as of 2026-09-30" and the percentages as stable.
 ## The five methods
 
 ```python
-cat.datasets(**filters, limit=50, offset=0, breakdown_limit=None)      -> Results
-cat.data_services(**filters, limit=50, offset=0, breakdown_limit=None) -> Results
-cat.filters(limit=None)                                               -> Breakdown
-cat.get(uri, format="dict")                                           -> dict | str | None
-cat.info()                                                            -> dict
-cat.close()                                                           -> None
+catalog.datasets(**filters, limit=50, offset=0, breakdown_limit=None)      -> Results
+catalog.data_services(**filters, limit=50, offset=0, breakdown_limit=None) -> Results
+catalog.filters(limit=None)                                               -> Breakdown
+catalog.get(uri, format="dict")                                           -> dict | str | None
+catalog.info()                                                            -> dict
+catalog.close()                                                           -> None
 ```
 
 | | |
 | --- | --- |
-| `datasets()` | Search the datasets — 23,581 of them today. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
-| `data_services()` | Search the 599 data services. Same signature; refuses `format`, `updated`, `place`, `language` and the date filters. |
+| `datasets()` | Search the datasets the catalogue holds — 12,653 by default, 23,582 unscoped. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
+| `data_services()` | Search the data services — 578 by default, 599 unscoped. Same signature; refuses `format`, `updated`, `language` and the date filters. |
 | `filters()` | Every dataset filter, every value present, count-descending, with labels. ~0.5 s over the whole corpus. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |
-| `info()` | The database: path, `first_retrieved`, `last_refreshed`, age, size, and what it holds. |
+| `info()` | The database: `database`, `first_retrieved`, `last_refreshed`, age, size, and what this `Catalog` holds. |
 | `close()` | Release the HTTP connection. Never required; nothing leaks without it. |
 
-`len(cat)` and iterating a `Catalog` give the datasets. Data services come from
-`data_services()`.
+`len(catalog)` and iterating a `Catalog` give the datasets. Data services come
+from `data_services()`.
 
 `get(uri, format=)` accepts `turtle`, `ttl`, `rdf/xml`, `rdfxml`, `xml`,
 `n-triples`, `ntriples`, `nt`, `json-ld`, `jsonld`, `trig`, or any media type
@@ -48,91 +49,85 @@ passed straight through.
 ## Building a Catalog
 
 ```python
-Catalog(path=None, *, refresh="if_missing", stale_after=7, progress="auto",
-        workers=8, base_url=DEFAULT_BASE_URL, transport=None)
+Catalog(database=None, *, max_age=7, rebuild=False,
+        exclude_broken=True, access_rights=("public",))
 ```
 
 | Argument | Default | |
 | --- | --- | --- |
-| `path` | the cache directory | The SQLite database. |
-| `refresh` | `"if_missing"` | When the file may be written. See below. |
-| `exclude_broken_links` | `False` | Drop every file the registry's link check calls broken — 11,886 of 35,140. |
-| `stale_after` | `7` | Days before a copy counts as stale. |
-| `progress` | `"auto"` | Progress line on a terminal, periodic log otherwise. `None` is silent; a callable gets `(done, total)`. |
-| `workers` | `8` | Parallel requests while downloading. |
-| `base_url` | `https://admin.dataportal.se` | Another EntryStore registry. |
-| `transport` | `requests` | Your own `BaseTransport`, from `dataportalen.core`. |
+| `database` | the cache directory | The SQLite file. |
+| `max_age` | `7` | Days. A copy older than this — or missing — is brought up to date when the object is built: a download if there is nothing, otherwise an incremental refresh of what the registry has touched since, under a minute. `None`: use what is there, download only if there is nothing. |
+| `rebuild` | `False` | Fetch everything again now. What a schema change asks for, and the only thing that drops a dataset the registry has withdrawn. |
+| `exclude_broken` | `True` | Drop every file the registry's nightly check found broken (11,762 of 35,148), and every dataset whose every file was broken (5,331). A dataset that never had files (1,647) stays. `False` keeps everything and marks each broken file. |
+| `access_rights` | `("public",)` | Which `access_rights` values the catalogue holds: `public`, `non_public`, `restricted`, and `none` for the 4,167 that set nothing. A list, one string, or `None` for all. |
 
 Everything that writes the file is here. No method rewrites it.
 
-| `refresh=` | Behaviour |
-| --- | --- |
-| `"if_missing"` | Download only when the file is absent. An old copy is used and reported, never replaced. |
-| `"if_stale"` | Also download when it is older than `stale_after` days. |
-| `"always"` | Download now, whatever is there. |
-| `"never"` | Never download. A missing file raises `FileNotFoundError`. |
+| What is there | `max_age=7` | `max_age=None` | `rebuild=True` |
+| --- | --- | --- | --- |
+| nothing | download | download | download |
+| a copy under 7 days old | use it | use it | fetch everything |
+| a copy over 7 days old | refresh what changed, ~40 s | use it | fetch everything |
 
 Default path: `%LOCALAPPDATA%\dataportalen\catalog.sqlite` on Windows,
 `$XDG_CACHE_HOME/dataportalen/catalog.sqlite` or
 `~/.cache/dataportalen/catalog.sqlite` elsewhere. `default_catalog_path()`
 returns it.
 
-| `refresh=` | What it fetches |
-| --- | --- |
-| `"if_missing"` | nothing, unless the database is absent |
-| `"if_stale"` | only entries the registry has touched since your last refresh — ~630 datasets a day, 38 s against 302 for a rebuild |
-| `"always"` | everything |
-| `"never"` | nothing; raises if the database is absent |
+The database always holds the whole registry; `exclude_broken` and
+`access_rights` decide what this `Catalog` holds of it, so changing either is
+a new `Catalog`, not a new download. `info()["datasets"]` is the scoped count.
 
 ## Dataset filters
 
-Eleven, plus free text and four dates. All combine; all must match. A list
+Nine, plus free text and four dates. All combine; all must match. A list
 value means any of them will do, except `keyword`, where all must be present.
 
 | Filter | Matches | On |
 | --- | --- | --- |
-| `publisher=` | the organisation that put it on the portal | 100% |
-| `license=` | the licence it is released under | 100% |
+| `publisher=` | the organisation that put it on the portal — slug, name, organisation number, URI or alias | 100% |
+| `license=` | the licence's `id` | 100% |
 | `keyword=` | one of the publisher's own tags, by substring | 94.8% |
 | `publisher_type=` | what kind of organisation published it | 92.6% |
-| `language=` | the language of the data: `swedish` or `english` | 88.5% |
+| `language=` | the language of the data, as an ISO code: `sv`, `en`, … | 89.3% |
 | `access_rights=` | `public`, `non_public` or `restricted` | 82.3% |
 | `theme=` | the subject it is filed under | 78.2% |
 | `format=` | a format one of its distributions is in | 69.7% |
 | `updated=` | how often the publisher refreshes it | 63.3% |
-| `place=` | the area it covers | 19.0% |
-| `link=` | `success`, `broken` or `excluded` — the registry's nightly link check, on the record's own landing page or any of its files | 100% |
 | `text=` | title, description or keywords, either language | — |
 
-| Date filter | Which date | On |
+| Date filter | Which field | On |
 | --- | --- | --- |
-| `updated_after=`, `updated_before=` | `modified` — when the publisher last changed it | 89.0% |
-| `published_after=`, `published_before=` | `issued` — when they first released it | 41.6% |
+| `modified_after=`, `modified_before=` | `modified` — when the publisher last changed it | 89.0% |
+| `issued_after=`, `issued_before=` | `issued` — when they first released it | 41.6% |
 
 Dates take `"2024-01-01"`, `"2024-01"`, `"2024"`, or a `date`/`datetime`.
 
-How many distinct values each has in the corpus, and what the commonest is:
+How many distinct values each has, over the whole registry and over the
+default catalogue, and what the commonest is:
 
-| Filter | Values | Commonest |
-| --- | --- | --- |
-| `keyword` | 23,371 | `Rådet för främjande av kommunala analyser - Kolada` |
-| `place` | 542 | `kingdom_of_sweden` |
-| `publisher` | 356 | `radet_for_framjande_av_kommunala_analyser_kolada` |
-| `format` | 47 | `json` |
-| `theme` | 31 | `population_and_society` |
-| `updated` | 18 | `annual` |
-| `license` | 9 | `cc0_1_0` |
-| `publisher_type` | 8 | `national_authority` |
-| `access_rights` | 3 | `public` |
-| `language` | 2 | `swedish` |
-| `link` | 3 | `success` |
+| Filter | Values (all) | Values (default) | Commonest |
+| --- | --- | --- | --- |
+| `keyword` | 23,373 | 15,592 | `Rådet för främjande av kommunala analyser - Kolada` |
+| `publisher` | 356 | 209 | `radet_for_framjande_av_kommunala_analyser_kolada` |
+| `language` | 65 | 55 | `sv` |
+| `format` | 47 | 34 | `json` |
+| `theme` | 31 | 30 | `population_and_society` |
+| `updated` | 18 | 18 | `annual` |
+| `license` | 9 | 8 | `cc0_1_0` |
+| `publisher_type` | 8 | 8 | `national_authority` |
+| `access_rights` | 3 | 1 | `public` |
 
-`cat.filters()` lists them all, live against your copy, with labels.
+`catalog.filters()` lists them all, live against your copy, with labels.
+
+Publisher aliases ship in [aliases.json](../src/dataportalen/aliases.json):
+`scb`, `fhm`, `slu`, `smhi`, `uhr`, `kolada`, `energimyndigheten`. An alias is
+accepted as input and never appears in output.
 
 ## Data service filters
 
-Eight, plus free text. **Four dataset filters are refused**, with an error
-naming the ones that work.
+Eight, plus free text. **Three dataset filters and the dates are refused**,
+with an error naming the ones that work.
 
 | Filter | Matches | On |
 | --- | --- | --- |
@@ -142,15 +137,13 @@ naming the ones that work.
 | `keyword=` | one of the publisher's own tags | 83.5% |
 | `service_type=` | what kind of service | 55.9% |
 | `theme=` | the subject | 53.8% |
-| `license=` | the licence | 51.8% |
-| `link=` | `success`, `broken` or `excluded` | 53% |
+| `license=` | the licence's `id` | 51.8% |
 | `text=` | title, description or keywords | — |
 
 | Refused | Why |
 | --- | --- |
 | `format=` | a data service has no distributions |
 | `updated=` | nor an accrual periodicity |
-| `place=` | set on 7.8% of the 599 |
 | `language=` | one single value across all 599 |
 | the four date filters | `modified` on 7.5%, `issued` on 0.8% |
 
@@ -166,21 +159,21 @@ naming the ones that work.
 
 ## A dataset record
 
-22 keys, always present. An empty value is `null`, `[]` or `{}` — never a
+21 keys, always present. An empty value is `null`, `[]` or `{}` — never a
 missing key, so you never need `.get()`.
 
 | Key | Type | Filled |
 | --- | --- | --- |
 | `uri` | str | 100% |
 | `type` | `"dataset"` | 100% |
-| `context_id`, `entry_id` | str | 100% |
+| `context_id`, `entry_id` | str — the registry's own id, what `get(format="turtle")` sends | 100% |
 | `title` | `{"sv": str, "en": str}` | 100% |
 | `description` | `{"sv": str, "en": str}` | 100% |
 | `publisher` | dict, see below — always a dict, with empty values where no publisher is named (10 datasets) | 100% |
-| `license` | short name | 100% |
+| `license` | `{"id", "label", "uri"}`, see below | 100% |
 | `keywords` | `{"sv": [str], "en": [str]}` | 94.8% |
 | `distributions` | `[dict]`, see below | 93.0% |
-| `languages` | `[short name]` | 89.3% |
+| `languages` | `[ISO code]` — `sv`, `en`, or one of 63 others | 89.3% |
 | `modified` | ISO date or timestamp | 89.0% |
 | `access_rights` | short name | 82.3% |
 | `themes` | `[short name]` | 78.2% |
@@ -190,41 +183,51 @@ missing key, so you never need `.get()`.
 | `landing_page` | url | 56.2% |
 | `issued` | ISO date | 41.6% |
 | `temporal` | `{"start": …, "end": …}` | 19.0% |
-| `spatial` | `[short name]` | 19.0% |
+| `spatial` | `[short name]` — not a filter | 19.0% |
+
+**`license`**
+
+| Key | |
+| --- | --- |
+| `id` | short name, what `license=` takes: `cc_by_4_0`, `nolicense`, … |
+| `label` | `{"sv": str, "en": str}` — `nolicense` and `otherlicense` are DIGG's own categories, on 39% of datasets, and have labels too |
+| `uri` | the licence page |
 
 **`publisher`**
 
 | Key | |
 | --- | --- |
+| `uri` | the registry's URI for the organisation |
 | `name` | `{"sv": str, "en": str}` |
 | `type` | short name: `national_authority`, `local_authority`, … |
 | `identifiers` | `[str]`, usually the organisation number |
 | `email`, `homepage` | str or `null` |
-| `uri`, `context_id`, `entry_id` | the registry's own identifiers |
 
 **`contact_points`** — `name`, `email`, `uri`.
 
-**Each entry in `distributions`** — 15 keys:
+**Each entry in `distributions`** — 13 keys, 14 when broken:
 
-| Key | |
-| --- | --- |
-| `title`, `description` | `{"sv": str, "en": str}` |
-| `format` | short name: `csv`, `json`, `geopackage`, … |
-| `access_url` | `[url]` — a page or service to get it through. **Read this one.** |
-| `download_url` | `[url]` — a direct file link, on only 7.4% |
-| `license`, `availability`, `status` | short names |
-| `link` | `{status, message, checked, attempts}` — the registry's nightly check, or `null` if it never saw the URL |
-| `languages` | `[short name]` |
-| `issued`, `modified` | ISO dates |
-| `access_service_uris` | `[uri]` — the data service that serves it, where declared |
-| `uri`, `context_id`, `entry_id` | the registry's own identifiers |
+| Key | | Filled |
+| --- | --- | --- |
+| `uri` | | 100% |
+| `title`, `description` | `{"sv": str, "en": str}` | 97.8%, 30.0% |
+| `format` | short name: `csv`, `json`, `geopackage`, … | 82.9% |
+| `access_url` | url or `null` — a page or service to get it through. **Read this one.** | 100% |
+| `download_url` | url or `null` — a direct file link | 7.4% |
+| `license` | `{"id", "label", "uri"}` or `null` | 67.8% |
+| `availability`, `status` | short names | 43.6%, 9.5% |
+| `languages` | `[ISO code]` | 44.2% |
+| `issued`, `modified` | ISO dates | 16.6%, 17.7% |
+| `access_service_uris` | `[uri]` — the data service that serves it, where declared | 21.6% |
+| `broken` | `{"reason": str, "checked": ISO timestamp}` — only on a file the registry's check found broken, only in a `Catalog(exclude_broken=False)` | 33.5% |
 
-Of 35,133 distributions: 32,536 carry only `access_url`, 2,592 carry both, 5
-carry neither, and none carries `download_url` alone.
+Of 35,148 distributions: 32,548 carry only `access_url`, 2,595 carry both, 5
+carry neither, and none carries `download_url` alone. 147 name more than one
+access URL and 130 more than one download URL; the first is what you get.
 
 ## A data service record
 
-20 keys. The same keys mean the same things as on a dataset; `distributions`,
+18 keys. The same keys mean the same things as on a dataset; `distributions`,
 `accrual_periodicity`, `spatial`, `temporal`, `modified` and `issued` are
 absent.
 
@@ -232,20 +235,26 @@ absent.
 | --- | --- | --- |
 | `uri`, `type`, `context_id`, `entry_id` | | 100% |
 | `title` | `{"sv": str, "en": str}` | 100% |
+| `publisher` | dict | 100% |
 | `endpoint_url` | url — where to call it | 99.8% |
-| `endpoint_urls` | `[url]` — all of them | 99.8% |
 | `access_rights` | short name | 97.8% |
 | `description` | `{"sv": str, "en": str}` | 97.3% |
-| `publisher` | dict | 97.3% |
 | `keywords` | `{"sv": [str], "en": [str]}` | 83.5% |
 | `contact_points` | `[dict]` | 64.1% |
 | `service_type` | short name | 55.9% |
 | `themes` | `[short name]` | 53.8% |
 | `landing_page` | url | 52.6% |
-| `license` | short name | 51.8% |
-| `endpoint_descriptions` | `[url]` | 47.6% |
+| `license` | `{"id", "label", "uri"}` or `null` | 51.8% |
+| `endpoint_description` | url — the API documentation | 47.6% |
 | `conforms_to` | `[url]` — the spec it follows | 29.5% |
-| `serves_dataset_uris` | `[uri]` | 8.0% |
+| `serves_datasets` | `[uri]` | 8.0% |
+
+Four of the 599 name more than one endpoint URL and one more than one
+description; the first is what you get. `conforms_to` (36 of 177 plural) and
+`serves_datasets` (8 of 48) stay lists.
+
+The registry's link check never tests `endpointURL`, so a data service carries
+no `broken` and `exclude_broken` leaves them alone.
 
 ## What a search returns
 
@@ -301,17 +310,17 @@ Every one derives from `DataportalError`.
 
 | Error | Means |
 | --- | --- |
-| `QueryError` | your filters were wrong: a value that does not exist, or one that does not apply to what you searched |
+| `QueryError` | your call was wrong: a filter value that does not exist, a filter that does not apply to what you searched, a bad window, or a `Catalog` argument out of range |
 | `NotFoundError` | there is no such entry (`get()` returns `None` instead) |
 | `RateLimitError` | too many requests; it already retried |
 | `TimeoutError` | the registry did not answer in time |
 | `TransportError` | the connection failed |
 | `ServerError` | the registry itself broke |
-| `ParseError` | the registry sent something unreadable |
+| `ParseError` | the registry sent something unreadable, or the database is from another schema (`rebuild=True`) |
 | `HTTPError` | any other HTTP failure |
 
-`FileNotFoundError` — Python's own — is raised by `refresh="never"` when the
-file is not there.
+`FileNotFoundError` — Python's own — is raised by `read_catalog()` on a path
+that is not there.
 
 ## Everything exported
 
@@ -321,23 +330,9 @@ file is not there.
 | --- | --- |
 | `Catalog` | the whole surface |
 | `default_catalog_path` | where the database goes by default |
-| `read_catalog` | every record in a database, without building a `Catalog` |
+| `read_catalog` | every record in a database, unscoped, without building a `Catalog` |
 | `text` | read a language map |
 | `Results`, `Breakdown`, `ValueList`, `ValueCount` | what a search gives you |
 | `DataportalError` + the 7 subclasses above | errors |
 | `logger`, `enable_logging` | logging |
 | `__version__` | |
-
-```python
-from dataportalen import enable_logging
-enable_logging("DEBUG")       # every request, with status and duration
-```
-
-The package logs to a logger named `dataportalen` and never touches your
-configuration, so `logging.getLogger("dataportalen")` works if your application
-already sets logging up.
-
-The RDF layer — `Q`, `Graph`, `Entry`, `Dataset`, `DataService` — is internal
-and not exported; the download is built on it. `BaseTransport` and `Response`
-live in `dataportalen.core` for anyone supplying their own HTTP.
-[internals.md](internals.md#public-and-internal) says why.

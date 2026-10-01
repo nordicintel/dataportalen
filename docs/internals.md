@@ -103,7 +103,8 @@ python tools/build_vocabulary.py --skip-build --sample all   # exact, slower
 ## Rebuilding the table
 
 ```bash
-python tools/build_vocabulary.py
+python tools/build_vocabulary.py --extra-only   # apply EXTRA_LABELS offline
+python tools/build_vocabulary.py                # the full rebuild (see below)
 ```
 
 Built from DIGG's own [DCAT-AP-SE templates](https://github.com/diggsweden/DCAT-AP-SE),
@@ -112,6 +113,18 @@ exports for place names. The script measures coverage against the URIs
 publishers are actually using in the live registry and prints what it could not
 resolve, so gaps stay visible rather than assumed. Commit the regenerated
 `vocabulary.json` and release it as a patch version.
+
+`EXTRA_LABELS` in the script is ours: labels the sources lack or get wrong,
+and they win. `--extra-only` applies them to the existing table with no
+network, which is how DIGG's `nolicense` and `otherlicense` got their labels
+in 0.10.0. A term in `EXTRA_LABELS` whose short name must not follow its
+label -- those two, whose slugs were their URI tails before they had a label
+-- is pinned in `rdf._FIXED_SLUGS`.
+
+**The full rebuild has not worked since 0.7.0.** It calls `Dataportal.facet`
+and `iter_datasets`, which went with the public client; it now says so
+instead of failing on import. Growing a facet call and a dataset iterator
+back onto `_Registry` is what it needs, and that is its own job.
 
 ## Module layout
 
@@ -141,10 +154,10 @@ calling `to_dict()`. None of it is exported, because 36 of the 42 `rdfType`
 values in the registry are EntryStore bookkeeping and a public `search()` mostly
 opened a door onto that.
 
-`transport=` survives as a constructor argument for one reason worth knowing:
-`tests/conftest.py` subclasses `BaseTransport` and uses it at 31 call sites,
-which is how the whole offline suite runs with no network. Import it from
-`dataportalen.core`.
+`_transport=` is the test seam: `tests/conftest.py` subclasses
+`BaseTransport` and the suite passes it at a few hundred call sites, which is
+how the whole offline suite runs with no network. It is underscored because
+it is not a feature; a user has no reason to touch it.
 
 ## What the registry can do
 
@@ -195,16 +208,27 @@ the URL, the entry it belongs to, `status`, `statusMessage`, `checkedAt` and
 is easy to miss if you only read the metadata graph.
 
 159 catalogues, one latest report each, ~29 MiB, about ten seconds -- 165
-requests on top of 691. The download reads them and puts the verdict on every
-distribution and on each record's landing page, so `link` is an ordinary local
-filter afterwards.
+requests on top of 691. The download reads them and marks every file the
+check found broken: `{"reason", "checked"}` under `broken`, and nothing on a
+file that passed or that the check never reached. Until 0.10.0 every file
+carried a `link` dict -- 18,360 successes and 5,021 the check skipped, for the
+11,762 that mattered -- and every record carried a landing-page verdict that
+was `None` on 10,331 datasets and `broken` on 277 whose files were all fine.
+
+What the check covers, counted over 40 reports: `dcat:downloadURL` 3,072,
+`dcat:accessURL` 1,426, `dcat:landingPage` 130, `foaf:page` 78,
+`dcterms:conformsTo` 42, `dcat:endpointDescription` 9 -- and
+`dcat:endpointURL` never. So whether a data service's API answers is
+something the registry does not know, and `exclude_broken` leaves data
+services alone rather than pretending.
 
 The verdict is passed through exactly as stated. `broken` covers everything the
 checker could not fetch, and its `statusMessage` is whatever reason it gave --
 `Not Found`, `Too Many Requests`, `No Content`, or nothing at all for 5,990 of
-them. This package reports what the registry says; deciding whether a
-particular `broken` is worth acting on is the caller's, and the message is
-there so they can.
+them. `Catalog(exclude_broken=True)`, the default, acts on it: the broken
+files go, and so does a dataset whose every file was broken (5,331), because
+metadata with nothing to fetch is what dead means. A dataset that never had
+files (1,647) is not dead and stays.
 
 A catalogue keeps about three days of reports; only the newest is read. Verdicts
 are current: of 12,718 broken records, 12,711 were checked this year.
@@ -251,7 +275,23 @@ every filter, which is the invariant to keep.
 **An organisation's slug comes from the URI table first and its own name
 second.** Dropping the fallback silently loses 13 of the 365 publishers,
 because they mint URIs the table never saw. Dropping the table and using only
-names would break every slug users have written down.
+names would break every slug users have written down. An alias
+(`aliases.json`) is resolved before either, to the canonical slug; the
+records and the breakdown never show the alias.
+
+**A URI is looked up in every spelling it comes in, not just as written.**
+`rdf._variants` knew that `.../by/4.0/deed.sv`, `.../legalcode` and the
+http/https pair all name one licence, but `slug_for` never asked it, so a
+publisher who wrote the Swedish deed got the licence `deed_sv`. 2,578
+distributions were filed under licences that do not exist -- `deed_sv` 1,486,
+`1_0` 686, `4_0` 406 -- next to datasets filed correctly under `cc_by_4_0`.
+
+**A language's short name is its ISO code, and the table maps to it.** The
+registry names a language by its EU authority URI, whose tail is the ISO
+639-3 code; `_ISO_639_1` maps that to the two-letter code where one exists.
+Deriving the name from the label gave `swedish`, which read as an English word
+describing a Swedish dataset, and hid the 183 datasets whose publisher wrote
+`id.loc.gov/vocabulary/iso639-1/sv` directly as a second value `sv`.
 
 **`creators` is read off the graph and thrown away.** `dcterms:creator` is on
 7,104 datasets, and on 6,174 of those it names the publisher again: the same
@@ -306,9 +346,12 @@ means the records are readable with any SQLite browser, which a blob would take
 away. The database costs 24 MiB more than the JSONL and no measurable time.
 
 What a refresh cannot see is a deletion. A withdrawn dataset keeps its row until
-`refresh="always"` rebuilds, and there is no cheap way to notice: the search
+`rebuild=True` rebuilds, and there is no cheap way to notice: the search
 returns full graphs, so listing the registry's URIs costs the same 236 pages as
-copying it.
+copying it. A full build clears `record` inside the same transaction as the
+write, so it is a real rebuild -- it was an upsert until 0.9.0, and a
+"rebuild" left 27 rows carrying a field the schema had dropped -- and a
+download that dies still leaves the old catalogue untouched.
 
 ## Development
 
@@ -354,13 +397,26 @@ datasets a day, so the absolute figures drift and the ratios do not.
 
 | Fact | Value |
 | --- | --- |
-| Datasets / data services / distributions | 23,581 / 599 / 35,140 in the file |
-| Link verdicts: success / broken / excluded | 18,228 / 11,886 / 5,021 |
+| Datasets / data services / distributions | 23,582 / 599 / 35,148 in the file (2026-10-01) |
+| The default `Catalog`: public, with a working file | 12,653 datasets |
+| `access_rights`: public / non_public / restricted / unset | 17,682 / 1,489 / 244 / 4,167 |
+| Link verdicts on files: success / broken / excluded | 18,360 / 11,762 / 5,021 |
+| Datasets with every file broken / with no files at all | 5,331 / 1,647 |
+| Landing-page verdicts: none / success / excluded / broken | 10,331 / 7,791 / 5,021 / 439 |
+| ...of the broken landing pages, with every file fine | 277 |
+| What the link check covers (40 reports) | downloadURL 3,072, accessURL 1,426, landingPage 130, foaf:page 78, conformsTo 42, endpointDescription 9, endpointURL 0 |
 | Link-check reports: requests / time | 165 / ~10 s |
-| Full build: requests / time / size | 856 / ~305 s / 94 MiB |
+| Registry throughput by threads: 1 / 2 / 4 / 8 | 0.84 / 2.26 / 2.46 / 2.31 req/s |
+| Full build: requests / time / size | 856 / ~6 min with 2 threads (17 with 1) / 94 MiB |
 | Incremental refresh, one day of churn | 630 datasets, ~38 s |
 | Loading the database | ~1.4 s (of which json.loads ~1.2 s) |
-| Full download | 673 requests, ~7 minutes, 64 MiB |
+| Distributions with >1 access URL / >1 download URL | 147 / 130 of 35,148 |
+| Data services with >1 endpoint URL / description / served dataset | 4 / 1 / 8 of 599 |
+| Distribution licences mis-slugged before 0.10.0 | 2,578 (`deed_sv` 1,486, `1_0` 686, `4_0` 406) |
+| Datasets saying nolicense / otherlicense | 8,231 / 913 |
+| Distinct languages on datasets / with a two-letter code | 66 / 50 |
+| Datasets with a spatial coverage / of those, "Sweden" | 4,471 / 3,068 |
+| Sub-national place values / on exactly one dataset | 540 / 223 |
 | A filtered search | ~0.06 s |
 | `filters()` over the whole corpus | ~0.5 s |
 | `data_services(limit=0)` | 0.005 s |
@@ -377,7 +433,12 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | ...of those, sv and en genuinely differ | 105 (70%) |
 | `FakeTransport` call sites in the test suite | 31 |
 
-Three of these changed a decision:
+Four of these changed a decision:
+
+**Concurrency has one useful step.** One thread gets 0.84 requests a second
+and two get 2.26; four and eight get the same 2.26. So the pool is fixed at
+two and the `workers=` argument went: the only choice it offered was between
+six minutes and seventeen.
 
 **The counter was slower than the thing it replaced.** `count_datasets(theme=
 "transport")` measured 53.1 ms against 43.9 ms for `datasets(theme="transport",
