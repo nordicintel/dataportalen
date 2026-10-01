@@ -23,6 +23,7 @@ import re
 import sqlite3
 import threading
 import time
+from http import HTTPStatus
 from typing import (
     Any,
     Callable,
@@ -1424,12 +1425,15 @@ class Catalog:
     :param rebuild: fetch everything again now, whatever is there. What a
         schema change asks for, and the only thing that drops a dataset the
         registry has since withdrawn.
-    :param exclude_broken: drop every file the registry's nightly link check
-        found broken -- a third of them: 11,762 of 35,148 -- and with them any
-        dataset whose every file was broken, 5,331. A dataset that never had
-        files (1,647: APIs, registers) is not dead and stays. ``False`` keeps
-        everything and marks each broken file with ``{"reason", "checked"}``
-        under ``broken``.
+    :param exclude_broken: drop every dead file, and any dataset whose every
+        file is dead. Dead means the registry's nightly link check got an HTTP
+        error for it -- Not Found, Forbidden, Too Many Requests: 3,342 of
+        35,148 files, 81 public datasets. The 8,419 files its checker could
+        not reach at all (no answer, connection reset, timeout) are not dead;
+        they stay and carry ``unverified: {"reason", "checked"}``. A dataset
+        that never had files (1,647: APIs, registers) stays too. ``False``
+        keeps everything and marks each dead file with ``broken``, same two
+        keys.
     :param access_rights: which ``access_rights`` values the catalogue holds.
         ``"public"``, ``"non_public"``, ``"restricted"``, and ``"none"`` for
         the 4,167 datasets -- 17.7%, mostly universities -- that set nothing.
@@ -1507,7 +1511,7 @@ class Catalog:
                     % (self.database, version, SCHEMA_VERSION))
             self._first_retrieved = _meta_get(db, "first_retrieved")
             self._last_refreshed = _meta_get(db, "last_refreshed")
-            every = [json.loads(row["doc"])
+            every = [_present(json.loads(row["doc"]))
                      for row in db.execute("SELECT doc FROM record")]
         finally:
             db.close()
@@ -1544,6 +1548,8 @@ class Catalog:
                             f"{before - len(every):,}",
                             "/".join(sorted(self.access_rights)))
         if self.exclude_broken:
+            # `broken` here already means dead: _present moved the files the
+            # registry merely could not reach to `unverified`, and those stay.
             kept, files, dead = [], 0, 0
             for record in every:
                 dists = record.get("distributions")
@@ -1557,7 +1563,7 @@ class Catalog:
                 kept.append(record)
             every = kept
             if files:
-                logger.info("left out %s broken files and the %s datasets that "
+                logger.info("left out %s dead files and the %s datasets that "
                             "had nothing else", f"{files:,}", f"{dead:,}")
         return every
 
@@ -1862,10 +1868,72 @@ class Catalog:
         ).text
 
 
+#: The registry's reasons that are a server answering with an error. Every
+#: standard HTTP reason phrase from 400 up, the bare status numbers, and the
+#: three non-standard phrasings the registry's checker has been seen to use.
+#: Matched case-insensitively against the whole message.
+_DEAD_REASONS = frozenset(
+    [status.phrase.casefold() for status in HTTPStatus if status >= 400]
+    + [str(int(status)) for status in HTTPStatus if status >= 400]
+    + ["file not found", "access denied", "site not found"]
+)
+
+
+def _is_dead(reason: Any) -> bool:
+    """Whether the registry's reason for `broken` is an HTTP error.
+
+    The registry records no status code for a broken link (it is null on all
+    11,900), only a message, and the messages are two different things:
+
+    ========================================================  =====
+    an HTTP error: Too Many Requests 2,624, Not Found 395,
+    Forbidden 212, Internal Server Error 40, Bad Request 33,
+    Unauthorized 14, Access Denied 8, ...                     3,342
+    no usable answer: no message 5,263, `request to ...
+    failed` 2,890, `maximum redirect` 321, `timeout` 255,
+    an ftp:// URL with credentials in it 7                    8,419
+    ========================================================  =====
+
+    Only the first is a server saying no. The second is the registry's
+    checker failing to get through: 7,091 of SCB's 14,228 links are in it,
+    because api.scb.se resets the checker's connections, and each of those
+    files answers 200 to an ordinary GET. Treating both as dead removed 4,270
+    of SCB's 4,306 datasets from the default catalogue.
+
+    An allow-list, not a deny-list: a message the checker invents next year
+    is unverified until someone adds it here, so the default keeps files
+    rather than dropping them.
+    """
+    return bool(reason) and str(reason).strip().casefold() in _DEAD_REASONS
+
+
+def _present(record: Dict[str, Any]) -> Dict[str, Any]:
+    """A stored record as the package hands it out.
+
+    The database keeps what the registry said; this turns it into what a
+    caller reads, and it is the one place that happens, so `Catalog` and
+    :func:`read_catalog` cannot disagree about a record.
+
+    The download marks every file the registry called broken with
+    ``broken: {reason, checked}``. Here the ones whose reason is not an HTTP
+    error become ``unverified`` instead -- same two keys -- so ``broken``
+    means dead and nothing else. Because it is done on reading, changing the
+    list is not a re-download.
+    """
+    for dist in record.get("distributions") or ():
+        mark = dist.get("broken")
+        if mark is not None and not _is_dead(mark.get("reason")):
+            dist["unverified"] = dist.pop("broken")
+    return record
+
+
 def read_catalog(path: str) -> List[Dict[str, Any]]:
     """Every record in a catalogue database, in insertion order.
 
-    For reading a copy without building a :class:`Catalog` around it.
+    For reading a copy without building a :class:`Catalog` around it. The
+    whole registry as downloaded: every ``access_rights`` value and every
+    file, the dead ones carrying ``broken`` and the ones the registry could
+    not check carrying ``unverified``.
     """
     if not os.path.exists(path):
         # _connect would create an empty database here and this would return
@@ -1873,7 +1941,8 @@ def read_catalog(path: str) -> List[Dict[str, Any]]:
         raise FileNotFoundError("%s does not exist" % path)
     db = _connect(path)
     try:
-        return [json.loads(row["doc"]) for row in db.execute("SELECT doc FROM record")]
+        return [_present(json.loads(row["doc"]))
+                for row in db.execute("SELECT doc FROM record")]
     finally:
         db.close()
 
