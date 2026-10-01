@@ -919,6 +919,75 @@ def _load(path: str, key: str) -> Dict:
         return {}
 
 
+#: ISO 639-3 to 639-1, for the languages that have a two-letter code. The
+#: registry names a language by its EU authority URI, whose tail is the
+#: three-letter code (`.../language/SWE`); a record carries the two-letter
+#: one where it exists (`sv`) and the three-letter one otherwise (`fit`,
+#: Tornedalen Finnish, has no other). A publisher who wrote the ISO 639-1
+#: URI directly (`id.loc.gov/vocabulary/iso639-1/sv`, 183 datasets) lands
+#: on the same code instead of beside it as a second value.
+_ISO_639_1 = {
+    "afr": "af", "amh": "am", "ara": "ar", "aze": "az", "bak": "ba",
+    "bel": "be", "ben": "bn", "bod": "bo", "bos": "bs", "bre": "br",
+    "bul": "bg", "cat": "ca", "ces": "cs", "chv": "cv", "cos": "co",
+    "cym": "cy", "dan": "da", "deu": "de", "dzo": "dz", "ell": "el",
+    "eng": "en", "est": "et", "eus": "eu", "fao": "fo", "fas": "fa",
+    "fij": "fj", "fin": "fi", "fra": "fr", "fry": "fy", "gla": "gd",
+    "gle": "ga", "glg": "gl", "guj": "gu", "hau": "ha", "hbs": "sh",
+    "heb": "he", "hin": "hi", "hrv": "hr", "hun": "hu", "hye": "hy",
+    "ibo": "ig", "ind": "id", "isl": "is", "ita": "it", "jpn": "ja",
+    "kal": "kl", "kan": "kn", "kat": "ka", "kaz": "kk", "khm": "km",
+    "kin": "rw", "kir": "ky", "kor": "ko", "kur": "ku", "lao": "lo",
+    "lat": "la", "lav": "lv", "lit": "lt", "ltz": "lb", "mal": "ml",
+    "mar": "mr", "mkd": "mk", "mlt": "mt", "mon": "mn", "mri": "mi",
+    "msa": "ms", "mya": "my", "nep": "ne", "nld": "nl", "nno": "nn",
+    "nob": "nb", "nor": "no", "oci": "oc", "pan": "pa", "pol": "pl",
+    "por": "pt", "pus": "ps", "ron": "ro", "rus": "ru", "sin": "si",
+    "slk": "sk", "slv": "sl", "sme": "se", "smo": "sm", "som": "so",
+    "spa": "es", "sqi": "sq", "srd": "sc", "srp": "sr", "swa": "sw",
+    "swe": "sv", "tam": "ta", "tat": "tt", "tel": "te", "tgk": "tg",
+    "tgl": "tl", "tha": "th", "tir": "ti", "ton": "to", "tuk": "tk",
+    "tur": "tr", "uig": "ug", "ukr": "uk", "urd": "ur", "uzb": "uz",
+    "vie": "vi", "xho": "xh", "yid": "yi", "yor": "yo", "zho": "zh",
+    "zul": "zu",
+}
+
+_LANGUAGE_PREFIXES = ("http://publications.europa.eu/resource/authority/language/",
+                      "https://publications.europa.eu/resource/authority/language/",
+                      "http://id.loc.gov/vocabulary/iso639-1/",
+                      "https://id.loc.gov/vocabulary/iso639-1/",
+                      "http://id.loc.gov/vocabulary/iso639-2/",
+                      "http://id.loc.gov/vocabulary/iso639-3/")
+
+
+def language_code(uri: Optional[str]) -> Optional[str]:
+    """The ISO code a language URI stands for, or ``None`` if it is not one.
+
+    >>> language_code("http://publications.europa.eu/resource/authority/language/SWE")
+    'sv'
+    >>> language_code("http://id.loc.gov/vocabulary/iso639-1/sv")
+    'sv'
+    >>> language_code("http://publications.europa.eu/resource/authority/language/FIT")
+    'fit'
+    """
+    if not uri or not uri.startswith(_LANGUAGE_PREFIXES):
+        return None
+    tail = uri.rstrip("/").rsplit("/", 1)[-1].lower()
+    if not tail.isalpha():
+        return None
+    return tail if len(tail) == 2 else _ISO_639_1.get(tail, tail)
+
+
+#: Terms whose short name is fixed rather than derived from the label. DIGG's
+#: licence categories were `nolicense` and `otherlicense` -- their URI tails
+#: -- before they had a label at all, and a label must not rename a value
+#: people filter on and have written down.
+_FIXED_SLUGS = {
+    "https://dataportal.se/concepts/licensecategories/nolicense": "nolicense",
+    "https://dataportal.se/concepts/licensecategories/otherlicense": "otherlicense",
+}
+
+
 def _build_terms() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """``(slug -> [uri], uri -> slug)`` for every labelled vocabulary term."""
     labels = _load(_VOCABULARY_FILE, "labels")
@@ -926,8 +995,16 @@ def _build_terms() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     by_uri: Dict[str, str] = {}
     for uri, translations in labels.items():
         label = translations.get("en") or translations.get("sv")
-        slug = slugify(label) if label else ""
+        slug = _FIXED_SLUGS.get(uri) or (slugify(label) if label else "")
         if not slug:
+            continue
+        code = language_code(uri)
+        if code:
+            # A language's short name is its ISO code, not its English name:
+            # `sv`, not `swedish`. The name still resolves, as an alias.
+            by_uri[uri] = code
+            by_slug.setdefault(code, []).append(uri)
+            by_slug.setdefault(slug, []).append(uri)
             continue
         by_uri[uri] = slug
         # Several vocabularies name the same concept -- file-type/PDF and
@@ -987,9 +1064,17 @@ def slug_for(uri: Optional[str]) -> Optional[str]:
     """
     if not uri:
         return None
-    known = _BY_URI.get(uri) or _BY_URI.get(uri.rstrip("/"))
-    if known:
-        return known
+    for form in _variants(uri):
+        # The table holds one spelling of a licence; a publisher writes any
+        # of several. `.../by/4.0/deed.sv` is CC BY 4.0, and reading it as
+        # the tail `deed_sv` put 2,578 distributions under a licence that
+        # does not exist.
+        known = _BY_URI.get(form)
+        if known:
+            return known
+    code = language_code(uri)
+    if code:
+        return code
     tail = uri.rstrip("/").rsplit("/", 1)[-1].rsplit("#", 1)[-1]
     return slugify(tail) or None
 
@@ -1034,11 +1119,6 @@ def resolve(value: str, what: str = "value") -> List[str]:
     if not isinstance(value, str) or not value.strip():
         raise QueryError("%s must be a non-empty string, got %r" % (what, value))
     slug = slugify(value)
-    if what == "language" and slug not in SUPPORTED_LANGUAGES:
-        raise QueryError(
-            "language filters on %s; %r is one of the long tail this package "
-            "does not index (it is still on the dataset's own `languages`)"
-            % (" and ".join(SUPPORTED_LANGUAGES), value))
     found = _BY_SLUG.get(slug)
     if not found:
         raise _suggest(slug, list(_BY_SLUG), what)
@@ -1087,16 +1167,6 @@ FILTER_VOCABULARIES: Dict[str, Tuple[str, ...]] = {
 }
 
 
-#: The only languages this package lets you filter or break down by.
-#:
-#: The registry carries 66 distinct ``dcterms:language`` values, but 62 of
-#: them cover ~106 datasets between them -- multilingual dictionaries and
-#: language corpora. Offering all of them made the breakdown long and the
-#: filter unreliable. A dataset's own ``languages`` list still reports
-#: whatever the publisher stated, so nothing is hidden; only the filter and
-#: the breakdown are restricted.
-SUPPORTED_LANGUAGES = ("swedish", "english")
-
 
 def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
     """The short values a filter accepts, or every value this package knows.
@@ -1113,9 +1183,7 @@ def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
     if filter is not None and filter not in FILTER_VOCABULARIES:
         raise _suggest(str(filter), sorted(FILTER_VOCABULARIES), "filter")
     slug = slugify(prefix) if prefix else ""
-    if filter == "language":
-        found = set(SUPPORTED_LANGUAGES)
-    elif filter is None:
+    if filter is None:
         found = set(_BY_SLUG)
     else:
         wanted = FILTER_VOCABULARIES[filter]
@@ -1123,6 +1191,10 @@ def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
             name for name, uris in _BY_SLUG.items()
             if any(uri.startswith(wanted) for uri in uris)
         }
+        if filter == "language":
+            # The codes, not the English names that resolve as aliases.
+            found = {name for name in found
+                     if any(language_code(uri) == name for uri in _BY_SLUG[name])}
     return sorted(s for s in found if not slug or slug in s)
 
 
@@ -1179,12 +1251,12 @@ __all__ = [
     "terms",
     "slugify",
     "slug_for",
+    "language_code",
     "publisher_for",
     "resolve",
     "resolve_publisher",
     "known_values",
     "label_for",
     "FILTER_VOCABULARIES",
-    "SUPPORTED_LANGUAGES",
     "known_publishers",
 ]

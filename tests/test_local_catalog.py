@@ -30,7 +30,7 @@ def uris(results):
     ({"license": "cc_by_4_0"}, ["roads"]),
     ({"access_rights": "public"}, ["roads"]),
     ({"updated": "monthly"}, ["budget"]),
-    ({"language": "english"}, ["budget"]),
+    ({"language": "en"}, ["budget"]),
     ({"place": "kingdom_of_sweden"}, ["roads"]),
     ({"publisher": "trafikverket"}, ["roads"]),
     ({"publisher_type": "national_authority"}, ["roads", "budget"]),
@@ -102,7 +102,8 @@ def test_index_only_arguments_say_so(catalog):
 def test_a_search_carries_its_own_breakdown(catalog):
     page = catalog.datasets()
     assert page.breakdown["theme"] == [("economy_and_finance", 1), ("transport", 1)]
-    assert page.breakdown["language"][0] == ("swedish", 2)
+    assert page.breakdown["language"][0] == ("sv", 2)
+    assert page.breakdown["language"][0].label == {"en": "Swedish", "sv": "svenska"}
     assert page.breakdown["format"] == [("csv", 1), ("json", 1), ("xlsx", 1)]
     assert page.breakdown["publisher"][0].dataset_count == 1
     # Unlike the registry's index, a file can count keywords.

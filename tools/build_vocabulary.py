@@ -48,7 +48,20 @@ from typing import Dict, Iterable, Optional, Set
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from dataportalen import Dataportal, Q, predicate_field  # noqa: E402
+from dataportalen.query import Q, predicate_field  # noqa: E402
+
+
+def Dataportal():
+    """The live client the online rebuild needs -- which 0.7.0 removed.
+
+    The offline path (``--extra-only``) never gets here. The online path has
+    not worked since the public client became a local catalogue, and needs
+    the facet and paging calls it used to have grown back on `_Registry`.
+    """
+    raise SystemExit(
+        "the online rebuild has been broken since 0.7.0 (it used Dataportal.facet "
+        "and iter_datasets, which no longer exist); --extra-only still works.")
+
 from dataportalen.rdf import DCAT as _DCAT  # noqa: E402
 
 DCAT_DATASET = _DCAT.Dataset
@@ -288,6 +301,13 @@ def dereference(uris: Iterable[str]) -> Dict[str, Dict[str, str]]:
 #: application/json-ld) come out as two different values. The label decides
 #: the short name, so giving both the same label merges them.
 EXTRA_LABELS = {
+    # DIGG's own licence categories. They are concepts on dataportal.se, not
+    # in any authority table this script reads, and they sit on 39% of all
+    # datasets: 8,231 say nolicense and 913 otherlicense.
+    "https://dataportal.se/concepts/licensecategories/nolicense": {
+        "en": "No licence stated", "sv": "Ingen licens angiven"},
+    "https://dataportal.se/concepts/licensecategories/otherlicense": {
+        "en": "Other licence", "sv": "Annan licens"},
     "application/ld+json": "JSON-LD",
     "application/json-ld": "JSON-LD",
     "application/parquet": "Parquet",
@@ -415,6 +435,16 @@ def report_usage_coverage(sample: int = 5000, seed: int = 20260922) -> None:
             print("        %6d  %s" % (count, group))
 
 
+def apply_extra_labels(vocabulary: Dict[str, Dict[str, str]]) -> None:
+    """Our own labels, over whatever the sources said."""
+    for uri, label in EXTRA_LABELS.items():
+        entry = vocabulary.setdefault(uri, {})
+        if isinstance(label, dict):
+            entry.update(label)
+        else:
+            entry["en"] = label
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Regenerate src/dataportalen/vocabulary.json.")
@@ -428,8 +458,26 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument(
         "--skip-build", action="store_true",
         help="only re-measure coverage; do not rebuild the table.")
+    parser.add_argument(
+        "--extra-only", action="store_true",
+        help="apply EXTRA_LABELS to the existing table and write it back; "
+             "no network. For a label fix that does not need a rebuild.")
     args = parser.parse_args(argv)
     sample = 10 ** 9 if args.sample == "all" else int(args.sample)
+
+    if args.extra_only:
+        with open(OUTPUT, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        apply_extra_labels(payload["labels"])
+        payload["labels"] = {uri: payload["labels"][uri]
+                             for uri in sorted(payload["labels"])}
+        with open(OUTPUT, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=1,
+                      sort_keys=False)
+            handle.write("\n")
+        print("applied %d extra labels to %s"
+              % (len(EXTRA_LABELS), os.path.normpath(OUTPUT)))
+        return 0
 
     if args.skip_build:
         report_usage_coverage(sample=sample, seed=args.seed)
@@ -457,8 +505,7 @@ def main(argv: Optional[list] = None) -> int:
 
     vocabulary.update(dereference(missing))
 
-    for uri, label in EXTRA_LABELS.items():      # ours, and they win
-        vocabulary.setdefault(uri, {})["en"] = label
+    apply_extra_labels(vocabulary)
     still_missing = sorted(uri for uri in used if uri not in vocabulary)
 
     print("[4/4] writing %s" % os.path.normpath(OUTPUT))

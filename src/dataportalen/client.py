@@ -59,6 +59,7 @@ from .core import (
     progress_reporter,
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
+    _EMPTY_AGENT,
     DATA_SERVICE_FILTERS,
     DATASET_FILTERS,
     Agent,
@@ -80,7 +81,6 @@ from .rdf import (
     DCTERMS,
     FOAF,
     PROV,
-    SUPPORTED_LANGUAGES,
     VCARD,
     label_for,
     publisher_for,
@@ -1294,7 +1294,7 @@ def _assemble(
         if found is not None:
             record["publisher"] = found
         elif record.get("publisher") is None:
-            record["publisher"] = {"uri": publisher_uri, "name": {}}
+            record["publisher"] = dict(_EMPTY_AGENT, uri=publisher_uri)
 
     if not record.get("contact_points"):
         resolved = []
@@ -1835,10 +1835,7 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter in ("theme", "themes"):
         return list(record.get("themes") or [])
     if filter == "language":
-        # Only the two the filter supports: the rest is a long tail of
-        # corpora languages, still present on the record itself.
-        return [lang for lang in (record.get("languages") or [])
-                if lang in SUPPORTED_LANGUAGES]
+        return list(record.get("languages") or [])
     if filter == "place":
         return list(record.get("spatial") or [])
     if filter == "keyword":
@@ -1852,7 +1849,10 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "updated":
         value = record.get("accrual_periodicity")
         return [value] if value else []
-    if filter in ("license", "access_rights"):
+    if filter == "license":
+        value = (record.get("license") or {}).get("id")
+        return [value] if value else []
+    if filter == "access_rights":
         value = record.get(filter)
         return [value] if value else []
     if filter == "publisher":

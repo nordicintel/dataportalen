@@ -62,12 +62,34 @@ def test_controlled_values_are_short_names_not_uris(dataset):
         assert isinstance(theme, str)
         assert "://" not in theme
         assert theme == theme.lower()
-    for key in ("license", "access_rights", "accrual_periodicity"):
+    for key in ("access_rights", "accrual_periodicity"):
         if out[key] is not None:
             assert isinstance(out[key], str), key
             assert "://" not in out[key], key
     for language in out["languages"]:
         assert isinstance(language, str) and "://" not in language
+        assert len(language) in (2, 3) and language.islower(), language
+
+
+def test_a_licence_is_a_dict_you_can_read_and_filter_on(dataset):
+    """Nobody knows what cc_by_nc_sa_4_0 permits without the page."""
+    out = dataset.to_dict()
+    lic = out["license"]
+    assert set(lic) == {"id", "label", "uri"}
+    assert lic["id"] and "://" not in lic["id"]
+    assert lic["uri"].startswith("http")
+    assert isinstance(lic["label"], dict)
+    for dist in out["distributions"]:
+        if dist["license"] is not None:
+            assert set(dist["license"]) == {"id", "label", "uri"}
+
+
+def test_ids_are_on_the_record_and_nowhere_below_it(dataset):
+    """context/entry id fetch a record; a nested object is not fetched."""
+    out = dataset.to_dict()
+    assert out["context_id"] and out["entry_id"]
+    for nested in [out["publisher"]] + out["distributions"] + out["contact_points"]:
+        assert "context_id" not in nested and "entry_id" not in nested
 
 
 def test_dates_are_iso_strings_not_objects(dataset):
@@ -136,9 +158,10 @@ def test_distribution_dict_shape(dataset):
     # Near-always-empty fields are not carried in the dict.
     for key in ("byte_size", "checksum", "media_type", "rights"):
         assert key not in out
-    # access_url is the complete list, not a scalar plus a plural.
-    assert isinstance(out["access_url"], list)
-    assert "access_urls" not in out
+    # One field per URL: 99.6% of distributions have exactly one.
+    assert out["access_url"] is None or isinstance(out["access_url"], str)
+    assert out["download_url"] is None or isinstance(out["download_url"], str)
+    assert "access_urls" not in out and "download_urls" not in out
 
 
 def test_raw_json_still_exposes_the_registry_payload(search_hit):

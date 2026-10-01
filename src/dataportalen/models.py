@@ -48,6 +48,7 @@ from .rdf import (
     Graph,
     Resource,
     expand,
+    label_for,
     slug_for,
 )
 
@@ -156,8 +157,6 @@ def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
 #: hands back a bare None where a dict is documented.
 _EMPTY_AGENT = {
     "uri": None,
-    "context_id": None,
-    "entry_id": None,
     "name": {},
     "type": None,
     "identifiers": [],
@@ -486,6 +485,19 @@ class Entry:
         """
         return slug_for(uri)
 
+    def _licence(self, uri: Optional[str]) -> Optional[Dict[str, Any]]:
+        """A licence as ``{"id", "label", "uri"}``, or ``None``.
+
+        The one vocabulary value that is not self-explanatory: nobody knows
+        what ``cc_by_nc_sa_4_0`` permits without looking it up, so the
+        readable name and the page to look it up on travel with it. ``id``
+        is still what ``license=`` filters on.
+        """
+        if not uri:
+            return None
+        slug = slug_for(uri)
+        return {"id": slug, "label": label_for(slug), "uri": uri}
+
     def _terms(self, uris: Sequence[str]) -> List[str]:
         out = []
         for uri in uris:
@@ -734,7 +746,8 @@ class Agent(Entry):
         return out
 
     def to_dict(self):
-        return dict(self._envelope_dict(), **{
+        # No context/entry id: a nested object is not something you fetch.
+        return dict(uri=self.resource_uri, **{
             "name": self._text(self.names),
             "type": self._term(self.agent_type),
             "homepage": self.homepage,
@@ -822,13 +835,16 @@ class Distribution(Entry):
         return self.resource.uri_of(DCATAP.availability)
 
     def to_dict(self):
-        return dict(self._envelope_dict(), **{
+        # One field per URL. 147 of 35,148 distributions name two access
+        # URLs and 130 two download URLs; the first is kept, and a reader
+        # stops writing `["..."]` around the other 99.6%.
+        return dict(uri=self.resource_uri, **{
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "access_url": self.access_urls,
-            "download_url": self.download_urls,
+            "access_url": self.access_url,
+            "download_url": self.download_url,
             "format": self._term(self.format),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "status": self._term(self.status),
             "availability": self._term(self.availability),
             "languages": self._terms(self.language_uris),
@@ -934,14 +950,17 @@ class DataService(Entry):
             "description": self._text(self.descriptions),
             "keywords": self._text(self.keywords_by_language, empty=[]),
             "service_type": self.service_type,
+            # One field per thing. Over all 599: four name more than one
+            # endpoint URL and one more than one description -- the first is
+            # kept. servesDataset (8 of 48) and conformsTo (36 of 177) are
+            # plural often enough to stay lists.
             "endpoint_url": self.endpoint_url,
-            "endpoint_urls": self.endpoint_urls,
-            "endpoint_descriptions": self.endpoint_description_uris,
-            "serves_dataset_uris": self.serves_dataset_uris,
+            "endpoint_description": (self.endpoint_description_uris or [None])[0],
+            "serves_datasets": self.serves_dataset_uris,
             "conforms_to": self.conforms_to,
             "publisher": self._publisher_dict(),
             "themes": self._terms(self.theme_uris),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "access_rights": self._term(self.access_rights),
             "landing_page": self.landing_page,
             "contact_points": [c.to_dict() for c in self.contact_points],
@@ -1173,7 +1192,7 @@ class Dataset(Entry):
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
             "themes": self._terms(self.theme_uris),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "access_rights": self._term(self.access_rights),
             "accrual_periodicity": self._term(self.accrual_periodicity),
             "languages": self._terms(self.language_uris),

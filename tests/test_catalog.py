@@ -114,7 +114,7 @@ def test_distributions_are_nested_from_the_index(transport, tmp_path):
     assert len(record["distributions"]) == 1
     assert record["distributions"][0]["uri"] == "http://example.org/dist"
     assert record["distributions"][0]["title"] == {"sv": "CSV"}
-    assert record["distributions"][0]["download_url"] == ["http://example.org/f.csv"]
+    assert record["distributions"][0]["download_url"] == "http://example.org/f.csv"
 
 
 def test_unresolvable_references_warn_rather_than_vanish(transport, tmp_path):
@@ -268,7 +268,6 @@ def test_a_publisher_is_resolved_not_left_as_a_uri(full_export, tmp_path):
     dataset = read_catalog(str(out))[0]
     assert dataset["publisher"] == {
         "uri": "http://example.org/org",
-        "context_id": "2", "entry_id": "5",
         "name": {"sv": "Trafikverket"},
         "type": "national_authority",
         "identifiers": [], "email": None, "homepage": None,

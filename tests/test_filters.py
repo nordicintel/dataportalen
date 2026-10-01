@@ -115,7 +115,7 @@ def test_a_data_service_breakdown_has_only_the_keys_it_has(catalog):
     ("format", "csv"),          # a data service has no distributions
     ("updated", "annual"),      # nor an accrual periodicity
     ("place", "kingdom_of_sweden"),   # set on 7.8% of the 599
-    ("language", "swedish"),     # one single value across all 599
+    ("language", "sv"),          # one single value across all 599
     ("updated_after", "2024-01-01"),  # modified is on 7.5% of them
     ("published_after", "2020"),      # issued on 0.8%
 ])
@@ -133,7 +133,7 @@ def test_a_dataset_still_takes_all_of_its_own(catalog):
     for name in ("format", "updated", "place", "language"):
         catalog.datasets(limit=0, **{name: {
             "format": "csv", "updated": "annual",
-            "place": "kingdom_of_sweden", "language": "swedish"}[name]})
+            "place": "kingdom_of_sweden", "language": "sv"}[name]})
 
 
 # -- creator is not a filter any more ----------------------------------------
