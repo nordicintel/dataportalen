@@ -122,16 +122,16 @@ def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
 
 @pytest.mark.parametrize("value", [None, "", "notadate", "2024-13-45", "20240101"])
 def test_a_date_bound_has_to_be_a_date(catalog, value):
-    """`updated_after=None` became "" and matched every dated record."""
+    """`modified_after=None` became "" and matched every dated record."""
     with pytest.raises(QueryError) as info:
-        catalog.datasets(limit=0, updated_after=value)
+        catalog.datasets(limit=0, modified_after=value)
     assert "date" in str(info.value)
 
 
 @pytest.mark.parametrize("value", ["2024", "2024-01", "2024-01-01",
                                    "2024-01-01T09:00:00"])
 def test_the_date_shapes_publishers_write_are_still_accepted(catalog, value):
-    catalog.datasets(limit=0, updated_after=value)
+    catalog.datasets(limit=0, modified_after=value)
 
 
 # -- smaller contracts -------------------------------------------------------

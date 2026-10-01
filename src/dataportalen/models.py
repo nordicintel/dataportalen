@@ -1249,7 +1249,15 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 #: What a dataset can be filtered and broken down by. Every one was measured
 #: over all 23,575 datasets: publisher and license are on 100% of them,
 #: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
-#: 69.7%, updated 63.3%, place 23.6%.
+#: 69.7%, updated 63.3%.
+#:
+#: `place` was one of these and is not any more. 4,471 datasets set a
+#: spatial coverage (19%), and 3,068 of those say "Sweden". The 1,902 with a
+#: sub-national place spread over 540 values, 223 of them on exactly one
+#: dataset, and the common ones -- malmo 185, linkopings_kommun 160,
+#: sodertalje_kommun 103 -- are municipal publishers tagging their own
+#: municipality, which `publisher` already gives you. The field stays on the
+#: record as `spatial`.
 #:
 #: `creator` was one of these and is not any more. 7,104 datasets named one,
 #: and on 6,174 of them it was the publisher again -- the same agent URI on
@@ -1259,14 +1267,14 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 #: 4,468 datasets pointing at their own publisher is not a search axis.
 DATASET_FILTERS = ("publisher", "publisher_type", "theme",
                    "keyword", "format", "license", "access_rights",
-                   "updated", "language", "place")
+                   "updated", "language")
 
 #: The same for a data service, and it is a different list. Over all 599:
 #: access_rights 97.8%, publisher 97.3%, keyword 83.5%, service_type 55.9%,
-#: theme 53.8%, license 51.8%. The four that are missing are missing for a
+#: theme 53.8%, license 51.8%. The three that are missing are missing for a
 #: reason -- a data service has no distributions (so no `format`) and no
-#: `accrual_periodicity` (no `updated`), `place` is set on 7.8% of them and
-#: `language` has one single value across all 599.
+#: `accrual_periodicity` (no `updated`), and `language` has one single value
+#: across all 599.
 DATA_SERVICE_FILTERS = ("publisher", "publisher_type",
                         "service_type", "theme", "keyword", "license",
                         "access_rights")

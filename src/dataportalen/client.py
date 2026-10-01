@@ -190,8 +190,8 @@ _WORKERS = 2
 
 #: The date filters, which only datasets support: `modified` is on 89.1% of
 #: them and `issued` on 42.1%, against 7.5% and 0.8% of the 599 data services.
-_DATE_FILTERS = ("updated_after", "updated_before",
-                 "published_after", "published_before")
+_DATE_FILTERS = ("modified_after", "modified_before",
+                 "issued_after", "issued_before")
 
 #: Every name that is a filter for something. A name outside this set is a
 #: typo, not a question the wrong kind of record cannot answer.
@@ -1836,8 +1836,6 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
         return list(record.get("themes") or [])
     if filter == "language":
         return list(record.get("languages") or [])
-    if filter == "place":
-        return list(record.get("spatial") or [])
     if filter == "keyword":
         keywords = record.get("keywords") or []
         if isinstance(keywords, dict):                      # {sv: [...], en: [...]}
@@ -1887,8 +1885,8 @@ def _require_date(value: Any, name: str) -> str:
     """A date bound that is really a date.
 
     `_date` normalises the shapes publishers write, but it checked the shape
-    and not the calendar, so `updated_after="2024-13-45"` became a bound that
-    silently matched 12,584 datasets and `updated_after=None` became the
+    and not the calendar, so `modified_after="2024-13-45"` became a bound that
+    silently matched 12,584 datasets and `modified_after=None` became the
     empty string, which every stamp sorts after. Both looked like an answer.
     """
     if value is None or (isinstance(value, str) and not value.strip()):
@@ -1991,7 +1989,7 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
     if name in ("text", "keyword", "publisher", "theme", "format", "license",
-                "access_rights", "updated", "language", "place",
+                "access_rights", "updated", "language",
                 "publisher_type", "service_type"):
         _require_values(value, name)
 
@@ -2014,11 +2012,12 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
 
         return text_test
 
-    if name.endswith("_after") or name.endswith("_before"):
-        field = {"updated": "modified", "published": "issued"}.get(
-            name.rsplit("_", 1)[0])
-        if field is None:
-            raise QueryError("unknown filter %r" % (name,))
+    field, _, edge = name.rpartition("_")
+    if edge in ("after", "before") and field in ("modified", "issued"):
+        # Named after the record field they read, so there is nothing to
+        # translate: modified_after= bounds record["modified"]. Any other
+        # *_after falls through to the unknown-filter message, which names
+        # these four -- the only way to learn what updated_after became.
         bound = _iso_stamp(_require_date(value, name))
         after = name.endswith("_after")
 
@@ -2064,13 +2063,13 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
-                "language", "place", "publisher_type", "service_type"):
+                "language", "publisher_type", "service_type"):
         wanted = set()
         for item in _as_list(value):
             wanted.update(_local_slugs(item, name, observed))
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     raise QueryError(
-        "unknown filter %r; supported: %s, published_after, published_before, "
-        "text, updated_after, updated_before"
-        % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
+        "unknown filter %r; supported: %s, text, %s"
+        % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS))),
+           ", ".join(_DATE_FILTERS)))

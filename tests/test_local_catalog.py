@@ -31,7 +31,6 @@ def uris(results):
     ({"access_rights": "public"}, ["roads"]),
     ({"updated": "monthly"}, ["budget"]),
     ({"language": "en"}, ["budget"]),
-    ({"place": "kingdom_of_sweden"}, ["roads"]),
     ({"publisher": "trafikverket"}, ["roads"]),
     ({"publisher_type": "national_authority"}, ["roads", "budget"]),
     ({"text": "cykel"}, ["roads"]),
@@ -51,10 +50,10 @@ def test_text_searches_both_languages(catalog):
 
 
 @pytest.mark.parametrize("filters,expected", [
-    ({"updated_after": "2024-01-01"}, ["roads"]),
-    ({"updated_before": "2020-01-01"}, ["budget"]),
-    ({"published_after": "2020"}, ["roads"]),
-    ({"published_before": "2015-06"}, ["budget"]),
+    ({"modified_after": "2024-01-01"}, ["roads"]),
+    ({"modified_before": "2020-01-01"}, ["budget"]),
+    ({"issued_after": "2020"}, ["roads"]),
+    ({"issued_before": "2015-06"}, ["budget"]),
 ])
 def test_dates_compare_across_the_forms_publishers_use(catalog, filters, expected):
     """A bare date, a timestamp and one with an offset must sort together."""

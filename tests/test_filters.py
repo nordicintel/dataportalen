@@ -114,10 +114,9 @@ def test_a_data_service_breakdown_has_only_the_keys_it_has(catalog):
 @pytest.mark.parametrize("filter,value", [
     ("format", "csv"),          # a data service has no distributions
     ("updated", "annual"),      # nor an accrual periodicity
-    ("place", "kingdom_of_sweden"),   # set on 7.8% of the 599
     ("language", "sv"),          # one single value across all 599
-    ("updated_after", "2024-01-01"),  # modified is on 7.5% of them
-    ("published_after", "2020"),      # issued on 0.8%
+    ("modified_after", "2024-01-01"),  # modified is on 7.5% of them
+    ("issued_after", "2020"),          # issued on 0.8%
 ])
 def test_a_filter_that_cannot_apply_is_refused_not_silently_empty(
         catalog, filter, value):
@@ -130,10 +129,27 @@ def test_a_filter_that_cannot_apply_is_refused_not_silently_empty(
 
 
 def test_a_dataset_still_takes_all_of_its_own(catalog):
-    for name in ("format", "updated", "place", "language"):
+    for name in ("format", "updated", "language"):
         catalog.datasets(limit=0, **{name: {
-            "format": "csv", "updated": "annual",
-            "place": "kingdom_of_sweden", "language": "sv"}[name]})
+            "format": "csv", "updated": "annual", "language": "sv"}[name]})
+
+
+def test_place_is_not_a_filter_but_spatial_is_still_on_the_record(catalog):
+    """19% set it and two thirds of those say 'Sweden'; the rest restate the
+    publisher. Not demonstrated, so dropped -- the field itself stays."""
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(place="kingdom_of_sweden")
+    assert "unknown filter" in str(info.value)
+    assert "place" not in catalog.filters()
+    assert catalog.datasets()[0]["spatial"] == ["kingdom_of_sweden"]
+
+
+def test_the_date_filters_are_named_after_the_fields_they_read(catalog):
+    for old in ("updated_after", "updated_before", "published_after",
+                "published_before"):
+        with pytest.raises(QueryError) as info:
+            catalog.datasets(**{old: "2020-01-01"})
+        assert "modified_after" in str(info.value)
 
 
 # -- creator is not a filter any more ----------------------------------------
