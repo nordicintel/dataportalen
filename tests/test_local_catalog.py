@@ -33,8 +33,8 @@ def uris(results):
     ({"language": "en"}, ["budget"]),
     ({"publisher": "trafikverket"}, ["roads"]),
     ({"publisher_type": "national_authority"}, ["roads", "budget"]),
-    ({"text": "cykel"}, ["roads"]),
-    ({"text": "bidrag"}, ["budget"]),
+    ({"query": "cykel"}, ["roads"]),
+    ({"query": "bidrag"}, ["budget"]),
     ({"keyword": "geodata"}, ["roads"]),
     ({"theme": "transport", "format": "csv"}, ["roads"]),
     ({"theme": "transport", "format": "xlsx"}, []),
@@ -44,9 +44,9 @@ def test_every_filter_matches_what_it_says(catalog, filters, expected):
 
 
 def test_text_searches_both_languages(catalog):
-    """`text=` reads the whole language map, not one key of it."""
-    assert uris(catalog.datasets(text="Road traffic")) == ["roads"]
-    assert uris(catalog.datasets(text="Vägtrafiknät")) == ["roads"]
+    """`query=` reads the whole language map, not one key of it."""
+    assert uris(catalog.datasets(query="Road traffic")) == ["roads"]
+    assert uris(catalog.datasets(query="Vägtrafiknät")) == ["roads"]
 
 
 @pytest.mark.parametrize("filters,expected", [
@@ -91,11 +91,40 @@ def test_unknown_values_and_filters_are_rejected_the_same_way(catalog):
 
 
 def test_index_only_arguments_say_so(catalog):
-    """`query=`/`sort=` are raw index expressions; a file cannot answer one."""
-    for argument in ("query", "sort", "page_size"):
+    """`sort=` and `page_size=` belong to an index; a file answers at once."""
+    for argument in ("sort", "page_size"):
         with pytest.raises(QueryError) as info:
             catalog.datasets(**{argument: "x"})
         assert argument in str(info.value)
+
+
+def test_query_is_a_phrase_not_a_bag_of_words(catalog):
+    """The rename did not change the matching.
+
+    "traffic Road" is not in the title "Road traffic network", so it matches
+    nothing -- splitting a query into terms that must all appear would make
+    `air quality` 481 datasets instead of 15 on the real catalogue.
+    """
+    assert uris(catalog.datasets(query="Road traffic")) == ["roads"]
+    assert uris(catalog.datasets(query="traffic Road")) == []
+    assert uris(catalog.datasets(query="ROAD TRAFFIC")) == ["roads"]
+
+
+def test_query_none_is_no_query(catalog):
+    assert catalog.datasets(query=None).total == catalog.datasets().total
+
+
+def test_text_is_refused_and_the_error_names_query(catalog):
+    for search in (catalog.datasets, catalog.data_services):
+        with pytest.raises(QueryError) as info:
+            search(text="cykel")
+        assert "query" in str(info.value)
+
+
+def test_query_is_keyword_only(catalog):
+    """Like every other argument: one way to say it."""
+    with pytest.raises(TypeError):
+        catalog.datasets("cykel")
 
 
 def test_a_search_carries_its_own_breakdown(catalog):

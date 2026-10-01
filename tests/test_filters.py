@@ -98,7 +98,7 @@ def test_data_services_search_like_datasets(catalog):
     ({"access_rights": "public"},
      ["https://api.example.org/v1", "https://geodata.example.org/wms"]),
     ({"keyword": "geodata"}, ["https://geodata.example.org/wms"]),
-    ({"text": "WMS"}, ["https://geodata.example.org/wms"]),
+    ({"query": "WMS"}, ["https://geodata.example.org/wms"]),
 ])
 def test_the_seven_that_apply_to_a_data_service(catalog, filters, expected):
     assert [r["uri"] for r in catalog.data_services(limit=None, **filters)] == expected

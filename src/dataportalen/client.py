@@ -196,7 +196,7 @@ _DATE_FILTERS = ("modified_after", "modified_before",
 #: Every name that is a filter for something. A name outside this set is a
 #: typo, not a question the wrong kind of record cannot answer.
 _EVERY_FILTER = frozenset(
-    DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("text",))
+    DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("query",))
 
 #: Shorthands for the RDF serializations ``get(format=...)`` accepts. Anything
 #: else is passed to the registry as a media type unchanged, so a format this
@@ -1685,6 +1685,7 @@ class Catalog:
     def datasets(
         self,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
         breakdown_limit: Optional[int] = None,
@@ -1703,13 +1704,15 @@ class Catalog:
         in the breakdown, and what it cuts is counted in
         :attr:`~dataportalen.Breakdown.omitted`.
         """
-        for unsupported in ("sort", "page_size", "query"):
+        for unsupported in ("sort", "page_size"):
             if unsupported in filters:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        if query is not None:
+            filters = dict(filters, query=query)
         self._window(limit, offset)
-        self._check(filters, DATASET_FILTERS + ("text",) + _DATE_FILTERS,
+        self._check(filters, DATASET_FILTERS + ("query",) + _DATE_FILTERS,
                     "datasets")
         found = self._matching(self._records, filters)
         breakdown = local_breakdown(found, limit=breakdown_limit,
@@ -1742,6 +1745,7 @@ class Catalog:
     def data_services(
         self,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
         breakdown_limit: Optional[int] = None,
@@ -1759,13 +1763,15 @@ class Catalog:
         single value. There are no date filters either -- ``modified`` is on
         7.5% and ``issued`` on 0.8%.
         """
-        for unsupported in ("sort", "page_size", "query"):
+        for unsupported in ("sort", "page_size"):
             if unsupported in filters:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        if query is not None:
+            filters = dict(filters, query=query)
         self._window(limit, offset)
-        self._check(filters, DATA_SERVICE_FILTERS + ("text",), "data services")
+        self._check(filters, DATA_SERVICE_FILTERS + ("query",), "data services")
         found = self._matching(self._services, filters, "data_service")
         breakdown = local_breakdown(found, limit=breakdown_limit,
                                     filters=DATA_SERVICE_FILTERS)
@@ -1988,16 +1994,22 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
-    if name in ("text", "keyword", "publisher", "theme", "format", "license",
+    if name in ("query", "keyword", "publisher", "theme", "format", "license",
                 "access_rights", "updated", "language",
                 "publisher_type", "service_type"):
         _require_values(value, name)
 
     if name == "text":
-        # The one free-text filter, over both languages of the title and the
-        # description and every keyword. The narrower title=/description=/uri=
-        # variants earned nothing a caller could not do by reading the record,
-        # and one record by URI is what get() is for.
+        raise QueryError("'text' is called 'query' now: datasets(query=%r)"
+                         % (value,))
+
+    if name == "query":
+        # The one free-text input: a phrase, matched as a case-insensitive
+        # substring of the title, the description and every keyword, in both
+        # languages. `query` is the conventional name for it; the matching is
+        # what `text=` did. Splitting it into terms that must all match was
+        # considered and measured -- "air quality" goes from 15 datasets to
+        # 481 -- and is a different feature from a rename.
         needle = str(value).lower()
 
         def text_test(record: Dict[str, Any]) -> bool:
@@ -2070,6 +2082,6 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     raise QueryError(
-        "unknown filter %r; supported: %s, text, %s"
+        "unknown filter %r; supported: %s, query, %s"
         % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS))),
            ", ".join(_DATE_FILTERS)))

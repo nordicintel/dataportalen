@@ -111,7 +111,7 @@ def test_a_blank_value_never_reaches_the_breakdown(tmp_path, transport):
 
 @pytest.mark.parametrize("filters", [
     {"keyword": []}, {"theme": []}, {"publisher": []},
-    {"text": ""}, {"text": None}, {"keyword": None}, {"theme": "   "},
+    {"query": ""}, {"query": "   "}, {"keyword": None}, {"theme": "   "},
 ])
 def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
     """`keyword=[]` returned all 23,576 while `theme=[]` returned none."""
