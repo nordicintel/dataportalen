@@ -48,20 +48,9 @@ from typing import Dict, Iterable, Optional, Set
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from dataportalen.client import STABLE_SORT, _Registry  # noqa: E402
+from dataportalen.models import Dataset  # noqa: E402
 from dataportalen.query import Q, predicate_field  # noqa: E402
-
-
-def Dataportal():
-    """The live client the online rebuild needs -- which 0.7.0 removed.
-
-    The offline path (``--extra-only``) never gets here. The online path has
-    not worked since the public client became a local catalogue, and needs
-    the facet and paging calls it used to have grown back on `_Registry`.
-    """
-    raise SystemExit(
-        "the online rebuild has been broken since 0.7.0 (it used Dataportal.facet "
-        "and iter_datasets, which no longer exist); --extra-only still works.")
-
 from dataportalen.rdf import DCAT as _DCAT  # noqa: E402
 
 DCAT_DATASET = _DCAT.Dataset
@@ -191,10 +180,15 @@ def uris_in_use() -> Set[str]:
     """Every vocabulary URI the live registry currently serves."""
     print("[2/4] facetting the live registry for vocabulary URIs in use")
     found: Set[str] = set()
-    with Dataportal() as client:
+    with _Registry() as client:
         for predicate in VOCABULARY_PREDICATES:
-            facet = client.facet(predicate_field(predicate, "uri"), limit=1000)
-            values = [v.name for v in facet.values if v.name.startswith("http")]
+            field = predicate_field(predicate, "uri")
+            raw = client._search_raw(None, limit=1, sort=None, facet_fields=[field],
+                                     facet_limit=5000, facet_min_count=1)
+            facet = next((f for f in raw.get("facetFields") or []
+                          if f.get("name") == field), {})
+            values = [v["name"] for v in facet.get("values") or []
+                      if str(v.get("name", "")).startswith("http")]
             found.update(values)
             print("      %-28s %4d distinct" % (predicate, len(values)))
     print("      %d distinct URIs in use" % len(found))
@@ -350,15 +344,24 @@ def sample_datasets(client, sample: int, seed: int) -> list:
     """A reproducible random sample of datasets from across the corpus.
 
     The index has no random sort (``sort=random_N asc`` is rejected), so this
-    draws random offsets against a stable ``created asc`` sort and reads a
+    draws random offsets against the download's stable sort and reads a
     small page at each. Many small windows rather than one contiguous block,
     because datasets harvested together share a publisher and would otherwise
     bias the result.
     """
-    total = client.count(Q.rdf_type(DCAT_DATASET))
+    query = Q.rdf_type(DCAT_DATASET)
+    total = client._count(query)
+
+    def read(offset, limit):
+        return client._search(query, model=Dataset, limit=limit, offset=offset,
+                              sort=STABLE_SORT).entries
+
     if sample >= total:
         print("      sampling all %d datasets" % total, flush=True)
-        return list(client.iter_datasets(sort="created asc"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            return [entry for entries in pool.map(
+                lambda offset: read(offset, 100), range(0, total, 100))
+                for entry in entries]
 
     rng = random.Random(seed)
     window = 25
@@ -368,11 +371,9 @@ def sample_datasets(client, sample: int, seed: int) -> list:
     while len(seen) < sample and attempts < max_attempts:
         offsets = [rng.randrange(0, max(total - window, 1))
                    for _ in range(min(WORKERS, 1 + (sample - len(seen)) // window))]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
-            pages = list(pool.map(
-                lambda off: client.datasets(
-                    limit=window, offset=off, sort="created asc"),
-                offsets))
+        # Two threads: the registry serves no faster to more.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            pages = list(pool.map(lambda off: read(off, window), offsets))
         attempts += len(offsets)
         for page in pages:
             for entry in page:
@@ -401,7 +402,7 @@ def report_usage_coverage(sample: int = 5000, seed: int = 20260922) -> None:
     total = collections.Counter()
     labelled = collections.Counter()
     unresolved = collections.Counter()
-    with Dataportal() as client:
+    with _Registry() as client:
         datasets = sample_datasets(client, sample, seed)
         for entry in datasets:
             values = []
