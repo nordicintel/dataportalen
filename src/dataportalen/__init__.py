@@ -38,6 +38,7 @@ from .core import (
     logger,
 )
 from .core import __version__ as _version
+from .live import LiveCatalog
 from .models import Facet, Facets, FacetValue, Results, text
 from .records import (
     ContactRecord,
@@ -61,6 +62,8 @@ __all__ = [
     "Catalog",
     "default_catalog_path",
     "read_catalog",
+    # the same searches, asked of the registry itself
+    "LiveCatalog",
     # reading a record
     "text",
     # what a search gives you
