@@ -50,6 +50,13 @@ Every argument is keyword-only except `value` and `uri`.
 `len(catalog)` and iterating a `Catalog` give the datasets. Data services come
 from `data_services()`.
 
+`LiveCatalog(access_rights=("public",))` has the same methods with the same
+arguments, asked of the registry instead of a file: `limit` is 0 to 100,
+`publisher_type` is refused, facets have no `keyword` or `publisher_type`,
+nothing carries `broken`/`unverified`, `info()` is the three counts, and there
+is no `len()` or iteration. [SPEEDRUN.md](../SPEEDRUN.md#livecatalog) compares
+its answers with `Catalog`'s, value by value.
+
 `get(uri, format=)` accepts `turtle`, `ttl`, `rdf/xml`, `rdfxml`, `xml`,
 `n-triples`, `ntriples`, `nt`, `json-ld`, `jsonld`, `trig`, or any media type
 passed straight through.
@@ -418,11 +425,12 @@ that is not there.
 
 ## Everything exported
 
-32 names.
+33 names.
 
 | | |
 | --- | --- |
-| `Catalog` | the whole surface |
+| `Catalog` | the catalogue, from a local copy |
+| `LiveCatalog` | the same methods, asked of the registry |
 | `default_catalog_path` | where the database goes by default |
 | `read_catalog` | every record in a database, unscoped, without building a `Catalog` |
 | `text` | read a language map |

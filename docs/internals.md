@@ -121,14 +121,14 @@ in 0.10.0. A term in `EXTRA_LABELS` whose short name must not follow its
 label -- those two, whose slugs were their URI tails before they had a label
 -- is pinned in `rdf._FIXED_SLUGS`.
 
-**The full rebuild has not worked since 0.7.0.** It calls `Dataportal.facet`
-and `iter_datasets`, which went with the public client; it now says so
-instead of failing on import. Growing a facet call and a dataset iterator
-back onto `_Registry` is what it needs, and that is its own job.
+The full rebuild was broken from 0.7.0 to 0.12.0, which put its facet call
+and dataset pages back onto `_Registry`. `--skip-build --sample 500` runs in
+about five seconds: 2,438 of 2,463 vocabulary values labelled, the rest GEMET
+subjects.
 
 ## Module layout
 
-Six modules; callers import from the package root.
+Seven modules; callers import from the package root.
 
 | Module | Holds |
 | --- | --- |
@@ -136,8 +136,9 @@ Six modules; callers import from the package root.
 | `rdf.py` | namespaces, the RDF/JSON parser, the label table, the short-name layer |
 | `models.py` | `Dataset`, `DataService`, `Distribution`, `Agent` and friends, `to_dict()`, and the result types |
 | `query.py` | the `Q` Solr query builder |
-| `client.py` | `Catalog` (the whole public surface), `_Registry` (HTTP and Solr), the store, the download |
-| `__init__.py` | 32 exports, and nothing else |
+| `client.py` | `Catalog`, `_Registry` (HTTP and Solr), the store, the download, the publisher resolver |
+| `live.py` | `LiveCatalog`: filters compiled to Solr, facet responses folded back into the package's values |
+| `__init__.py` | 33 exports, and nothing else |
 | `records.py` | `TypedDict`s for every dict handed out; no behaviour |
 
 ### Public and internal
@@ -146,7 +147,22 @@ Six modules; callers import from the package root.
 `publishers()`, `publisher()`, `get()`, `info()`, `close()`. Seven methods
 where 0.6.0 had 32 on `Dataportal` plus 7 on `LocalCatalog`. Plus `text()`,
 `default_catalog_path()`, the result types and the record `TypedDict`s -- see
-[reference.md](reference.md#everything-exported).
+[reference.md](reference.md#everything-exported). `LiveCatalog` has the same
+seven methods with the same arguments; a test holds the signatures equal.
+
+**`LiveCatalog` is built from the download's own parts.** A search hit is
+assembled by `_targeted_indexes` and `_assemble`, the code a limited export
+uses, and read through `_present` -- which is why its records equal the
+database's (50 of 50 compared; only link health differs). Publishers go
+through the same `_Publishers`, fed `(agent, count)` pairs from the registry's
+publisher facet instead of records, so an id means the same organisation in
+both classes (356 of 356 rows identical). What is new is translation in both
+directions: a filter value becomes every raw value the registry holds for it
+-- `sv` is three URIs, `zip` two media types, learned from one facet request
+and folded through `slug_for` -- and a facet response is folded back into
+short names. Keywords are the exception: the exact index is case-sensitive,
+so each search first asks which spellings exist with a `(?iu)` `facetMatches`
+pattern, then matches those as quoted phrases.
 
 Everything that talks to the registry sits behind `_Registry`, and the RDF layer
 -- `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` -- is internal but very much
@@ -261,8 +277,9 @@ are current: of 12,718 broken records, 12,711 were checked this year.
 Everything but one reads the file. `datasets()`, `data_services()`, `facets()`,
 `publishers()`, `publisher()`, `get()` and `info()` never touch the network; `get(uri, format=...)` is the
 single exception, and you have to name a format to get it. The download is the
-only other thing that makes requests. There is no mode switch, so there is
-nothing to get wrong.
+only other thing that makes requests. `LiveCatalog` is the other way round:
+every method is a request, and it is a different class rather than a mode, so
+which one you hold says which you get.
 
 Searches return `Results`, a `list` of dicts carrying `total`, `offset`,
 `limit`, `has_more` and `facets`.
@@ -293,7 +310,9 @@ then does it fall back to vocabulary expansion. That ordering is load-bearing:
 `json_in_a_zip`, so expanding first made `format="json"` return 14,173 where the
 facet said 14,119 -- and the facet's counts stopped agreeing with the
 searches its values produce. `tests/test_filters.py` round-trips every value of
-every filter, which is the invariant to keep.
+every filter, which is the invariant to keep. On the real catalogue (unscoped,
+2026-10-01) that is 22,401 values, 21,807 of them keywords: 0 mismatches,
+49 minutes.
 
 **An organisation's slug comes from the URI table first and its own name
 second.** Dropping the fallback silently loses 13 of the 365 publishers,
@@ -490,6 +509,11 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Publisher organisations with an English name | 149 of 392 |
 | ...of those, sv and en genuinely differ | 105 (70%) |
 | `FakeTransport` call sites in the test suite | 31 |
+| Facet values round-tripped on the real catalogue / mismatches | 22,401 / 0 |
+| `LiveCatalog`: a count / a page of 50 full records | ~0.1 s / a few seconds |
+| ...its filter-value index / publisher index | 1 request / ~20 requests, held per object |
+| URIs one entry lookup batch of 20 can return | up to 22 (a URI can belong to two entries) |
+| Publisher URIs of every national authority, as a request | 12,703 characters; the registry stops near 8,190 |
 
 Four of these changed a decision:
 

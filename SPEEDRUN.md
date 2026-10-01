@@ -4,13 +4,13 @@ Every public name in `dataportalen`, once, with every argument spelled out and
 every output shape printed underneath. One Python snippet per function; a JSON
 snippet under it when the shape has not been shown yet.
 
-Written against 0.11.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
+Written against 0.12.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
 data services, 35,148 distributions). When the public interface changes, this
 file changes with it.
 
 ```python
 from dataportalen import (
-    Catalog, default_catalog_path, read_catalog, text,
+    Catalog, LiveCatalog, default_catalog_path, read_catalog, text,
     Results, Facets, Facet, FacetValue,
     DatasetRecord, DataServiceRecord, DistributionRecord,
     PublisherRecord, Publisher, PublisherDetail,
@@ -489,6 +489,80 @@ catalog.close()                   # releases the HTTP connection; never required
 with Catalog() as catalog: ...    # same thing
 ```
 
+## `LiveCatalog(...)`
+
+The same searches asked of the registry itself: no database, nothing
+downloaded, every call a request. The methods and arguments are `Catalog`'s and
+the records are the same dicts, built by the same code — less link health,
+which the registry cannot filter on. About 0.1–0.3 s for a count, a few seconds
+for a page of full records.
+
+```python
+live = LiveCatalog(
+    access_rights=("public",),  # as for Catalog: "public" | "non_public"
+                                #   | "restricted" | "none" | a list | None
+)
+
+live.datasets(
+    query="cykel",              # the registry's full-text phrase search, not
+                                #   Catalog's substring match: 251 vs 388
+    limit=50,                   # 0..100 -- a page is all the registry serves.
+                                #   None or >100 raises; 0 = count + facets
+    offset=0,
+    facet_limit=None,
+    publisher="trafikverket",   # every filter Catalog takes, except:
+    theme="transport",          #   publisher_type -> QueryError (not indexed)
+    keyword="kommun",           # case-insensitive, as locally; an unknown
+                                #   keyword raises, without suggestions
+    modified_after="2025",
+)                               # -> Results[DatasetRecord], facets without
+                                #    keyword and publisher_type
+live.data_services(service_type="rest")  # same, data-service filters
+live.facets(limit=None)         # = datasets(limit=0).facets, one request
+live.get("https://metadata.boverket.se/store/1/resource/8",
+         format="dict")         # 4 requests; "turtle" etc. as for Catalog
+live.publishers()               # ~20 requests the first time, then held
+live.publisher("scb")           # row + facets, as for Catalog
+live.info()                     # three counts only
+live.close()                    # with LiveCatalog() as live: ... too
+```
+
+```json
+{ "datasets": 17682, "data_services": 578, "publishers": 298 }
+```
+
+No `len()`, no iteration, no `database`/`max_age`/`exclude_broken`: each would
+be a download. Nothing is excluded, so the default holds 17,682 datasets where
+`Catalog()` holds 17,601.
+
+How its answers compare with `Catalog(access_rights=None,
+exclude_broken=False)`, measured over every facet value of every filter on
+2026-10-01:
+
+```text
+datasets
+  publisher, total            equal (356 of 356 values)
+  theme, license,             equal for most; a few more live, from nested nodes
+  access_rights, language       and second values: theme 3 of 31 values (+1..+3),
+                                license 4 of 9 (cc_by_nc_4_0 20 vs 17),
+                                restricted 247 vs 244, sv 18,355 vs 18,349
+  updated                     9 of 20 values more live (continuous 650 vs 634);
+                                quadrennial and decennial exist only live
+  format                      the registry's own index: microsoft_excel 63 vs 73,
+                                zip facet 292 vs filter 291 (two spellings added)
+  keyword                     equal for 199 of 200 sampled (Badplatser 20 vs 17)
+  modified_*, issued_*        either way: modified_after="2025" 12,672 vs 12,584,
+                                issued_before="2015-06" 1,887 vs 1,934
+  query                       a different engine: "cykel" 251 vs 388,
+                                "air quality" 15 vs 15
+  publisher_type              refused
+data services
+  every filter                equal (publisher 31, service_type 5, theme 12,
+                                license 3, access_rights 3 values)
+records                       identical, less broken/unverified (50 of 50 compared)
+publishers()                  identical, 356 of 356 rows
+```
+
 ## `text(...)`
 
 ```python
@@ -607,16 +681,8 @@ DataportalError                   # base; catch this one
 FileNotFoundError                 # read_catalog() on a path that is not there
 ```
 
-## Not built yet
-
-`LiveCatalog()` — the next version: the same methods, every call straight to
-the registry, no local copy. An earlier version of this section said it could
-not offer `total` or facets; that was wrong. The registry's exact-string index
-gives exact totals and eight facets in one request. What it cannot do is listed
-in the plan for 0.12.0: link health, `publisher_type`, a keyword facet,
-`limit=None`. Nothing of it exists yet.
-
 ## IMPORTANT NOTES
 
 - Resolved in 0.11.0: a list used to be OR for every filter except keyword, which was AND. keyword is an ordinary filter now — a list is OR, matching is exact and case-insensitive, and an unknown keyword raises. keyword=["Kommun","Region"] gives the union.
 - datasets() takes 9 vocabulary filters plus query and 4 dates; data_services() takes 7 plus query. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.
+  - Answered in 0.12.0: LiveCatalog honours all of them server-side except publisher_type, which the registry does not index (naming every national authority instead would be a 12,703-character request). Data services: all 7 equal to the local answer. Datasets: see the comparison under `LiveCatalog(...)`.

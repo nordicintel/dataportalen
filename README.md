@@ -52,6 +52,9 @@ files the registry's nightly link check got an HTTP error for.
 Publishers are there too: `catalog.publishers()` lists them, and
 `catalog.publisher("scb")` is one of them with what it publishes.
 
+No room for a download, or one question to ask? `LiveCatalog()` has the same
+methods and asks the registry directly, a page at a time.
+
 ## Documentation
 
 - **[SPEEDRUN.md](SPEEDRUN.md)** — every public name once, every argument

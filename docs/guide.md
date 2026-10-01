@@ -213,8 +213,8 @@ list(catalog.facets())
 ```
 
 **Every value round-trips.** `catalog.datasets(theme=value, limit=0).total` is
-exactly the count the row claimed, for every filter and every value. The test
-suite holds that as an invariant.
+exactly the count the row claimed, for every filter and every value. Checked
+on the real catalogue for all 22,401 values, keywords included: no exceptions.
 
 Some facets are long — 16,135 distinct keywords. Cap them, and what was cut is
 counted rather than dropped quietly:
@@ -567,6 +567,29 @@ week. The consequences are worth knowing:
   means, and what `access_rights` and `exclude_broken` mean, rather than a bug.
 
 [internals.md](internals.md#what-the-registry-can-do) has the measurements.
+
+## Without a download: `LiveCatalog`
+
+For a quick question, or where 95 MB on disk is not welcome,
+`LiveCatalog` asks the registry directly. Same methods, same arguments, same
+records:
+
+```python
+from dataportalen import LiveCatalog
+
+live = LiveCatalog()
+page = live.datasets(theme="transport", format="csv", limit=10)
+page.total                     # the registry's own count
+page.facets["publisher"]       # one request for both
+```
+
+What you give up: `limit` is at most 100 (a page is all the registry serves),
+there is no link health so nothing dead is excluded, `publisher_type` is
+refused, and the facets have no `keyword`. A count takes about a tenth of a
+second, a page of full records a few seconds. The counts match the local
+ones for publishers and every data service filter; for a few dataset values
+the registry's index finds a few more, and the date filters can differ either
+way. [SPEEDRUN.md](../SPEEDRUN.md#livecatalog) has the whole comparison.
 
 ## When something goes wrong
 

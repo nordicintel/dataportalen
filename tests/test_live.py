@@ -297,3 +297,125 @@ def test_an_incremental_refresh_replaces_rows_without_dropping_any(tmp_path):
     assert after >= before, "a refresh must not lose rows"
     assert _meta_get(_connect(out), "first_retrieved") == built
     assert _meta_get(_connect(out), "last_refreshed") > "2026-09-29T00:00:00"
+
+
+# -- LiveCatalog against the local copy ---------------------------------------
+#
+# The copy on this machine and the registry drift apart as the registry
+# re-harvests, so a value is allowed to differ by a little for that reason
+# alone. Beyond that, each known difference is listed by name with why.
+
+
+#: Values the registry's index counts differently, measured 2026-10-01.
+#: Nested nodes and second values make most of them "more"; format's
+#: dataset-level index lacks a few; a value only nested nodes carry is one
+#: no record has (updated=quadrennial, format=wms_tjanst).
+KNOWN = {
+    ("datasets", "format", "microsoft_excel"),
+    ("datasets", "format", "wms_tjanst"),
+    ("datasets", "format", "zip"),              # two spellings, counts added
+    ("datasets", "updated", "continuous"),      # 650 live, 634 locally
+    ("datasets", "updated", "quadrennial"),     # 5 live, on nested nodes only
+    ("datasets", "updated", "decennial"),       # 1 live, the same
+}
+
+#: How far a count may drift between the copy and the registry: a re-harvest
+#: touches about 630 datasets a day.
+DRIFT = 0.02
+
+
+@pytest.fixture(scope="module")
+def whole():
+    """The copy with nothing left out: LiveCatalog cannot see link health."""
+    path = default_catalog_path()
+    if not os.path.exists(path):
+        pytest.skip("no catalogue downloaded; run Catalog() once first")
+    return Catalog(path, max_age=None, access_rights=None, exclude_broken=False)
+
+
+@pytest.fixture(scope="module")
+def live():
+    from dataportalen import LiveCatalog
+
+    with LiveCatalog(access_rights=None) as catalog:
+        yield catalog
+
+
+def _close(a, b):
+    return abs(a - b) <= max(3, DRIFT * max(a, b))
+
+
+@pytest.mark.parametrize("kind", ["datasets", "data_services"])
+def test_every_live_facet_value_is_its_filter_s_count_and_near_the_local_one(
+        whole, live, kind):
+    """Over every value of every filter the registry can facet.
+
+    Equal to the local count up to drift, except the named ones; and never
+    fewer than locally except where the index is known to lack values.
+    """
+    local_search, live_search = getattr(whole, kind), getattr(live, kind)
+    local, remote = local_search(limit=0).facets, live_search(limit=0).facets
+    problems = []
+    for name in remote:
+        mine = {row.value: row.count for row in local[name]}
+        for row in remote[name]:
+            key = (kind, name, row.value)
+            found = live_search(limit=0, **{name: row.value}).total
+            if found != row.count and key not in KNOWN:
+                problems.append("%s=%s: facet %d, filter %d" % (
+                    name, row.value, row.count, found))
+            if key not in KNOWN and not _close(found, mine.get(row.value, 0)):
+                problems.append("%s=%s: live %d, local %d" % (
+                    name, row.value, found, mine.get(row.value, 0)))
+    assert not problems, problems
+
+
+def test_live_records_are_the_local_records(whole, live):
+    """The same assembly code, so the same dict -- less link health."""
+    def without_links(record):
+        record = dict(record)
+        record["distributions"] = [
+            {k: v for k, v in d.items() if k not in ("broken", "unverified")}
+            for d in record.get("distributions") or []]
+        return record
+
+    page = live.datasets(limit=50, offset=5000)
+    same = [r for r in page if whole.get(r["uri"])
+            and without_links(whole.get(r["uri"])) == without_links(r)]
+    assert len(same) >= 45, "%d of %d identical" % (len(same), len(page))
+    services = live.data_services(limit=20)
+    assert sum(1 for r in services if whole.get(r["uri"]) == r) >= 18
+
+
+def test_live_publishers_are_the_local_publishers(whole, live):
+    mine = {row["id"]: row for row in whole.publishers()}
+    theirs = {row["id"]: row for row in live.publishers()}
+    assert set(theirs) == set(mine)
+    for pid, row in mine.items():
+        other = theirs[pid]
+        assert {k: v for k, v in other.items() if not k.endswith("_count")} == {
+            k: v for k, v in row.items() if not k.endswith("_count")}, pid
+        assert _close(other["dataset_count"], row["dataset_count"]), pid
+
+
+def test_a_live_keyword_is_case_insensitive_like_the_local_one(whole, live):
+    for keyword in ("kommun", "KOMMUN", "Hälsa", "Öppna data"):
+        assert _close(live.datasets(keyword=keyword, limit=0).total,
+                      whole.datasets(keyword=keyword, limit=0).total), keyword
+
+
+def test_live_dates_are_near_the_local_ones(whole, live):
+    """The index holds a date from any node, so either way, but not far."""
+    for name, value in (("modified_after", "2025"), ("issued_before", "2015-06")):
+        a = live.datasets(limit=0, **{name: value}).total
+        b = whole.datasets(limit=0, **{name: value}).total
+        assert abs(a - b) <= 0.05 * b, (name, a, b)
+
+
+def test_publisher_type_would_not_fit_in_a_request(whole):
+    """Why LiveCatalog refuses it: the URIs of every national authority."""
+    from dataportalen.client import MAX_URL
+
+    uris = {row["uri"] for row in whole.publishers()
+            if row["type"] == "national_authority"}
+    assert len(" OR ".join(uris)) * 1.3 > MAX_URL      # escaped, encoded
