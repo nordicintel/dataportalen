@@ -1,12 +1,12 @@
 {
- "_comment": "Short names for publishers, maintained by hand. An alias is accepted wherever a publisher is -- publisher=\"scb\" -- and resolves to the slug on the right, which is the value organisations.json knows and the breakdown reports. Add a line, run the tests: every target has to be a publisher the package can resolve.",
- "aliases": {
-  "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
-  "fhm": "folkhalsomyndigheten",
-  "slu": "sveriges_lantbruksuniversitet",
-  "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
-  "uhr": "universitets_och_hogskoleradet",
-  "kolada": "radet_for_framjande_av_kommunala_analyser_kolada",
-  "energimyndigheten": "statens_energimyndighet"
- }
+    "_comment": "Short names for publishers, maintained by hand. An alias is accepted wherever a publisher is -- publisher=\"scb\" -- and resolves to the slug on the right, which is the value organisations.json knows and the breakdown reports. Add a line, run the tests: every target has to be a publisher the package can resolve.",
+    "aliases": {
+        "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
+        "fohm": "folkhalsomyndigheten",
+        "slu": "sveriges_lantbruksuniversitet",
+        "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
+        "uhr": "universitets_och_hogskoleradet",
+        "kolada": "radet_for_framjande_av_kommunala_analyser_kolada",
+        "energimyndigheten": "statens_energimyndighet"
+    }
 }

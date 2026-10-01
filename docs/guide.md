@@ -267,7 +267,7 @@ it is a Swedish registry.
 standard vocabularies, and you get `"transport"` rather than the web address the
 registry publishes. The same word works as a filter, which is the point. They
 stay English whatever the prose says, because `"annual"` is more useful to build
-on than *årligen*.
+on than _årligen_.
 
 **Except a licence, which is the one value nobody can read.** `cc_by_nc_sa_4_0`
 tells you nothing without the page, so the licence is a small dict and the
@@ -291,7 +291,7 @@ word describing a Swedish dataset, which read oddly next to a title in Swedish.
 **The filter is singular, the field is plural.** You search `theme="transport"`
 and read `dataset["themes"]`. Three differ this way — `theme`/`themes`,
 `language`/`languages`, `updated`/`accrual_periodicity`. The rest read as you
-would guess, and a breakdown is keyed by the *filter* name, because that is what
+would guess, and a breakdown is keyed by the _filter_ name, because that is what
 you feed back in.
 
 **The files are under `distributions`, and `access_url` is the one to read.**
@@ -503,8 +503,7 @@ that off.
 **"My counts differ from dataportal.se."** Three reasons, in order of
 likelihood: the default holds only `public` datasets with a working file;
 your copy is a snapshot (`catalog.info()["age_days"]`); and the registry's
-own counts are estimates. `Catalog(access_rights=None, exclude_broken=False,
-rebuild=True)` is the whole registry as of now.
+own counts are estimates. `Catalog(access_rights=None, exclude_broken=False, rebuild=True)` is the whole registry as of now.
 
 **"`KeyError: 'sv'`."** 10% of datasets have no Swedish text. Use `text()`.
 

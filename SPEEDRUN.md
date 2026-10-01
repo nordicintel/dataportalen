@@ -11,7 +11,7 @@ file changes with it.
 ```python
 from dataportalen import (
     Catalog, default_catalog_path, read_catalog, text,
-    Results, Breakdown, ValueList, ValueCount,
+    Results, eBreakdown, ValueList, ValueCount,
     DataportalError, TransportError, TimeoutError, HTTPError, NotFoundError,
     RateLimitError, ServerError, ParseError, QueryError,
     logger, enable_logging, __version__,
@@ -167,7 +167,9 @@ page = catalog.datasets(
             "format": "microsoft_excel_xml",
             "license": {
                 "id": "cc0_1_0",
-                "label": { "en": "CC0 1.0 (Public Domain Dedication, No Copyright)" },
+                "label": {
+                    "en": "CC0 1.0 (Public Domain Dedication, No Copyright)"
+                },
                 "uri": "http://creativecommons.org/publicdomain/zero/1.0/"
             },
             "status": null,
@@ -176,7 +178,10 @@ page = catalog.datasets(
             "issued": null,
             "modified": null,
             "access_service_uris": [],
-            "broken": { "reason": "Not Found", "checked": "2026-09-30T02:52:17" }
+            "broken": {
+                "reason": "Not Found",
+                "checked": "2026-09-30T02:52:17"
+            }
         }
     ]
 }
@@ -435,13 +440,15 @@ is accepted wherever a publisher is and resolves to the slug the breakdown
 reports; the records and the breakdown keep the canonical slug.
 
 ```json
-{ "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
-  "fhm": "folkhalsomyndigheten",
-  "slu": "sveriges_lantbruksuniversitet",
-  "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
-  "uhr": "universitets_och_hogskoleradet",
-  "kolada": "radet_for_framjande_av_kommunala_analyser_kolada",
-  "energimyndigheten": "statens_energimyndighet" }
+{
+    "scb": "statistikmyndigheten_scb_statistiska_centralbyran",
+    "fhm": "folkhalsomyndigheten",
+    "slu": "sveriges_lantbruksuniversitet",
+    "smhi": "sveriges_meteorologiska_och_hydrologiska_institut",
+    "uhr": "universitets_och_hogskoleradet",
+    "kolada": "radet_for_framjande_av_kommunala_analyser_kolada",
+    "energimyndigheten": "statens_energimyndighet"
+}
 ```
 
 ## Errors
