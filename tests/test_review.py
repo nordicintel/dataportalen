@@ -77,8 +77,13 @@ def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
         assert cat.datasets(keyword=value, limit=0).total == count, value
 
 
-def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
-    """The facet counts `BARN` and `Barn` separately, so matching must."""
+def test_case_is_folded_and_the_facet_agrees(tmp_path, transport):
+    """`BARN` and `Barn` are one keyword: one row, and it counts both.
+
+    1,765 keywords in the registry are spelt more than one way (`Hälsa` 290,
+    `HÄLSA` 102, `hälsa` 9). The row shows a spelling a record carries -- the
+    commonest, and on a tie the first alphabetically -- never the folded form.
+    """
     records = [
         dict(CATALOG_RECORDS[0], uri="https://example.org/a",
              keywords={"sv": ["BARN"]}),
@@ -87,15 +92,67 @@ def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
                   _transport=transport, access_rights=None)
-    assert cat.datasets(keyword="BARN", limit=0).total == 1
-    assert cat.datasets(keyword="Barn", limit=0).total == 1
+    assert list(cat.facets()["keyword"]) == [("BARN", 2)]
+    for spelling in ("BARN", "Barn", "barn", " bArN "):
+        assert cat.datasets(keyword=spelling, limit=0).total == 2, spelling
 
 
-def test_a_keyword_the_file_lacks_still_matches_on_substring(tmp_path, transport):
+def test_the_commonest_spelling_is_the_one_shown(tmp_path, transport):
+    records = [
+        dict(CATALOG_RECORDS[0], uri="https://example.org/%d" % i,
+             context_id=str(i), keywords={"sv": [spelling]})
+        for i, spelling in enumerate(["Kommun", "Kommun", "kommun", "KOMMUN\n"])
+    ]
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert list(cat.facets()["keyword"]) == [("Kommun", 4)]
+
+
+def test_a_record_with_two_spellings_counts_once(tmp_path, transport):
+    """395 dataset-keyword pairs in the registry are this."""
+    record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Kommun"], "en": ["kommun"]})
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert [row.count for row in cat.facets()["keyword"]] == [1]
+    assert cat.datasets(keyword="KOMMUN", limit=0).total == 1
+
+
+def test_an_unknown_keyword_raises_and_suggests(tmp_path, transport):
+    """It used to fall back to a substring match; that is what query= is for."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Geodata"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport, access_rights=None)
-    assert cat.datasets(keyword="geoda", limit=0).total == 1
+    with pytest.raises(QueryError) as info:
+        cat.datasets(keyword="geoda")
+    assert "unknown keyword" in str(info.value)
+    assert "geodata" in str(info.value)
+    assert cat.datasets(query="geoda", limit=0).total == 1
+
+
+def test_a_keyword_list_is_any_of_like_every_other_filter(tmp_path, transport):
+    """It was all-of: the one filter whose list meant something else."""
+    records = [
+        dict(CATALOG_RECORDS[0], uri="https://example.org/a",
+             keywords={"sv": ["Kommun"]}),
+        dict(CATALOG_RECORDS[1], uri="https://example.org/b",
+             keywords={"sv": ["Region"]}),
+    ]
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert cat.datasets(keyword=["kommun", "region"], limit=0).total == 2
+    assert cat.datasets(keyword=["kommun"], limit=0).total == 1
+
+
+def test_a_keyword_only_the_other_kind_has_is_zero_not_an_error(catalog):
+    """`vägnät` is on a dataset and on no data service.
+
+    A keyword has no vocabulary to vouch for it, so "known" means somewhere
+    in this Catalog. Checked per kind, data_services(keyword="kommun") would
+    raise for the commonest keyword in the registry.
+    """
+    assert catalog.datasets(keyword="vägnät", limit=0).total == 1
+    assert catalog.data_services(keyword="vägnät", limit=0).total == 0
+    assert catalog.datasets(keyword="innovation", limit=0).total == 0
 
 
 def test_a_blank_value_never_reaches_the_facets(tmp_path, transport):

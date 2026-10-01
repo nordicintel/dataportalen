@@ -102,7 +102,7 @@ CATALOG_RECORDS = [
         "entry_id": "1",
         "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
         "description": {"sv": "Nationellt vägnät med cykelvägar"},
-        "keywords": {"sv": ["vägnät", "Geodata"]},
+        "keywords": {"sv": ["vägnät", "Geodata"], "en": ["geodata "]},
         "themes": ["transport"],
         "license": {"id": "cc_by_4_0", "label": {"en": "CC BY 4.0 (Attribution)"},
                     "uri": "http://creativecommons.org/licenses/by/4.0/"},

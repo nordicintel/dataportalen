@@ -575,17 +575,56 @@ def local_facets(
     """
     tallies: Dict[str, Dict[str, int]] = {name: {} for name in filters}
     names: Dict[str, Dict[str, Any]] = {}
+    spellings: Dict[str, Dict[str, int]] = {}
     for record in records:
         for name, counts in tallies.items():
+            if name == "keyword":
+                # One keyword, however it is spelt: `Kommun` and `kommun` are
+                # a count of one each for the same thing, and a dataset that
+                # carries both spellings (395 do) still counts once.
+                seen: Dict[str, set] = {}
+                for keyword in _local_values(record, "keyword"):
+                    seen.setdefault(_fold_keyword(keyword), set()).add(keyword.strip())
+                for key, forms in seen.items():
+                    counts[key] = counts.get(key, 0) + 1
+                    tally = spellings.setdefault(key, {})
+                    for form in forms:
+                        tally[form] = tally.get(form, 0) + 1
+                continue
             for value in set(_local_values(record, name)):
                 counts[value] = counts.get(value, 0) + 1
         _collect_names(record, names)
-    return Facets({
-        name: [FacetValue(value, count, names.get(value) or label_for(value))
-               for value, count in
-               sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
-        for name, counts in tallies.items()
-    }, limit=limit)
+
+    def rows(name: str, counts: Dict[str, int]) -> List[FacetValue]:
+        if name == "keyword":
+            # Shown as the publisher wrote it: the commonest spelling, and for
+            # the 479 groups where that is a tie, the first alphabetically.
+            # Showing the folded form would have rewritten 60% of all values
+            # into spellings no record carries.
+            shown = [(min(spellings[key], key=lambda f: (-spellings[key][f], f)), n)
+                     for key, n in counts.items()]
+            return [FacetValue(value, n, {})
+                    for value, n in sorted(shown, key=lambda pair: (-pair[1], pair[0]))]
+        ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        if name == "publisher":
+            return [FacetValue(value, n, names.get(value) or {}) for value, n in ordered]
+        # A label comes from the vocabulary only for a vocabulary filter.
+        # Looked up by bare value across every filter, 45 keywords wore the
+        # label of a term that happened to share their name.
+        return [FacetValue(value, n, label_for(value)) for value, n in ordered]
+
+    return Facets({name: rows(name, counts) for name, counts in tallies.items()},
+                  limit=limit)
+
+
+def _fold_keyword(value: Any) -> str:
+    """What two spellings of one keyword have in common.
+
+    Strip and casefold, nothing more: 23,373 exact values become 21,359. Not
+    `slugify`, which the vocabulary filters use and which would also merge 169
+    groups that are different words.
+    """
+    return str(value).strip().casefold()
 
 
 def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -1634,6 +1673,19 @@ class Catalog:
         """
         if filter not in DATASET_FILTERS and filter not in DATA_SERVICE_FILTERS:
             return None
+        if filter == "keyword":
+            # Across both kinds, folded. A keyword has no vocabulary to vouch
+            # for it, so "known" has to mean "somewhere in this Catalog":
+            # checked per kind, data_services(keyword="kommun") would raise
+            # for the commonest keyword there is, because no service has it.
+            key = ("*", "keyword")
+            if key not in self._seen:
+                self._seen[key] = {
+                    _fold_keyword(value)
+                    for record in self._records + self._services
+                    for value in _local_values(record, "keyword")
+                }
+            return self._seen[key]
         key = (kind, filter)
         if key not in self._seen:
             records = self._services if kind == "data_service" else self._records
@@ -2041,31 +2093,21 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
         return date_test
 
     if name == "keyword":
-        # Exact when the file holds the keyword, substring otherwise -- the
-        # same rule the vocabulary filters use, and for the same reason. A
-        # pure substring match broke the contract the facet states: the
-        # keyword `BARN` is carried by 24 datasets and matched 680, because
-        # it is inside `BARNOMSORG` and the rest. 68 of the 120 commonest
-        # keywords disagreed with their own count.
-        # Case matters in the exact branch: the facet counts `BARN` and
-        # `Barn` as the two different values they are, so folding case here
-        # would make a value match more datasets than its own row claims.
-        given = [str(v) for v in _as_list(value)]
-        known = set(observed or ())
+        # An ordinary filter now: exact, case-insensitive, any of a list, and
+        # an unknown value is an error. It used to be three special cases --
+        # case-sensitive, substring when the value was not in the file, and
+        # all-of-a-list where every other filter is any-of. Substring search
+        # is what `query` is for; `BARN` must not match `BARNOMSORG`.
+        wanted = set()
+        for item in _as_list(value):
+            key = _fold_keyword(item)
+            if observed is not None and key not in observed:
+                raise _suggest_from(key, observed, "keyword")
+            wanted.add(key)
 
         def keyword_test(record: Dict[str, Any]) -> bool:
-            have = _local_values(record, "keyword")
-            lowered = None
-            for needle in given:
-                if needle in known:
-                    if needle not in have:
-                        return False
-                else:
-                    if lowered is None:
-                        lowered = [k.lower() for k in have]
-                    if not any(needle.lower() in k for k in lowered):
-                        return False
-            return True
+            return any(_fold_keyword(keyword) in wanted
+                       for keyword in _local_values(record, "keyword"))
 
         return keyword_test
 

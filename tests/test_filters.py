@@ -70,6 +70,18 @@ def test_a_keyword_is_its_own_label(catalog):
         assert row.label == {}
 
 
+def test_a_keyword_never_wears_a_vocabulary_term_s_label(tmp_path, transport):
+    """`german` showed "tyska" and `transport` the theme's label: 45 keywords
+    in the registry share a name with a term of some other vocabulary."""
+    record = dict(CATALOG_RECORDS[0], keywords={"sv": ["transport", "csv", "sv"]})
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    facets = cat.facets()
+    assert {row.value: row.label for row in facets["keyword"]} == {
+        "transport": {}, "csv": {}, "sv": {}}
+    assert facets["theme"][0].label, "the theme still has its own"
+
+
 def test_a_value_count_still_unpacks_and_compares_as_a_pair(catalog):
     """The label rides alongside the tuple, it is not part of it."""
     row = next(r for r in catalog.facets()["access_rights"]
