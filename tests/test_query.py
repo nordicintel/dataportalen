@@ -135,3 +135,24 @@ def test_format_checks_both_indexes():
     both = str(Q.format(
         "http://publications.europa.eu/resource/authority/file-type/CSV", "text/csv"))
     assert " OR " in both and ".uri." in both and ".literal_s." in both
+
+
+def test_a_phrase_survives_a_space():
+    """`Q.term` ends at the space: 0 hits on the exact index, where this finds 229."""
+    assert str(Q.phrase("tag", "Öppna data")) == 'tag:"Öppna data"'
+    assert str(Q.phrase("tag", "a b", "c")) == 'tag:("a b" OR "c")'
+
+
+def test_a_phrase_escapes_only_what_ends_it():
+    assert str(Q.phrase("tag", 'say "hi"', r"back\slash")) == (
+        r'tag:("say \"hi\"" OR "back\\slash")')
+    # Parentheses and colons are literal inside quotes.
+    assert str(Q.phrase("tag", "Language Technology (Computational Linguistics)")) == (
+        'tag:"Language Technology (Computational Linguistics)"')
+
+
+def test_a_phrase_without_a_field_is_full_text_and_combines():
+    assert str(Q.phrase(None, "air quality")) == '"air quality"'
+    assert str(Q.public() & Q.phrase(None, "air quality")) == (
+        'public:true AND "air quality"')
+    assert not Q.phrase("tag")

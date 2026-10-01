@@ -345,3 +345,25 @@ def test_publisher_type_still_reads_the_record_s_own_agent(fohm):
     found = fohm.datasets(publisher_type="national_authority", limit=None)
     assert found.total == 1
     assert all(r["publisher"]["type"] == "national_authority" for r in found)
+
+
+def test_the_resolver_is_built_from_pairs_and_knows_every_uri():
+    """What LiveCatalog feeds it: one pair per agent, with the facet's count."""
+    from dataportalen.client import _publisher_dict, _Publishers
+
+    def agent(uri, name):
+        return _publisher_dict({"uri": uri, "name": {"sv": name}})
+
+    index = _Publishers([
+        (agent("https://example.org/agents/1", "Exempelverket"), 9),
+        (agent("http://example.org/agents/1", "Exempelverket"), 1),
+        (agent("https://example.org/agents/2", "Andra verket"), 4),
+        (agent(None, None), 3),
+    ])
+    assert index.uris == {
+        "exempelverket": ["http://example.org/agents/1", "https://example.org/agents/1"],
+        "andra_verket": ["https://example.org/agents/2"]}
+    # The agent on most records is the one the publisher is described by.
+    assert index.entities["exempelverket"]["uri"] == "https://example.org/agents/1"
+    assert index.resolve("http://example.org/agents/1") == "exempelverket"
+    assert index.resolve("Andra verket") == "andra_verket"

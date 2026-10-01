@@ -112,6 +112,9 @@ DEFAULT_BASE_URL = "https://admin.dataportal.se"
 #: The Solr index caps a page at 100 entries.
 MAX_LIMIT = 100
 
+#: The longest request sent. The registry refuses one near 8,190 characters.
+MAX_URL = 8000
+
 _RETRY_STATUSES = frozenset([408, 425, 429, 500, 502, 503, 504])
 
 _DateLike = Union[str, _dt.date, _dt.datetime]
@@ -337,6 +340,15 @@ class _Registry:
         endpoints the typed helpers do not cover.
         """
         url = absolute_url or build_url(self.base_url, path, params)
+        if len(url) > MAX_URL:
+            # The registry answers HTTP 414 somewhere near 8,190 characters.
+            # A search naming a few hundred values gets there -- every
+            # national authority is 170 publisher URIs, 12,703 characters --
+            # and "URI Too Long" says nothing about which argument did it.
+            raise QueryError(
+                "this search needs a %s-character request and the registry "
+                "stops at about 8,190; ask for fewer values at once"
+                % f"{len(url):,}")
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             started = time.time()
@@ -557,16 +569,26 @@ class _Registry:
                 pending.append(uri)
         for start in range(0, len(pending), batch_size):
             batch = pending[start:start + batch_size]
-            page = self._search(
-                Q.resource(*batch), limit=min(MAX_LIMIT, max(len(batch), 1)),
-                sort=None, model=model,
-            )
-            for entry in page.entries:
-                uri = entry.resource_uri
-                if uri:
-                    found[uri] = entry
-                    if use_cache:
-                        self._cache.set(uri, entry)
+            # A full page, and the next one if there is one: a URI can belong
+            # to two entries, so 20 URIs are not 20 hits. Asking for exactly
+            # len(batch) returned the first 20 of 22 for one batch of the 365
+            # publisher URIs, and the agent that fell off the end was the one
+            # nine of Svenska kraftnät's ten datasets name.
+            offset = 0
+            while True:
+                page = self._search(
+                    Q.resource(*batch), limit=MAX_LIMIT, offset=offset,
+                    sort=STABLE_SORT, model=model,
+                )
+                for entry in page.entries:
+                    uri = entry.resource_uri
+                    if uri:
+                        found[uri] = entry
+                        if use_cache:
+                            self._cache.set(uri, entry)
+                offset += len(page.entries)
+                if len(page.entries) < MAX_LIMIT or offset >= page.total:
+                    break
         out = [found[u] for u in wanted if u in found]
         return [e.as_(model) for e in out] if model else out
 
@@ -1119,7 +1141,8 @@ def _targeted_indexes(client, datasets, workers, counter):
     agent_uris = {}
     contact_uris = {}
     for dataset in datasets:
-        for uri in dataset.distribution_uris:
+        # A data service has no distributions, and no such attribute.
+        for uri in getattr(dataset, "distribution_uris", ()):
             distribution_uris.setdefault(uri, None)
         if dataset.publisher_uri:
             agent_uris.setdefault(dataset.publisher_uri, None)
@@ -1542,7 +1565,8 @@ class Catalog:
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
                 "build the Catalog with rebuild=True to fetch a fresh one."
                 % self.database)
-        self._publishers = _Publishers(every)       # before scope, on purpose
+        self._publishers = _Publishers(             # before scope, on purpose
+            (record["publisher"], 1) for record in every)
         every = self._scope(every)
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
@@ -2021,9 +2045,14 @@ def _present(record: Dict[str, Any]) -> Dict[str, Any]:
     # registry's, and both can change between releases (the organisation
     # table, aliases.json) while the database does not -- so they are added
     # here rather than stored, and a new alias needs no rebuild.
-    agent = record.get("publisher") or {}
+    record["publisher"] = _publisher_dict(record.get("publisher") or {})
+    return record
+
+
+def _publisher_dict(agent: Dict[str, Any]) -> Dict[str, Any]:
+    """A registry agent as the nested ``publisher`` of a record."""
     slug = _org_slug(agent)
-    record["publisher"] = {
+    return {
         "id": slug,
         "uri": agent.get("uri"),
         "name": agent.get("name") or {},
@@ -2033,7 +2062,6 @@ def _present(record: Dict[str, Any]) -> Dict[str, Any]:
         "email": agent.get("email"),
         "identifiers": list(agent.get("identifiers") or []),
     }
-    return record
 
 
 #: The filters whose facets describe a publisher. `keyword` is left out -- one
@@ -2060,16 +2088,21 @@ class _Publishers:
     its other agent carries).
     """
 
-    def __init__(self, records: Sequence[Dict[str, Any]]) -> None:
+    def __init__(self, seen: Iterable[Tuple[Dict[str, Any], int]]) -> None:
+        # `seen` is (publisher dict, how many records carry it): one pair per
+        # record from a database, one per agent from the registry's own
+        # publisher facet -- so both classes work out who is who the same way.
         agents: Dict[str, Dict[Optional[str], List[Any]]] = {}
-        for record in records:
-            publisher = record.get("publisher") or {}
-            pid = publisher.get("id")
+        for publisher, n in seen:
+            pid = (publisher or {}).get("id")
             if not pid:
                 continue                 # 27 records name no publisher at all
             slot = agents.setdefault(pid, {}).setdefault(
                 publisher.get("uri"), [publisher, 0])
-            slot[1] += 1
+            slot[1] += n
+        #: Every URI each publisher goes by -- what the registry is asked for.
+        self.uris = {pid: sorted(u for u in by_uri if u)
+                     for pid, by_uri in agents.items()}
 
         self.entities: Dict[str, Dict[str, Any]] = {}
         for pid, by_uri in agents.items():
