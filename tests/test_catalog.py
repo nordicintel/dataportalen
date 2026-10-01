@@ -216,7 +216,7 @@ SERVICE = _entry("14", "9283", "http://example.org/api", {
 
 DATASET = _entry("1", "1", "http://example.org/ds", {
     DCT + "title": [{"type": "literal", "lang": "sv", "value": "DS"}],
-    DCT + "creator": [{"type": "uri", "value": "http://example.org/org"}],
+    DCT + "publisher": [{"type": "uri", "value": "http://example.org/org"}],
     RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
 })
 
@@ -272,19 +272,32 @@ def test_a_data_service_record_carries_what_it_has(full_export, tmp_path):
     assert "distributions" not in service
 
 
-def test_creators_are_resolved_not_left_as_uris(full_export, tmp_path):
-    """A bare creator URI would be a dead end: nothing resolves one on demand."""
+def test_a_publisher_is_resolved_not_left_as_a_uri(full_export, tmp_path):
+    """A bare publisher URI would be a dead end: nothing resolves one later."""
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=full_export))
     dataset = read_catalog(str(out))[0]
-    assert dataset["creators"] == [{
+    assert dataset["publisher"] == {
         "uri": "http://example.org/org",
         "context_id": "2", "entry_id": "5",
         "name": {"sv": "Trafikverket"},
         "type": "national_authority",
         "identifiers": [], "email": None, "homepage": None,
-    }]
-    assert "creator_uris" not in dataset
+    }
+
+
+def test_a_record_never_carries_creators(full_export, tmp_path):
+    """`dcterms:creator` is read off the graph and thrown away.
+
+    7,104 datasets named one and 6,174 of those named their own publisher
+    again -- the same agent URI on 5,292 of them. The field is not a second
+    publisher, so it is not in the record at all.
+    """
+    out = tmp_path / "c.jsonl"
+    download_catalog(str(out), client=_Registry(transport=full_export))
+    for record in read_catalog(str(out)):
+        assert "creators" not in record
+        assert "creator_uris" not in record
 
 
 def test_a_limited_export_skips_data_services(wired, tmp_path, dataset_children):
@@ -298,11 +311,11 @@ def test_a_limited_export_skips_data_services(wired, tmp_path, dataset_children)
 
 
 def test_publishers_typed_as_organizations_are_indexed_too(transport, tmp_path):
-    """A `foaf:Organization` creator is still a creator.
+    """A `foaf:Organization` publisher is still a publisher.
 
     Most agents are `foaf:Agent`, but 69 in the registry are
-    `foaf:Organization` -- and those 69 account for 2,073 of the 7,151 creator
-    references. Crawling only `foaf:Agent` left a third of them as bare URIs.
+    `foaf:Organization` and 1,693 are `prov:Agent`. Crawling only `foaf:Agent`
+    leaves those as bare URIs with no name.
     """
     org = _entry("2", "6", "http://example.org/org2", {
         "http://xmlns.com/foaf/0.1/name": [
@@ -310,7 +323,7 @@ def test_publishers_typed_as_organizations_are_indexed_too(transport, tmp_path):
         RDF_TYPE: [{"type": "uri", "value": "http://xmlns.com/foaf/0.1/Organization"}],
     })
     dataset = _entry("1", "1", "http://example.org/ds", {
-        DCT + "creator": [{"type": "uri", "value": "http://example.org/org2"}],
+        DCT + "publisher": [{"type": "uri", "value": "http://example.org/org2"}],
         RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
     })
     transport.push(_page([], 1))            # count(datasets)
@@ -325,7 +338,7 @@ def test_publishers_typed_as_organizations_are_indexed_too(transport, tmp_path):
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=transport))
     record = read_catalog(str(out))[0]
-    assert record["creators"][0]["name"] == {"sv": "Folkhälsomyndigheten"}
+    assert record["publisher"]["name"] == {"sv": "Folkhälsomyndigheten"}
 
 
 def test_the_agent_query_covers_all_three_types(transport):
@@ -337,9 +350,11 @@ def test_the_agent_query_covers_all_three_types(transport):
                             "http://www.w3.org/ns/prov#Agent")
 
 
-def test_an_unresolvable_creator_is_reported_not_silently_bare(transport, tmp_path):
+def test_an_unresolvable_publisher_keeps_its_uri_and_an_empty_name(transport,
+                                                                   tmp_path):
+    """A publisher the crawl never saw is still a dict, never a bare None."""
     dataset = _entry("1", "1", "http://example.org/ds", {
-        DCT + "creator": [{"type": "uri", "value": "http://example.org/a-web-page"}],
+        DCT + "publisher": [{"type": "uri", "value": "http://example.org/gone"}],
         RDF_TYPE: [{"type": "uri", "value": DCAT_NS + "Dataset"}],
     })
     transport.push(_page([], 1))
@@ -351,10 +366,11 @@ def test_an_unresolvable_creator_is_reported_not_silently_bare(transport, tmp_pa
     transport.push(_page([], 0))            # count(data services)
 
     out = tmp_path / "c.jsonl"
-    with pytest.warns(UserWarning, match="not found in the bulk crawl"):
-        download_catalog(str(out), client=_Registry(transport=transport))
+    download_catalog(str(out), client=_Registry(transport=transport))
     record = read_catalog(str(out))[0]
-    assert record["creators"] == [{"uri": "http://example.org/a-web-page"}]
+    assert record["publisher"]["uri"] == "http://example.org/gone"
+    assert record["publisher"]["name"] == {}
+    assert record["publisher"]["type"] is None
 
 
 # -- a partial download must not become the catalogue ------------------------
@@ -380,16 +396,65 @@ def test_a_failed_download_leaves_no_file(transport, tmp_path, name):
         download_catalog(str(out), client=_Registry(transport=transport,
                                                     max_retries=0))
     assert not out.exists(), "a failed download must not leave the target"
-    assert not (tmp_path / (name + ".part")).exists(), "nor its scratch file"
 
     with pytest.raises(FileNotFoundError):
         Catalog(str(out), refresh="never", transport=transport)
 
 
-def test_a_finished_download_leaves_no_part_file(wired, tmp_path,
-                                                 dataset_children):
-    out = tmp_path / "c.jsonl"
-    download_catalog(str(out), limit=len(dataset_children),
-                     client=_Registry(transport=wired))
-    assert out.exists()
-    assert not (tmp_path / "c.jsonl.part").exists()
+def test_a_failed_rebuild_leaves_the_old_catalogue_intact(transport, tmp_path):
+    """The write is one transaction, which is what makes a rebuild safe.
+
+    A full build clears `record` before writing it, so a crawl that dies
+    halfway would otherwise leave an empty catalogue where a good one was.
+    """
+    import sqlite3
+
+    from conftest import CATALOG_RECORDS, write_catalog
+
+    path = write_catalog(tmp_path, [CATALOG_RECORDS[0], CATALOG_RECORDS[1]])
+    transport.push(_page([], 5))          # count(datasets)
+    for _ in range(3):
+        transport.push(_page([], 0))      # the other three counts
+    transport.push("boom", status=500)    # and then the crawl dies
+
+    with pytest.raises(Exception):
+        download_catalog(path, client=_Registry(transport=transport,
+                                               max_retries=0))
+    assert sqlite3.connect(path).execute(
+        "SELECT count(*) FROM record").fetchone()[0] == 2
+
+
+def test_a_full_build_replaces_the_rows_rather_than_merging(transport, tmp_path):
+    """`refresh="always"` has to mean rebuilt, not upserted over.
+
+    It did not: a withdrawn dataset kept its row, and so did the record shape
+    it was written in -- which is exactly what a `SCHEMA_VERSION` bump tells
+    people to use `refresh="always"` to be rid of.
+    """
+    import sqlite3
+
+    from conftest import CATALOG_RECORDS, write_catalog
+
+    withdrawn = dict(CATALOG_RECORDS[0], context_id="999", entry_id="9",
+                     uri="https://example.org/withdrawn")
+    path = write_catalog(tmp_path, [CATALOG_RECORDS[0], withdrawn])
+    for _ in range(8):                    # a registry that now holds nothing
+        transport.push(_page([], 0))
+    download_catalog(path, client=_Registry(transport=transport), progress=None)
+    assert sqlite3.connect(path).execute(
+        "SELECT count(*) FROM record").fetchone()[0] == 0
+
+
+def test_a_refresh_merges_rather_than_replacing(transport, tmp_path):
+    """The other half of the same rule: `since` must leave untouched rows be."""
+    import sqlite3
+
+    from conftest import CATALOG_RECORDS, write_catalog
+
+    path = write_catalog(tmp_path, [CATALOG_RECORDS[0], CATALOG_RECORDS[1]])
+    for _ in range(8):
+        transport.push(_page([], 0))
+    download_catalog(path, client=_Registry(transport=transport), progress=None,
+                     since="2026-09-29T00:00:00")
+    assert sqlite3.connect(path).execute(
+        "SELECT count(*) FROM record").fetchone()[0] == 2

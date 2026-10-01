@@ -84,7 +84,9 @@ def test_the_uri_is_indexed_for_lookup(tmp_path):
 # -- the meta table ----------------------------------------------------------
 
 
-def test_info_reports_when_it_was_built_and_last_caught_up(cat):
+def test_info_reports_when_it_was_built_and_last_caught_up(tmp_path, transport):
+    path = write_catalog(tmp_path, stamp="2026-09-30T00:00:00")
+    cat = Catalog(path, refresh="never", transport=transport)
     info = cat.info()
     assert info["first_retrieved"] == "2026-09-30T00:00:00"
     assert info["last_refreshed"] == "2026-09-30T00:00:00"
@@ -183,7 +185,7 @@ def test_a_refresh_asks_only_for_what_changed(tmp_path, transport, caplog):
 
 
 def test_a_refresh_keeps_the_rows_it_did_not_ask_about(tmp_path, transport):
-    path = write_catalog(tmp_path)
+    path = write_catalog(tmp_path, stamp="2026-09-30T00:00:00")
     before = len(rows_of(path))
     from dataportalen.client import _Registry, download_catalog
 

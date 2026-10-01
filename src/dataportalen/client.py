@@ -587,12 +587,12 @@ def local_breakdown(
 
 
 def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
-    """The filter value for one publisher or creator.
+    """The filter value for one publisher.
 
     The package's URI table first, because those slugs are stable across
     releases. Failing that, the organisation's own name from the record --
-    without which 13 of the 365 publishers and 98 of the 146 creators would
-    have no filter value at all, since they mint URIs the table never saw
+    without which 13 of the 365 publishers would have no filter value at all,
+    since they mint URIs the table never saw
     (``fohm-app.folkhalsomyndigheten.se/...``, ``myndighetsregistret.scb.se/...``).
     """
     if not org:
@@ -607,15 +607,15 @@ def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 def _collect_names(record: Dict[str, Any], out: Dict[str, Dict[str, Any]]) -> None:
-    """Remember the readable name of each publisher and creator seen.
+    """Remember the readable name of each publisher seen.
 
     The vocabulary has no entry for an organisation, so its label comes from
     the records -- the same place the slug came from.
     """
-    for org in [record.get("publisher")] + list(record.get("creators") or []):
-        slug = _org_slug(org)
-        if slug and slug not in out and isinstance((org or {}).get("name"), dict):
-            out[slug] = org["name"]
+    org = record.get("publisher")
+    slug = _org_slug(org)
+    if slug and slug not in out and isinstance((org or {}).get("name"), dict):
+        out[slug] = org["name"]
 
 def _date(value: Any) -> Optional[str]:
     """Accept "2024-01-01", a date or a datetime; emit what Solr needs.
@@ -776,8 +776,11 @@ CREATE INDEX IF NOT EXISTS record_type ON record(type);
 -- No index on `harvested`: the registry filters by it, we never do.
 """
 
-#: Bumped when the layout changes in a way an older file cannot satisfy.
-SCHEMA_VERSION = "1"
+#: Bumped when the layout changes in a way an older file cannot satisfy --
+#: including a change to the record shape, since `doc` holds the record as it
+#: was written. Version 2 dropped `creators`, which a version 1 file still
+#: carries in every row it wrote.
+SCHEMA_VERSION = "2"
 
 
 def _connect(path: str) -> Any:
@@ -898,11 +901,13 @@ def _take(entries, count):
         yield entry
 
 
-#: Publishers and creators are not all typed the same way. Most are
-#: `foaf:Agent` (5,846), but 69 are `foaf:Organization` and 1,693 are
-#: `prov:Agent` -- and the Organization ones are load-bearing: they account
-#: for 2,073 creator references, a third of them, which a `foaf:Agent`-only
-#: crawl left as bare URIs.
+#: Publishers are not all typed the same way: most are `foaf:Agent` (5,846),
+#: but 69 are `foaf:Organization` and 1,693 are `prov:Agent`. The crawl asks
+#: for all three. It once had to, because the Organization entries carried a
+#: third of the creator references; creators are gone, but narrowing this to
+#: `foaf:Agent` is a separate question -- it would have to be measured against
+#: the publisher URIs alone, and silently losing a publisher costs more than
+#: the 18 extra pages of an 856-request build.
 _AGENT_TYPES = (FOAF.Agent, FOAF.Organization, PROV.Agent)
 
 
@@ -1088,8 +1093,8 @@ def download_catalog(
 
     One JSON object per line: every ``dcat:Dataset`` and every
     ``dcat:DataService``, each carrying a ``type`` that says which. A line
-    stands on its own -- distributions, publisher, creators and contact points
-    are resolved and nested, so nothing needs a further lookup.
+    stands on its own -- distributions, publisher and contact points are
+    resolved and nested, so nothing needs a further lookup.
 
     :param path: the SQLite database to fill.
     :param workers: parallel requests. The registry tolerates 8 comfortably.
@@ -1188,6 +1193,15 @@ def download_catalog(
         db = _connect(path)
         try:
             with db:
+                if since is None:
+                    # A full build is a rebuild, not an upsert over whatever is
+                    # already there. Without this, a dataset the registry has
+                    # withdrawn keeps its row forever -- and so does the shape
+                    # it was written in, which is what `SCHEMA_VERSION` tells
+                    # people to use `refresh="always"` to be rid of. It is in
+                    # the same transaction as the write, so a download that
+                    # dies leaves the old catalogue untouched.
+                    db.execute("DELETE FROM record")
                 _write_records(db, rows())
                 now = _dt.datetime.now().replace(microsecond=0).isoformat()
                 _meta_set(db, schema=SCHEMA_VERSION, package=__version__,
@@ -1285,29 +1299,13 @@ def _assemble(
         elif record.get("publisher") is None:
             record["publisher"] = {"uri": publisher_uri, "name": {}}
 
-    # Creators are organisations, not people: 146 distinct URIs over the whole
-    # corpus, and the agent index already holds them. A bare URI would be a
-    # dead end now that nothing resolves one on demand.
-    creators = []
-    for uri in entry.creator_uris:
-        found = agents.get(uri)
-        if found is None:
-            # One of the 146 is a plain web page rather than a managed entry,
-            # so it stays a bare URI -- reported, not quietly named absent.
-            missing.setdefault(uri, None)
-            creators.append({"uri": uri})
-        else:
-            creators.append(dict(found))
-    if creators:
-        record["creators"] = creators
-
     if not record.get("contact_points"):
         resolved = []
         for uri in entry.contact_point_uris:
             found = contacts.get(uri)
             if found is None:
-                # Reported like an unresolved distribution or creator rather
-                # than dropped: a record that names a contact and shows none
+                # Reported like an unresolved distribution rather than
+                # dropped: a record that names a contact and shows none
                 # should not do so in silence.
                 missing.setdefault(uri, None)
             else:
@@ -1716,7 +1714,7 @@ class Catalog:
             >>> cat.filters()["publisher"][0]              # doctest: +SKIP
             ValueCount(value='radet_for_..._kolada', dataset_count=5863)
             >>> list(cat.filters())                        # doctest: +SKIP
-            ['publisher', 'publisher_type', 'creator', 'theme', ...]
+            ['publisher', 'publisher_type', 'theme', 'keyword', ...]
 
         The same :class:`~dataportalen.Breakdown` a search carries, counted
         over every dataset -- about a third of a second for the whole corpus.
@@ -1847,13 +1845,6 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "publisher_type":
         kind = (record.get("publisher") or {}).get("type")
         return [kind] if kind else []
-    if filter == "creator":
-        out = []
-        for creator in record.get("creators") or []:
-            slug = _org_slug(creator)
-            if slug:
-                out.append(slug)
-        return out
     if filter == "service_type":
         value = record.get("service_type")
         return [value] if value else []
@@ -1959,7 +1950,7 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
 
 
 def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
-    """One publisher or creator value, checked against the table and the file.
+    """One publisher value, checked against the table and the file.
 
     A name-derived slug is not in the package's table, so the file it came from
     is the only thing that can vouch for it. Everything the breakdown reports
@@ -1998,8 +1989,8 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
-    if name in ("text", "keyword", "publisher", "creator", "theme", "format",
-                "license", "access_rights", "updated", "language", "place",
+    if name in ("text", "keyword", "publisher", "theme", "format", "license",
+                "access_rights", "updated", "language", "place",
                 "publisher_type", "service_type"):
         _require_values(value, name)
 
@@ -2067,7 +2058,7 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
 
         return keyword_test
 
-    if name in ("publisher", "creator"):
+    if name == "publisher":
         wanted = {_org_value(item, name, observed) for item in _as_list(value)}
         return lambda record: bool(wanted & set(_local_values(record, name)))
 

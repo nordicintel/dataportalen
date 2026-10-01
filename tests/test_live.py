@@ -144,15 +144,15 @@ def test_an_export_is_a_usable_database(tmp_path):
     assert meta["schema"]
 
 
-def test_creators_resolve_against_the_live_agent_index(registry):
-    """Publishers and creators are spread over three rdf:types, not one."""
+def test_agents_resolve_against_all_three_rdf_types(registry):
+    """Publishers are spread over three rdf:types, not one."""
     from dataportalen.client import _AGENT_TYPES
 
     every = registry._count(Q.rdf_type(*_AGENT_TYPES) & Q.public())
     agents_only = registry._count(Q.rdf_type("foaf:Agent") & Q.public())
     assert every > agents_only, (
-        "foaf:Agent alone misses the foaf:Organization entries that carry a "
-        "third of all creator references")
+        "foaf:Agent alone misses the foaf:Organization and prov:Agent "
+        "entries, which are a quarter of the index")
 
 
 def test_a_uri_can_belong_to_two_entries(registry):
@@ -201,7 +201,7 @@ def test_every_data_service_filter_matches_something_locally(cat):
     options = cat.data_services(limit=0).breakdown
     for name in DATA_SERVICE_FILTERS:
         if not options[name]:
-            continue            # creator is sparse on services; not an error
+            continue            # some are sparse on services; not an error
         value, count = options[name][0]
         assert cat.data_services(limit=0, **{name: value}).total == count, name
 
@@ -244,6 +244,13 @@ def test_data_services_are_typed_and_have_endpoints(registry):
     assert len(page) == 20
     with_endpoint = [e for e in page if e.endpoint_url]
     assert len(with_endpoint) >= 15, "endpointURL is on 99.8% of them"
+
+
+def test_no_record_carries_creators(cat):
+    """Dropped in 0.9.0. A stale copy would still have them, so this also
+    proves the schema bump forced a rebuild."""
+    for record in list(cat.datasets(limit=200)) + list(cat.data_services(limit=200)):
+        assert "creators" not in record
 
 
 def test_a_publisher_uri_resolves_to_an_agent(registry, cat):

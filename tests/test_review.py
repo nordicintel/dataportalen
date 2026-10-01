@@ -36,18 +36,6 @@ def test_an_organisation_number_finds_the_same_datasets_as_the_name(catalog):
     assert catalog.datasets(publisher="se2021006297", limit=0).total == by_name
 
 
-def test_a_creator_takes_an_organisation_number_too(tmp_path, transport):
-    record = dict(
-        CATALOG_RECORDS[0],
-        creators=[{"uri": "http://dataportal.se/organisation/SE2021006297",
-                   "name": {"sv": "Trafikverket"},
-                   "type": "national_authority"}],
-    )
-    cat = Catalog(write_catalog(tmp_path, [record]), refresh="never",
-                  transport=transport, progress=None)
-    assert cat.datasets(creator="SE2021006297", limit=0).total == 1
-
-
 # -- publisher is always a dict ---------------------------------------------
 
 

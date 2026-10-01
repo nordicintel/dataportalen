@@ -219,3 +219,5 @@ __marimo__/
 
 /tmp/
 testing.ipynb
+# Catalogue databases, including any a doc snippet creates in the repo
+*.sqlite

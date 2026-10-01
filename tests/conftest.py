@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import sys
 from pathlib import Path
@@ -197,19 +198,25 @@ LINK_CHECKS = [
 ]
 
 
-def write_catalog(tmp_path, records=None, name="catalog.sqlite"):
-    """A catalogue database on disk, for a Catalog that must not download."""
+def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None):
+    """A catalogue database on disk, for a Catalog that must not download.
+
+    `stamp` defaults to now, so the copy is fresh whenever the suite runs. It
+    used to be the literal date the fixture was written, which made every
+    `age_days == 0` assertion pass for one day and fail forever after. Pass a
+    stamp explicitly to test what age and staleness do.
+    """
     from dataportalen.client import SCHEMA_VERSION, _connect, _meta_set, _write_records
 
     rows = CATALOG_RECORDS + SERVICE_RECORDS if records is None else records
+    stamp = stamp or _dt.datetime.now().replace(microsecond=0).isoformat()
     path = tmp_path / name
     db = _connect(str(path))
     with db:
         _write_records(db, [
             (r.get("type", "dataset"), r.get("modified"), r) for r in rows])
         _meta_set(db, schema=SCHEMA_VERSION,
-                  first_retrieved="2026-09-30T00:00:00",
-                  last_refreshed="2026-09-30T00:00:00")
+                  first_retrieved=stamp, last_refreshed=stamp)
     db.close()
     return str(path)
 

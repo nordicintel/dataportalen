@@ -98,24 +98,19 @@ slices and goes straight into anything that takes records.
 cat.datasets(theme="transport", format="csv", publisher="trafikverket")
 ```
 
-Values are short and lowercase; you never type a web address. There are twelve,
+Values are short and lowercase; you never type a web address. There are eleven,
 and [reference.md](reference.md#dataset-filters) lists each with how much of the
 corpus it covers. The ones you will reach for:
 
 ```python
 cat.datasets(text="cykel")                     # title, description, keywords
 cat.datasets(publisher="trafikverket")         # who put it on the portal
-cat.datasets(creator="statistikmyndigheten_scb_statistiska_centralbyran")
 cat.datasets(theme="transport")                # the subject
 cat.datasets(format="csv")                     # a format you can download
 cat.datasets(keyword="geodata")                # the publisher's own tags
 cat.datasets(updated_after="2024-01-01")       # changed since
 cat.datasets(link="success")                   # its files actually resolve
 ```
-
-`publisher` and `creator` are different questions — the publisher put it on the
-portal, the creator produced the data. Statistikmyndigheten SCB is the creator
-of 3,807 datasets that others publish.
 
 A list means any of them will do:
 
@@ -163,8 +158,8 @@ for row in cat.filters()["publisher"][:3]:
 
 ```python
 list(cat.filters())
-# ['publisher', 'publisher_type', 'creator', 'theme', 'keyword',
-#  'format', 'license', 'access_rights', 'updated', 'language', 'place']
+# ['publisher', 'publisher_type', 'theme', 'keyword', 'format',
+#  'license', 'access_rights', 'updated', 'language', 'place', 'link']
 ```
 
 **Every value round-trips.** `cat.datasets(theme=value, limit=0).total` is
@@ -320,8 +315,8 @@ what it does: `endpoint_url`, `serves_dataset_uris`, `conforms_to`, and no
 ```python
 cat.data_services(format="csv")
 # QueryError: data services have no 'format'. Available: publisher,
-# publisher_type, creator, service_type, theme, keyword, license,
-# access_rights, text
+# publisher_type, service_type, theme, keyword, license, access_rights,
+# link, text
 ```
 
 A data service has no distributions, so no `format`; no accrual periodicity, so
@@ -423,8 +418,13 @@ reason, because they are the likeliest things to go looking for:
   duplicates `publisher`. Where a dataset came in through an aggregator,
   `record["context_id"]` identifies it.
 - **Agents.** 7,609 exist and 365 publish anything; 4,916 are individual
-  researchers who reach no dataset. `cat.filters()["publisher"]` and
-  `["creator"]` are the ones that matter, and they come with names.
+  researchers who reach no dataset. `cat.filters()["publisher"]` is the one
+  that matters, and it comes with names.
+- **Creators.** `dcterms:creator` is on 7,104 datasets, and on 6,174 of those
+  it names the publisher a second time — the same agent URI on 5,292, the
+  publisher's name plus a survey or system suffix on 634, an internal
+  department on 150. The ~930 that name someone else are citing a source. Not
+  a search axis, so not a field.
 - **The registry's own reports** — nightly dataset counts, link checks, DCAT-AP
   quality scores. They describe the registry, not the data.
 

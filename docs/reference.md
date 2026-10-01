@@ -100,7 +100,6 @@ value means any of them will do, except `keyword`, where all must be present.
 | `theme=` | the subject it is filed under | 78.2% |
 | `format=` | a format one of its distributions is in | 69.7% |
 | `updated=` | how often the publisher refreshes it | 63.3% |
-| `creator=` | the organisation that produced the data | 30.1% |
 | `place=` | the area it covers | 19.0% |
 | `link=` | `success`, `broken` or `excluded` — the registry's nightly link check, on the record's own landing page or any of its files | 100% |
 | `text=` | title, description or keywords, either language | — |
@@ -119,7 +118,6 @@ How many distinct values each has in the corpus, and what the commonest is:
 | `keyword` | 23,371 | `Rådet för främjande av kommunala analyser - Kolada` |
 | `place` | 542 | `kingdom_of_sweden` |
 | `publisher` | 356 | `radet_for_framjande_av_kommunala_analyser_kolada` |
-| `creator` | 138 | `statistikmyndigheten_scb_statistiska_centralbyran` |
 | `format` | 47 | `json` |
 | `theme` | 31 | `population_and_society` |
 | `updated` | 18 | `annual` |
@@ -145,7 +143,6 @@ naming the ones that work.
 | `service_type=` | what kind of service | 55.9% |
 | `theme=` | the subject | 53.8% |
 | `license=` | the licence | 51.8% |
-| `creator=` | who produced it | 7.8% |
 | `link=` | `success`, `broken` or `excluded` | 53% |
 | `text=` | title, description or keywords | — |
 
@@ -192,11 +189,10 @@ missing key, so you never need `.get()`.
 | `identifier` | str | 61.0% |
 | `landing_page` | url | 56.2% |
 | `issued` | ISO date | 41.6% |
-| `creators` | `[dict]`, shaped like `publisher` — but one of the 146 is a web page rather than a registry entry, so that one is `{"uri": …}` alone | 30.1% |
 | `temporal` | `{"start": …, "end": …}` | 19.0% |
 | `spatial` | `[short name]` | 19.0% |
 
-**`publisher` and each of `creators`**
+**`publisher`**
 
 | Key | |
 | --- | --- |
@@ -250,7 +246,6 @@ absent.
 | `endpoint_descriptions` | `[url]` | 47.6% |
 | `conforms_to` | `[url]` — the spec it follows | 29.5% |
 | `serves_dataset_uris` | `[uri]` | 8.0% |
-| `creators` | `[dict]` | 7.8% |
 
 ## What a search returns
 

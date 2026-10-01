@@ -136,28 +136,21 @@ def test_a_dataset_still_takes_all_of_its_own(catalog):
             "place": "kingdom_of_sweden", "language": "swedish"}[name]})
 
 
-# -- creators ----------------------------------------------------------------
+# -- creator is not a filter any more ----------------------------------------
 
 
-def test_creator_filters_and_breaks_down(tmp_path, transport):
-    """30% of datasets name a creator, and it is an organisation, not a person."""
-    with_creator = dict(
-        CATALOG_RECORDS[0],
-        creators=[{"uri": "http://dataportal.se/organisation/SE2021005521",
-                   "name": {"sv": "Försäkringskassan"},
-                   "type": "national_authority"}],
-    )
-    catalog = Catalog(write_catalog(tmp_path, [with_creator, CATALOG_RECORDS[1]]),
-                      refresh="never", transport=transport, progress=None)
-    assert catalog.datasets(creator="forsakringskassan").total == 1
-    row = catalog.filters()["creator"][0]
-    assert row.value == "forsakringskassan"
-    assert row.label == {"sv": "Försäkringskassan"}
+def test_creator_is_not_a_filter(catalog):
+    """It was, and it told the truth; it just never told anyone anything.
 
-
-def test_an_unknown_creator_is_rejected_with_a_hint(catalog):
-    with pytest.raises(QueryError):
-        catalog.datasets(creator="trafikvrket")
+    7,104 datasets named a creator and 6,174 named their own publisher again.
+    A name that is no filter anywhere is reported as unknown rather than as
+    inapplicable, which is what it now is.
+    """
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(creator="trafikverket")
+    assert "unknown filter" in str(info.value)
+    assert "creator" not in catalog.filters()
+    assert "creator" not in catalog.data_services(limit=0).breakdown
 
 
 # -- a breakdown value must filter to exactly its own count ------------------

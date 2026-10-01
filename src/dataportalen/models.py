@@ -152,8 +152,8 @@ def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
     return found
 
 
-#: The shape a publisher or creator always has, even when there is none. A
-#: record never hands back a bare None where a dict is documented.
+#: The shape a publisher always has, even when there is none. A record never
+#: hands back a bare None where a dict is documented.
 _EMPTY_AGENT = {
     "uri": None,
     "context_id": None,
@@ -686,7 +686,7 @@ class ContactPoint(Entry):
 
 
 class Agent(Entry):
-    """``foaf:Agent`` -- a publisher, creator or contact organisation."""
+    """``foaf:Agent`` -- a publisher or contact organisation."""
 
     rdf_types = (FOAF.Agent, FOAF.Organization, PROV.Agent)
 
@@ -882,10 +882,6 @@ class DataService(Entry):
         return out
 
     @property
-    def creator_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.creator)
-
-    @property
     def publisher_uri(self) -> Optional[str]:
         return self.resource.uri_of(DCTERMS.publisher)
 
@@ -944,7 +940,6 @@ class DataService(Entry):
             "serves_dataset_uris": self.serves_dataset_uris,
             "conforms_to": self.conforms_to,
             "publisher": self._publisher_dict(),
-            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
@@ -1084,10 +1079,6 @@ class Dataset(Entry):
         return self.resource.uri_of(DCTERMS.publisher)
 
     @property
-    def creator_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.creator)
-
-    @property
     def distribution_uris(self) -> List[str]:
         return self.resource.uris(DCAT.distribution)
 
@@ -1171,10 +1162,6 @@ class Dataset(Entry):
         graph -- all of them after a ``recursive=True`` fetch, none of them
         for a plain search hit, where ``distribution_uris`` still lists the
         references.
-
-        ``creators`` starts as ``[{"uri": ...}]`` here and is filled in with
-        the name and type during a download, where the 146 distinct creator
-        URIs across the corpus are resolved in about two batched requests.
         """
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
@@ -1185,7 +1172,6 @@ class Dataset(Entry):
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
-            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
             "license": self._term(self.license),
             "access_rights": self._term(self.access_rights),
@@ -1220,7 +1206,7 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 
     :attr:`label` rides alongside rather than in the tuple -- ``{"sv": ...,
     "en": ...}``, from the vocabulary for a controlled value and from the
-    records themselves for a publisher or creator. It is ``{}`` for values
+    records themselves for a publisher. It is ``{}`` for values
     that are their own label, such as keywords.
 
         row = page.breakdown["publisher"][0]
@@ -1244,8 +1230,15 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 #: What a dataset can be filtered and broken down by. Every one was measured
 #: over all 23,575 datasets: publisher and license are on 100% of them,
 #: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
-#: 69.7%, updated 63.3%, creator 30.1%, place 23.6%.
-DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
+#: 69.7%, updated 63.3%, place 23.6%.
+#:
+#: `creator` was one of these and is not any more. 7,104 datasets named one,
+#: and on 6,174 of them it was the publisher again -- the same agent URI on
+#: 5,292, the publisher's name plus a survey or system suffix on 634, an
+#: internal department on 150. The ~930 that named someone else were citing a
+#: source, not a second publisher. A filter whose two largest values are
+#: 4,468 datasets pointing at their own publisher is not a search axis.
+DATASET_FILTERS = ("publisher", "publisher_type", "theme",
                    "keyword", "format", "license", "access_rights",
                    "updated", "language", "place", "link")
 
@@ -1255,7 +1248,7 @@ DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
 #: reason -- a data service has no distributions (so no `format`) and no
 #: `accrual_periodicity` (no `updated`), `place` is set on 7.8% of them and
 #: `language` has one single value across all 599.
-DATA_SERVICE_FILTERS = ("publisher", "publisher_type", "creator",
+DATA_SERVICE_FILTERS = ("publisher", "publisher_type",
                         "service_type", "theme", "keyword", "license",
                         "access_rights", "link")
 

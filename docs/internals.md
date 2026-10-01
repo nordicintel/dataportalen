@@ -51,8 +51,8 @@ label_for("national_authority")
 
 An organisation has no vocabulary entry, so its label and its slug both come
 from the records: the URI table first, then the name the publisher wrote.
-Without that fallback 13 of the 365 publishers and 98 of the 146 creators would
-have no filter value at all, because they mint URIs the table never saw
+Without that fallback 13 of the 365 publishers would have no filter value at
+all, because they mint URIs the table never saw
 (`fohm-app.folkhalsomyndigheten.se/...`, `myndighetsregistret.scb.se/...`).
 
 ```python
@@ -173,7 +173,7 @@ Every `rdfType` in the registry, counted in full:
 | `dcat:Distribution` | 34,916 | nested in its dataset |
 | `dcat:DataService` | 599 | yes |
 | `dcat:Catalog` | 656 | no -- only 157 hold a dataset, and 127 of 152 live ones have exactly one publisher, so it duplicates `publisher`. `context_id` on the record identifies the harvest source |
-| `foaf:Agent` + `foaf:Organization` + `prov:Agent` | 7,609 | nested as `publisher` and `creators`. 4,916 of them are `private_individual` and reach no dataset |
+| `foaf:Agent` + `foaf:Organization` + `prov:Agent` | 7,609 | nested as `publisher`. 4,916 of them are `private_individual` and reach no dataset |
 | vcard contact types (8 of them) | ~48,000 | nested as `contact_points` |
 | EntryStore/EntryScape internals (17 types) | -- | no. `PipelineResult`, `List`, `CatalogContext`, `CatalogStatistics`, `LinkCheckReport`, `MQA`, `User`... the CMS talking to itself |
 | `dcterms:Standard`, `prof:Profile`, `schema:Question` and friends | <400 | no |
@@ -224,10 +224,13 @@ The download writes one file with both kinds of line, each tagged `type`. A
 record written before 0.7.0 has no `type` and is read as a dataset, which is all
 those files held.
 
-The agent crawl asks for all three agent types. `foaf:Agent` alone (5,847) misses
-the 69 entries typed `foaf:Organization`, and those 69 carry 2,073 of the 7,151
-creator references -- a third of them, which landed as bare URIs until this was
-found by checking a real download rather than a fixture.
+The agent crawl asks for all three agent types. `foaf:Agent` alone (5,847)
+misses the 69 entries typed `foaf:Organization` and the 1,693 typed
+`prov:Agent`, which was found by checking a real download rather than a
+fixture. The reason it was found was `creators`, now dropped: those 69 carried
+2,073 of the 7,151 creator references. Whether publishers alone still need all
+three has not been measured, and the superset costs 18 pages of an 856-request
+build against the cost of silently naming a publisher absent.
 
 A value that the vocabulary table does not know but the file does contain --
 `parquet`, a bare GeoNames id -- is still a valid filter value: `_local_slugs`
@@ -246,9 +249,20 @@ searches its values produce. `tests/test_filters.py` round-trips every value of
 every filter, which is the invariant to keep.
 
 **An organisation's slug comes from the URI table first and its own name
-second.** Dropping the fallback silently loses 13 of the 365 publishers and 98
-of the 146 creators, because they mint URIs the table never saw. Dropping the
-table and using only names would break every slug users have written down.
+second.** Dropping the fallback silently loses 13 of the 365 publishers,
+because they mint URIs the table never saw. Dropping the table and using only
+names would break every slug users have written down.
+
+**`creators` is read off the graph and thrown away.** `dcterms:creator` is on
+7,104 datasets, and on 6,174 of those it names the publisher again: the same
+agent URI on 5,292, the publisher's name plus a survey or system suffix on 634
+(`Folkhalsomyndigheten, Sminet`), an internal department on 150
+(`geodataenheten` under Örebro kommun). The ~930 that name someone else are
+citing a source -- Socialstyrelsen under Folkhälsomyndigheten, Medlingsinstitutet
+under SCB -- which is provenance, not a second publisher. A filter whose two
+largest values were 4,468 datasets pointing at their own publisher was not a
+search axis, so the field went with it in 0.9.0 and `SCHEMA_VERSION` went to
+`2` to force a rebuild of files that still hold it.
 
 **A row is keyed on `context_id`/`entry_id`, not on `uri`.** Four datasets in
 the corpus share a resource URI with another, because the same dataset was
@@ -356,10 +370,10 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Widest aggregator catalog | context `818`: 6,607 datasets from **110 publishers** |
 | Agents / of which publish anything | 7,609 / 365 |
 | Agents that are `private_individual` | 4,916 (65%) |
-| Distinct creator URIs / resolvable | 146 / 145 |
+| Datasets naming a creator / of those, the publisher again | 7,104 / 6,174 |
 | Duplicate dataset URIs | 4 of 23,576 |
 | Datasets Swedish-only / both / English-only | 53% / 36% / 10% |
-| Publisher+creator organisations with an English name | 149 of 392 |
+| Publisher organisations with an English name | 149 of 392 |
 | ...of those, sv and en genuinely differ | 105 (70%) |
 | `FakeTransport` call sites in the test suite | 31 |
 
