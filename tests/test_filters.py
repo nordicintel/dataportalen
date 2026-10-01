@@ -152,6 +152,25 @@ def test_the_date_filters_are_named_after_the_fields_they_read(catalog):
         assert "modified_after" in str(info.value)
 
 
+# -- aliases -----------------------------------------------------------------
+
+
+def test_an_alias_filters_like_the_publisher_it_names(tmp_path, transport):
+    from dataportalen.rdf import resolve_publisher
+
+    scb = dict(CATALOG_RECORDS[0], publisher={
+        "uri": resolve_publisher("scb")[0],
+        "name": {"sv": "Statistikmyndigheten SCB"}, "type": "national_authority"})
+    catalog = Catalog(write_catalog(tmp_path, [scb, CATALOG_RECORDS[1]]),
+                      max_age=None, _transport=transport, access_rights=None)
+    long = "statistikmyndigheten_scb_statistiska_centralbyran"
+    assert catalog.datasets(publisher="scb", limit=0).total == 1
+    by_alias = catalog.datasets(publisher="scb", limit=0).total
+    assert by_alias == catalog.datasets(publisher=long, limit=0).total
+    values = {row.value for row in catalog.filters()["publisher"]}
+    assert long in values and "scb" not in values, "canonical slug in output"
+
+
 # -- creator is not a filter any more ----------------------------------------
 
 

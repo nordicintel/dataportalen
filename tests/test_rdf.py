@@ -391,6 +391,28 @@ def test_known_values_rejects_an_unknown_filter():
     assert "theme" in str(info.value)
 
 
+def test_an_alias_is_the_publisher_it_names():
+    """`scb` is what a person types; the 50-character slug is what is stored."""
+    from dataportalen.rdf import known_publishers, publisher_for, resolve_publisher
+
+    long = "statistikmyndigheten_scb_statistiska_centralbyran"
+    assert resolve_publisher("scb") == resolve_publisher(long)
+    # The breakdown and the records keep the canonical slug; the alias is
+    # input only.
+    assert publisher_for(resolve_publisher("scb")[0]) == long
+    assert "scb" in known_publishers("scb")
+
+
+def test_every_alias_names_a_publisher_the_package_can_resolve():
+    """The file is kept by hand; a typo in it must fail here, not in a search."""
+    from dataportalen.rdf import _ALIASES, _PUBLISHERS
+
+    assert _ALIASES, "aliases.json shipped empty"
+    for alias, target in _ALIASES.items():
+        assert target in _PUBLISHERS, "%s -> %s is not a publisher" % (alias, target)
+        assert alias not in _PUBLISHERS, "%s shadows a real publisher" % alias
+
+
 def test_publisher_for_is_the_reverse_of_the_filter_value():
     from dataportalen.rdf import known_publishers, publisher_for, resolve_publisher
 

@@ -884,6 +884,8 @@ def terms(uris: Sequence[str], languages: Sequence[str] = DEFAULT_LANGUAGES) -> 
 
 _VOCABULARY_FILE = os.path.join(os.path.dirname(__file__), "vocabulary.json")
 _ORGANISATIONS_FILE = os.path.join(os.path.dirname(__file__), "organisations.json")
+#: Short names for publishers, kept by hand: `scb` for the 50-character slug.
+_ALIASES_FILE = os.path.join(os.path.dirname(__file__), "aliases.json")
 
 _PARENTHETICAL = re.compile(r"\([^)]*\)")
 #: Labels for file and media types carry the extension in a parenthetical,
@@ -1041,8 +1043,16 @@ def _build_publishers() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     return by_slug, by_uri
 
 
+def _build_aliases() -> Dict[str, str]:
+    """``alias -> publisher slug``, both slugified so lookups match input."""
+    return {slugify(alias): slugify(target)
+            for alias, target in _load(_ALIASES_FILE, "aliases").items()
+            if alias and target}
+
+
 _BY_SLUG, _BY_URI = _build_terms()
 _PUBLISHERS, _PUBLISHER_BY_URI = _build_publishers()
+_ALIASES = _build_aliases()
 
 
 def publisher_for(uri: Optional[str]) -> Optional[str]:
@@ -1126,17 +1136,21 @@ def resolve(value: str, what: str = "value") -> List[str]:
 
 
 def resolve_publisher(value: str) -> List[str]:
-    """The URIs for a publisher named by slug or organisation number.
+    """The URIs for a publisher named by slug, alias or organisation number.
 
     >>> resolve_publisher("trafikverket")          # doctest: +SKIP
     ['http://dataportal.se/organisation/SE2021006297']
+    >>> resolve_publisher("scb") == resolve_publisher(
+    ...     "statistikmyndigheten_scb_statistiska_centralbyran")
+    True
     """
     if not isinstance(value, str) or not value.strip():
         raise QueryError("publisher must be a non-empty string, got %r" % (value,))
     slug = slugify(value)
+    slug = _ALIASES.get(slug, slug)
     found = _PUBLISHERS.get(slug)
     if not found:
-        raise _suggest(slug, list(_PUBLISHERS), "publisher")
+        raise _suggest(slug, list(_PUBLISHERS) + list(_ALIASES), "publisher")
     return list(found)
 
 
@@ -1199,9 +1213,10 @@ def known_values(filter: Optional[str] = None, prefix: str = "") -> List[str]:
 
 
 def known_publishers(prefix: str = "") -> List[str]:
-    """Every publisher name this package can resolve, optionally filtered."""
+    """Every publisher name this package can resolve, aliases included."""
     slug = slugify(prefix) if prefix else ""
-    return sorted(s for s in _PUBLISHERS if not slug or slug in s)
+    names = set(_PUBLISHERS) | set(_ALIASES)
+    return sorted(s for s in names if not slug or slug in s)
 
 
 __all__ = [
