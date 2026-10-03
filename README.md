@@ -1,5 +1,9 @@
 # dataportalen
 
+[![PyPI](https://img.shields.io/pypi/v/dataportalen)](https://pypi.org/project/dataportalen/)
+[![CI](https://github.com/nordicintel/dataportalen/actions/workflows/ci.yml/badge.svg)](https://github.com/nordicintel/dataportalen/actions/workflows/ci.yml)
+[![Licence](https://img.shields.io/pypi/l/dataportalen)](LICENSE)
+
 Python access to [dataportal.se](https://www.dataportal.se) that gives you
 **plain dicts, not RDF**.
 
@@ -54,10 +58,20 @@ Run it deliberately the first time — it prints a progress line.
 
 ## Licence
 
-Code is MIT. The bundled label table is third-party data redistributed under
-CC BY 4.0 and EU Decision 2011/833/EU; both notices are in
-[LICENSE](LICENSE), with the details in
-[docs/internals.md](docs/internals.md).
+Code is [MIT](LICENSE). The bundled label table is third-party data
+redistributed under CC BY 4.0 and EU Decision 2011/833/EU; the attributions are
+in [NOTICE](NOTICE), with the details in
+[docs/internals.md](docs/internals.md#attribution).
 
 Metadata you retrieve is published by its respective publishers, each under its
 own licence — check the `license` field on the dataset.
+
+## Status
+
+Most of the code here was written with an AI coding assistant. The design,
+features and scope are my decisions, and everything shipped has been reviewed
+and tested against the live registry.
+
+This package exists to support NordicIntel's main project, so expect it to be
+maintained rather than extended. Bug reports are welcome; I am not looking for
+co-maintainers.
