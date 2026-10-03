@@ -34,5 +34,5 @@ jobs:
       - name: Live tests
         env:
           DATAPORTAL_LIVE: "1"
-          DATAPORTAL_USER_AGENT: "dataportalen-ci (+https://github.com/nordicintel/dataportal)"
+          DATAPORTAL_USER_AGENT: "dataportalen-ci (+https://github.com/nordicintel/dataportalen)"
         run: python -m pytest tests -q -m network

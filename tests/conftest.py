@@ -92,7 +92,7 @@ def transport() -> FakeTransport:
 
 
 #: Two datasets, enough to exercise every filter and the breakdown. Text is
-#: a language map, as every record written since 0.7.0 is.
+#: a language map, as every record the download writes is.
 CATALOG_RECORDS = [
     {
         "uri": "https://example.org/roads",

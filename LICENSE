@@ -19,38 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
---------------------------------------------------------------------------------
-
-THIRD-PARTY DATA
-
-The file src/dataportalen/vocabulary.json is generated data, not source code.
-The MIT License above covers this package's code; it does not override the
-terms of the data, which is redistributed from:
-
-  DCAT-AP-SE, Myndigheten for digital forvaltning (DIGG)
-  Swedish and English vocabulary labels
-  https://github.com/diggsweden/DCAT-AP-SE
-  Creative Commons Attribution 4.0 International (CC BY 4.0)
-  https://creativecommons.org/licenses/by/4.0/
-
-  GeoNames geographical database
-  Place names for dcterms:spatial, from the SE.zip and countryInfo.txt exports
-  https://www.geonames.org/
-  Creative Commons Attribution 4.0 International (CC BY 4.0)
-  https://creativecommons.org/licenses/by/4.0/
-
-  EU Vocabularies, Publications Office of the European Union
-  Data themes, file types, frequencies, languages, access rights, availability
-  https://op.europa.eu/en/web/eu-vocabularies
-  Reusable under Commission Decision 2011/833/EU
-  https://eur-lex.europa.eu/eli/dec/2011/833/oj
-
-  INSPIRE registry, European Commission
-  INSPIRE themes, topic categories and related code lists
-  https://inspire.ec.europa.eu/registry
-  Reusable under Commission Decision 2011/833/EU
-
-No third-party data is fetched at runtime. Metadata retrieved from
-dataportal.se through this package is published by its respective publishers,
-each under its own license - see the license field on every dataset.

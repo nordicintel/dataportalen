@@ -615,10 +615,10 @@ def _collect_names(record: Dict[str, Any], out: Dict[str, Dict[str, Any]]) -> No
             out[slug] = org["name"]
 
 def _date(value: Any) -> Optional[str]:
-    """Accept "2024-01-01", a date or a datetime; emit what Solr needs.
+    """Accept "2024-01-01", a date or a datetime; emit the full timestamp Solr needs.
 
-    A bare date used to produce an HTTP 400, which is the whole reason this
-    exists: the obvious input has to be the working one.
+    Solr rejects a bare date with HTTP 400, so the obvious input is widened
+    here rather than refused.
     """
     if value is None:
         return None
@@ -643,10 +643,10 @@ def _date(value: Any) -> Optional[str]:
 def _require_values(value: Any, name: str) -> List[str]:
     """The values of a filter, refusing the ones that quietly mean everything.
 
-    An empty list used to sail through `keyword=[]` as "no conditions" and
-    hand back all 23,576 datasets, while `theme=[]` gave none -- the same
-    input, two opposite answers, neither of them an error. Caller code that
-    builds a tag list which comes out empty deserves to be told.
+    `keyword=[]` or `theme=None` is almost always a tag list that came out
+    empty by accident. Treating it as "no condition" would return the whole
+    corpus; treating it as "no match" would return nothing. Either answer
+    hides the mistake, so it is an error instead.
     """
     if value is None:
         raise QueryError(
@@ -1147,17 +1147,17 @@ class Catalog:
     entries, so reading all of it takes minutes. This downloads it once and
     every search after that is local::
 
-        from dataportalen import Catalog
+        from dataportalen import Catalog, text
 
         cat = Catalog()                                  # downloads on first use
         page = cat.datasets(theme="transport", format="csv")
         page.total                                       # 72
         page.breakdown["publisher"]                      # who publishes them
         for dataset in page:
-            print(dataset["title"]["sv"], dataset["distributions"])
+            print(text(dataset["title"]), dataset["distributions"])
 
     Everything that creates or replaces the file is an argument here, so
-    nothing downloads 58 MB behind a call that looked like a search.
+    nothing downloads 64 MB behind a call that looked like a search.
 
     :param path: the JSONL file; a ``.gz`` suffix is read and written as gzip.
         Defaults to :func:`default_catalog_path`.
@@ -1671,10 +1671,8 @@ def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
     Where the table does vouch for it, the value is translated to the slug a
     record actually stores. ``organisations.json`` indexes every publisher
     under both its slugged name and its organisation number, so
-    ``publisher="SE2021006297"`` validates -- and used to be matched, as
-    itself, against records filed under ``trafikverket``. It matched nothing
-    and said nothing: 186 accepted values could never match, 184 of them
-    naming an organisation that really is in the file.
+    ``publisher="SE2021006297"`` has to end up matching records filed under
+    ``trafikverket``, not be compared against them as itself.
     """
     slug = slugify(value)
     if observed is not None and slug in observed:

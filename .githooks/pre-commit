@@ -1,4 +1,0 @@
-#!/bin/sh
-# Lint before every commit. Enable once per clone:
-#   git config core.hooksPath .githooks
-exec python -m ruff check src tests tools

@@ -8,9 +8,9 @@ filter and record key is in [reference.md](reference.md).
 3. [Rebuilding the table](#rebuilding-the-table)
 4. [Module layout](#module-layout)
 5. [What the registry can do](#what-the-registry-can-do)
-6. [Development](#development)
-7. [Releasing](#releasing)
-8. [Measured, not assumed](#measured-not-assumed)
+6. [Two invariants](#two-invariants)
+7. [Development](#development)
+8. [Releasing](#releasing)
 9. [Attribution](#attribution)
 
 ## Where the short values come from
@@ -42,34 +42,28 @@ organisation number). Nothing is fetched at runtime.
 breakdown value:
 
 ```python
-from dataportalen.rdf import label_for
-
-label_for("national_authority")
-# {'en': 'National authority', 'sv': 'Nationell myndighet'}
-```
-
-An organisation has no vocabulary entry, so its label and its slug both come
-from the records: the URI table first, then the name the publisher wrote.
-Without that fallback 13 of the 365 publishers and 98 of the 146 creators would
-have no filter value at all, because they mint URIs the table never saw
-(`fohm-app.folkhalsomyndigheten.se/...`, `myndighetsregistret.scb.se/...`).
-
-```python
-from dataportalen.rdf import slug_for, resolve
+from dataportalen.rdf import label_for, resolve, slug_for
 
 slug_for("http://publications.europa.eu/resource/authority/data-theme/TRAN")
 # 'transport'
 resolve("transport")
 # ['http://publications.europa.eu/resource/authority/data-theme/TRAN']
+label_for("national_authority")
+# {'en': 'National authority', 'sv': 'Nationell myndighet'}
 ```
+
+An organisation has no vocabulary entry, so its label and its slug both come
+from the records: the URI table first, then the name the publisher wrote. The
+fallback matters because some publishers mint URIs the table never saw
+(`fohm-app.folkhalsomyndigheten.se/...`, `myndighetsregistret.scb.se/...`).
 
 A URI with no label falls back to its last path segment, slugified, so output is
 always a short string and never a URI.
 
 ## Label coverage
 
-Measured over a seeded random sample of 5,000 datasets drawn from random
-positions across the corpus (25,038 vocabulary values):
+Measured over a seeded random sample of 5,000 datasets (25,038 vocabulary
+values):
 
 | Field | Labelled |
 | --- | --- |
@@ -109,8 +103,8 @@ Built from DIGG's own [DCAT-AP-SE templates](https://github.com/diggsweden/DCAT-
 the authority tables the remaining URIs dereference to, and the GeoNames bulk
 exports for place names. The script measures coverage against the URIs
 publishers are actually using in the live registry and prints what it could not
-resolve, so gaps stay visible rather than assumed. Commit the regenerated
-`vocabulary.json` and release it as a patch version.
+resolve, so gaps stay visible. Commit the regenerated `vocabulary.json` and
+release it as a patch version.
 
 ## Module layout
 
@@ -128,26 +122,46 @@ Six modules; callers import from the package root.
 ### Public and internal
 
 `Catalog` is the public surface: `datasets()`, `data_services()`, `filters()`,
-`get()`, `info()`, `close()`. Five methods where 0.6.0 had 32 on `Dataportal`
-plus 7 on `LocalCatalog`. Plus `text()`, `default_catalog_path()` and the
-result types -- see [reference.md](reference.md#everything-exported).
+`get()`, `info()`, `close()`. Plus `text()`, `default_catalog_path()` and the
+result types — see [reference.md](reference.md#everything-exported).
 
 Everything that talks to the registry sits behind `_Registry`, and the RDF layer
--- `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` -- is internal but very much
+— `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` — is internal but very much
 alive: the download is built on it. `_crawl` pages through
 `_Registry._search(Q.rdf_type(...))` and parses each hit into a model before
 calling `to_dict()`. None of it is exported, because 36 of the 42 `rdfType`
 values in the registry are EntryStore bookkeeping and a public `search()` mostly
 opened a door onto that.
 
-`transport=` survives as a constructor argument for one reason worth knowing:
-`tests/conftest.py` subclasses `BaseTransport` and uses it at 31 call sites,
-which is how the whole offline suite runs with no network. Import it from
-`dataportalen.core`.
+`transport=` on `Catalog` takes any `BaseTransport` from `dataportalen.core`.
+The test suite uses a fake one that replays recorded responses, which is how
+the whole offline suite runs with no network.
+
+### Where each call goes
+
+Everything but one reads the file. `datasets()`, `data_services()`, `filters()`,
+`get()` and `info()` never touch the network; `get(uri, format=...)` is the
+single exception, and you have to name a format to get it. The download is the
+only other thing that makes requests.
+
+The download writes one JSONL file with both kinds of record, each tagged
+`type`. A record with no `type` is read as a dataset, for files written by
+older versions.
+
+The agent crawl asks for all three agent types (`foaf:Agent`,
+`foaf:Organization`, `prov:Agent`). The 69 entries typed `foaf:Organization`
+carry about a third of all creator references, so leaving them out turns those
+creators into bare URIs.
+
+A value that the vocabulary table does not know but the file does contain —
+`parquet`, a bare GeoNames id — is still a valid filter value: `_local_slugs`
+falls back to what the catalogue actually holds, so everything a breakdown
+reports can be filtered on. A value that is neither known nor present is an
+error, with suggestions.
 
 ## What the registry can do
 
-Measured, because both numbers shape the package's design:
+Measured, because these numbers shape the design:
 
 | | |
 | --- | --- |
@@ -155,11 +169,11 @@ Measured, because both numbers shape the package's design:
 | Throughput | ~2.2 requests/second, and **concurrency does not help** — 8, 16 and 32 workers all measure the same |
 | Rate limiting | none observed: no `Retry-After`, no rate-limit headers, no 429s in a 64-request burst |
 | Deep paging | flat — offset 23,000 costs the same as offset 0 |
-| Paging stability | walking 2,000 datasets gives 2,000 distinct entries under `created asc` and under `uri asc`. The crawl uses `uri asc` because it is unique per entry, so a page boundary cannot move |
+| Paging stability | the crawl pages under `uri asc` because it is unique per entry, so a page boundary cannot move |
 | Duplicate URIs | a few datasets are published into two catalogues, so one `uri` can appear twice with different `context_id`/`entry_id`. In a full export: 23,576 entries, 23,572 distinct URIs |
 
 So the ceiling is roughly 200 datasets a second whatever you do, which is why a
-full download takes ~7 minutes -- and why the package reads the catalogue once
+full download takes ~7 minutes — and why the package reads the catalogue once
 and searches it locally.
 
 ### What is in the registry, and what got into the file
@@ -171,10 +185,10 @@ Every `rdfType` in the registry, counted in full:
 | `dcat:Dataset` | 23,576 | yes |
 | `dcat:Distribution` | 34,916 | nested in its dataset |
 | `dcat:DataService` | 599 | yes |
-| `dcat:Catalog` | 656 | no -- only 157 hold a dataset, and 127 of 152 live ones have exactly one publisher, so it duplicates `publisher`. `context_id` on the record identifies the harvest source |
+| `dcat:Catalog` | 656 | no — only 157 hold a dataset, and 127 of 152 live ones have exactly one publisher, so it duplicates `publisher`. `context_id` on the record identifies the harvest source |
 | `foaf:Agent` + `foaf:Organization` + `prov:Agent` | 7,609 | nested as `publisher` and `creators`. 4,916 of them are `private_individual` and reach no dataset |
 | vcard contact types (8 of them) | ~48,000 | nested as `contact_points` |
-| EntryStore/EntryScape internals (17 types) | -- | no. `PipelineResult`, `List`, `CatalogContext`, `CatalogStatistics`, `LinkCheckReport`, `MQA`, `User`... the CMS talking to itself |
+| EntryStore/EntryScape internals (17 types) | — | no. `PipelineResult`, `List`, `CatalogContext`, `CatalogStatistics`, `LinkCheckReport`, `MQA`, `User`... the CMS talking to itself |
 | `dcterms:Standard`, `prof:Profile`, `schema:Question` and friends | <400 | no |
 
 Of 42 distinct types, six are DCAT and 36 are platform bookkeeping. That ratio
@@ -184,57 +198,34 @@ One asymmetry worth knowing if you join the two types: `servedByDataService`
 appears on **29% of datasets** while `servesDataset` appears on **8% of data
 services**. The link is recorded far more often from the dataset side.
 
-### Where each call goes
+## Two invariants
 
-Everything but one reads the file. `datasets()`, `data_services()`, `filters()`,
-`get()` and `info()` never touch the network; `get(uri, format=...)` is the
-single exception, and you have to name a format to get it. The download is the
-only other thing that makes requests. There is no mode switch, so there is
-nothing to get wrong.
-
-Searches return `Results`, a `list` of dicts carrying `total`, `offset`,
-`limit`, `has_more` and `breakdown`.
-
-The download writes one file with both kinds of line, each tagged `type`. A
-record written before 0.7.0 has no `type` and is read as a dataset, which is all
-those files held.
-
-The agent crawl asks for all three agent types. `foaf:Agent` alone (5,847) misses
-the 69 entries typed `foaf:Organization`, and those 69 carry 2,073 of the 7,151
-creator references -- a third of them, which landed as bare URIs until this was
-found by checking a real download rather than a fixture.
-
-A value that the vocabulary table does not know but the file does contain --
-`parquet`, a bare GeoNames id -- is still a valid filter value: `_local_slugs`
-falls back to what the catalogue actually holds, so everything a breakdown
-reports can be filtered on. A value that is neither known nor present is
-still an error, with suggestions.
-
-### Two things that will bite
-
-**A local filter matches its value exactly when the file contains it.** Only
-then does it fall back to vocabulary expansion. That ordering is load-bearing:
-`json` also resolves to `application/json+zip`, whose own slug is
-`json_in_a_zip`, so expanding first made `format="json"` return 14,173 where the
-breakdown said 14,119 -- and the breakdown's counts stopped agreeing with the
-searches its values produce. `tests/test_filters.py` round-trips every value of
-every filter, which is the invariant to keep.
+**A local filter matches its value exactly when the file contains it, and only
+then falls back to vocabulary expansion.** The order matters: `json` also
+resolves to `application/json+zip`, whose own slug is `json_in_a_zip`, so
+expanding first makes `format="json"` return more than the breakdown row for
+`json` claims. `tests/test_filters.py` round-trips every value of every filter,
+which is the invariant to keep: every value a breakdown reports filters back to
+exactly its own count.
 
 **An organisation's slug comes from the URI table first and its own name
-second.** Dropping the fallback silently loses 13 of the 365 publishers and 98
-of the 146 creators, because they mint URIs the table never saw. Dropping the
-table and using only names would break every slug users have written down.
+second.** Dropping the fallback silently loses the publishers and creators that
+mint URIs the table never saw. Dropping the table and using only names would
+break every slug users have written down.
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-git config core.hooksPath .githooks     # once per clone: lint before commits
 
 pytest                                  # offline, against recorded fixtures
 DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
 ruff check src tests tools
 ```
+
+CI runs the offline suite and ruff on every push, on Python 3.9 to 3.13. The
+live tests run weekly in a separate workflow so that a registry outage or a
+changed harvest never fails a pull request.
 
 ## Releasing
 
@@ -243,10 +234,10 @@ ruff check src tests tools
 it by hand with the dry-run switch turned off.
 
 1. Bump `__version__` in `src/dataportalen/core.py` — the single source, read by
-   `pyproject.toml` and by the User-Agent.
+   `pyproject.toml` and by the User-Agent. Add the entry to `CHANGELOG.md`.
 2. Merge to `main`.
-3. `gh release create v0.3.0 --title "v0.3.0" --notes "What changed"`
-   (or **Releases → Draft a new release**, tag `v0.3.0`, target `main`).
+3. **Releases → Draft a new release**, tag `v<version>`, target `main`, paste
+   the changelog entry as the notes.
 4. Watch **Actions → Release**. It checks the tag against `core.py`, tests,
    builds and uploads.
 
@@ -260,54 +251,6 @@ If the tag and the version disagree the workflow stops before uploading. If an
 upload fails partway, **do not retry the same version** — PyPI refuses
 re-uploads of a version even after deletion; bump the patch and release again.
 
-## Measured, not assumed
-
-The numbers this design rests on, and where they came from. Everything here was
-measured against the live registry rather than estimated, because several of
-them overturned a guess. Counted on 2026-09-30; the registry gains a handful of
-datasets a day, so the absolute figures drift and the ratios do not.
-
-| Fact | Value |
-| --- | --- |
-| Datasets / data services / distributions | 23,576 / 599 / 35,133 in the file |
-| Full download | 673 requests, ~7 minutes, 64 MiB |
-| Loading the file | ~1.3 s |
-| A filtered search | 0.02-0.06 s |
-| `filters()` over the whole corpus | ~0.47 s |
-| `data_services(limit=0)` | 0.005 s |
-| Distinct `rdfType` values in the registry | 42 (6 DCAT, 36 platform) |
-| Catalogs registered / holding a dataset | 656 / 157 |
-| Live catalogs with exactly one publisher | 127 of 152 |
-| Widest aggregator catalog | context `818`: 6,607 datasets from **110 publishers** |
-| Agents / of which publish anything | 7,609 / 365 |
-| Agents that are `private_individual` | 4,916 (65%) |
-| Distinct creator URIs / resolvable | 146 / 145 |
-| Duplicate dataset URIs | 4 of 23,576 |
-| Datasets Swedish-only / both / English-only | 53% / 36% / 10% |
-| Publisher+creator organisations with an English name | 149 of 392 |
-| ...of those, sv and en genuinely differ | 105 (70%) |
-| `FakeTransport` call sites in the test suite | 31 |
-
-Three of these changed a decision:
-
-**The counter was slower than the thing it replaced.** `count_datasets(theme=
-"transport")` measured 53.1 ms against 43.9 ms for `datasets(theme="transport",
-limit=0)` -- and the cheap version threw away the breakdown it got for free. It
-made sense against the API, where a count was one request and a list was 236.
-Locally the scan *is* the count, so it went.
-
-**A language setting was the wrong shape.** 53% of datasets are Swedish only,
-36% carry both languages and 10% are English only, so a single-language read had
-to fall back for a tenth of the registry and silently discarded the English of
-another third. And of the 149 organisations that have both names, 105 genuinely
-differ -- `Svensk nationell datatjänst` / `Swedish National Data Service` -- so
-collapsing them would have lost a real translation in a quarter of cases.
-
-**Browse-lists over registry internals were mostly noise.** 656 catalogs of
-which 499 hold nothing; 7,609 agents of which 365 publish anything and 4,916 are
-individual researchers. Both listings went, and `context_id` on the record
-covers the one case the catalog listing answered.
-
 ## Attribution
 
 `vocabulary.json` is data, not code, compiled from third-party sources and
@@ -320,5 +263,5 @@ redistributed under their terms:
 | [EU Vocabularies](https://op.europa.eu/en/web/eu-vocabularies) | themes, file types, frequencies, languages | Decision 2011/833/EU |
 | [INSPIRE registry](https://inspire.ec.europa.eu/registry) | INSPIRE themes and code lists | Decision 2011/833/EU |
 
-The same notice ships with the package, at the bottom of [LICENSE](../LICENSE)
-and in the `_comment` key of `vocabulary.json` itself.
+The same notice ships with the package, in [NOTICE](../NOTICE) and in the
+`_comment` key of `vocabulary.json` itself.

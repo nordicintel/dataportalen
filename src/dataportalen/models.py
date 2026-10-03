@@ -1241,10 +1241,10 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 # --- search results ---------------------------------------------------------
 
 
-#: What a dataset can be filtered and broken down by. Every one was measured
-#: over all 23,575 datasets: publisher and license are on 100% of them,
-#: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
-#: 69.7%, updated 63.3%, creator 30.1%, place 23.6%.
+#: What a dataset can be filtered and broken down by. Coverage over the
+#: corpus: publisher and license on 100% of datasets, keyword 94.8%, language
+#: 89.3%, access_rights 82.3%, theme 78.2%, format 69.7%, updated 63.3%,
+#: creator 30.1%, place 23.6%.
 DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
                    "keyword", "format", "license", "access_rights",
                    "updated", "language", "place")
