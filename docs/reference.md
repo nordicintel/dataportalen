@@ -31,7 +31,7 @@ cat.close()                                                           -> None
 
 | | |
 | --- | --- |
-| `datasets()` | Search the datasets — 23,581 of them today. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
+| `datasets()` | Search the datasets — 23,576 of them. `limit=None` for every match, `limit=0` for the count and breakdown with no rows. |
 | `data_services()` | Search the 599 data services. Same signature; refuses `format`, `updated`, `place`, `language` and the date filters. |
 | `filters()` | Every dataset filter, every value present, count-descending, with labels. ~0.5 s over the whole corpus. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |
