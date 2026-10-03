@@ -9,6 +9,7 @@ description = "dataportal.se as plain Python dicts: DCAT-AP-SE metadata with voc
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Nordic Intel" }]
 keywords = ["dataportal", "dcat", "dcat-ap-se", "rdf", "entrystore", "open-data", "sweden"]
 classifiers = [
@@ -17,18 +18,25 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
   "Topic :: Internet :: WWW/HTTP",
   "Typing :: Typed",
 ]
 dependencies = ["requests>=2.25"]
 
 [project.optional-dependencies]
-# Only tooling. Everything a user needs is a hard dependency.
 dev = ["pytest>=7", "ruff>=0.16"]
 
 [project.urls]
-Homepage = "https://github.com/nordicintel/dataportal"
-Documentation = "https://docs.dataportal.se/registry/api/"
+Homepage = "https://github.com/nordicintel/dataportalen"
+Documentation = "https://github.com/nordicintel/dataportalen/blob/main/docs/guide.md"
+Changelog = "https://github.com/nordicintel/dataportalen/blob/main/CHANGELOG.md"
+Issues = "https://github.com/nordicintel/dataportalen/issues"
 
 # Single source of truth, read here and by the User-Agent in core.py
 [tool.hatch.version]
@@ -38,7 +46,7 @@ path = "src/dataportalen/core.py"
 packages = ["src/dataportalen"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "docs", "README.md", "LICENSE", "pyproject.toml"]
+include = ["src", "tests", "tools", "docs", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100
