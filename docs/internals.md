@@ -7,8 +7,8 @@ filter and record key is in [reference.md](reference.md).
 2. [Label coverage](#label-coverage)
 3. [Rebuilding the table](#rebuilding-the-table)
 4. [Module layout](#module-layout)
-5. [The store](#the-store)
-6. [What the registry can do](#what-the-registry-can-do)
+5. [What the registry can do](#what-the-registry-can-do)
+6. [The store](#the-store)
 7. [Development](#development)
 8. [Releasing](#releasing)
 9. [Measured, not assumed](#measured-not-assumed)
@@ -43,8 +43,12 @@ organisation number). Nothing is fetched at runtime.
 facet value:
 
 ```python
-from dataportalen.rdf import label_for
+from dataportalen.rdf import label_for, resolve, slug_for
 
+slug_for("http://publications.europa.eu/resource/authority/data-theme/TRAN")
+# 'transport'
+resolve("transport")
+# ['http://publications.europa.eu/resource/authority/data-theme/TRAN']
 label_for("national_authority")
 # {'en': 'National authority', 'sv': 'Nationell myndighet'}
 ```
@@ -55,22 +59,13 @@ Without that fallback 13 of the 365 publishers would have no filter value at
 all, because they mint URIs the table never saw
 (`fohm-app.folkhalsomyndigheten.se/...`, `myndighetsregistret.scb.se/...`).
 
-```python
-from dataportalen.rdf import slug_for, resolve
-
-slug_for("http://publications.europa.eu/resource/authority/data-theme/TRAN")
-# 'transport'
-resolve("transport")
-# ['http://publications.europa.eu/resource/authority/data-theme/TRAN']
-```
-
 A URI with no label falls back to its last path segment, slugified, so output is
 always a short string and never a URI.
 
 ## Label coverage
 
-Measured over a seeded random sample of 5,000 datasets drawn from random
-positions across the corpus (25,038 vocabulary values):
+Measured over a seeded random sample of 5,000 datasets (25,038 vocabulary
+values):
 
 | Field | Labelled |
 | --- | --- |
@@ -111,8 +106,8 @@ Built from DIGG's own [DCAT-AP-SE templates](https://github.com/diggsweden/DCAT-
 the authority tables the remaining URIs dereference to, and the GeoNames bulk
 exports for place names. The script measures coverage against the URIs
 publishers are actually using in the live registry and prints what it could not
-resolve, so gaps stay visible rather than assumed. Commit the regenerated
-`vocabulary.json` and release it as a patch version.
+resolve, so gaps stay visible. Commit the regenerated `vocabulary.json` and
+release it as a patch version.
 
 `EXTRA_LABELS` in the script is ours: labels the sources lack or get wrong,
 and they win. `--extra-only` applies them to the existing table with no
@@ -165,7 +160,7 @@ so each search first asks which spellings exist with a `(?iu)` `facetMatches`
 pattern, then matches those as quoted phrases.
 
 Everything that talks to the registry sits behind `_Registry`, and the RDF layer
--- `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` -- is internal but very much
+— `Q`, `Graph`, `Entry`, `Dataset`, `SearchPage` — is internal but very much
 alive: the download is built on it. `_crawl` pages through
 `_Registry._search(Q.rdf_type(...))` and parses each hit into a model before
 calling `to_dict()`. None of it is exported, because 36 of the 42 `rdfType`
@@ -179,7 +174,7 @@ it is not a feature; a user has no reason to touch it.
 
 ## What the registry can do
 
-Measured, because both numbers shape the package's design:
+Measured, because these numbers shape the design:
 
 | | |
 | --- | --- |
@@ -187,11 +182,11 @@ Measured, because both numbers shape the package's design:
 | Throughput | ~2.2 requests/second, and **concurrency does not help** — 8, 16 and 32 workers all measure the same |
 | Rate limiting | none observed: no `Retry-After`, no rate-limit headers, no 429s in a 64-request burst |
 | Deep paging | flat — offset 23,000 costs the same as offset 0 |
-| Paging stability | walking 2,000 datasets gives 2,000 distinct entries under `created asc` and under `uri asc`. The crawl uses `uri asc` because it is unique per entry, so a page boundary cannot move |
+| Paging stability | the crawl pages under `uri asc` because it is unique per entry, so a page boundary cannot move |
 | Duplicate URIs | a few datasets are published into two catalogues, so one `uri` can appear twice with different `context_id`/`entry_id`. In a full export: 23,576 entries, 23,572 distinct URIs |
 
 So the ceiling is roughly 200 datasets a second whatever you do, which is why a
-full download takes ~7 minutes -- and why the package reads the catalogue once
+full download takes ~7 minutes — and why the package reads the catalogue once
 and searches it locally.
 
 ### What is in the registry, and what got into the file
@@ -206,7 +201,7 @@ Every `rdfType` in the registry, counted in full:
 | `dcat:Catalog` | 656 | no -- only 157 hold a dataset, and 127 of 152 live ones have exactly one publisher, so it duplicates `publisher`. `context_id` on the record identifies the harvest source |
 | `foaf:Agent` + `foaf:Organization` + `prov:Agent` | 7,609 | nested as `publisher`. 4,916 of them are `private_individual` and reach no dataset |
 | vcard contact types (8 of them) | ~48,000 | nested as `contact_points` |
-| EntryStore/EntryScape internals (17 types) | -- | no. `PipelineResult`, `List`, `CatalogContext`, `CatalogStatistics`, `LinkCheckReport`, `MQA`, `User`... the CMS talking to itself |
+| EntryStore/EntryScape internals (17 types) | — | no. `PipelineResult`, `List`, `CatalogContext`, `CatalogStatistics`, `LinkCheckReport`, `MQA`, `User`... the CMS talking to itself |
 | `dcterms:Standard`, `prof:Profile`, `schema:Question` and friends | <400 | no |
 
 Of 42 distinct types, six are DCAT and 36 are platform bookkeeping. That ratio
@@ -425,12 +420,15 @@ download that dies still leaves the old catalogue untouched.
 
 ```bash
 pip install -e ".[dev]"
-git config core.hooksPath .githooks     # once per clone: lint before commits
 
 pytest                                  # offline, against recorded fixtures
 DATAPORTAL_LIVE=1 pytest -m network     # against the real registry
 ruff check src tests tools
 ```
+
+CI runs the offline suite and ruff on every push, on Python 3.9 to 3.13. The
+live tests run weekly in a separate workflow so that a registry outage or a
+changed harvest never fails a pull request.
 
 ## Releasing
 
@@ -439,10 +437,10 @@ ruff check src tests tools
 it by hand with the dry-run switch turned off.
 
 1. Bump `__version__` in `src/dataportalen/core.py` — the single source, read by
-   `pyproject.toml` and by the User-Agent.
+   `pyproject.toml` and by the User-Agent. Add the entry to `CHANGELOG.md`.
 2. Merge to `main`.
-3. `gh release create v0.3.0 --title "v0.3.0" --notes "What changed"`
-   (or **Releases → Draft a new release**, tag `v0.3.0`, target `main`).
+3. **Releases → Draft a new release**, tag `v<version>`, target `main`, paste
+   the changelog entry as the notes.
 4. Watch **Actions → Release**. It checks the tag against `core.py`, tests,
    builds and uploads.
 
@@ -552,5 +550,5 @@ redistributed under their terms:
 | [EU Vocabularies](https://op.europa.eu/en/web/eu-vocabularies) | themes, file types, frequencies, languages | Decision 2011/833/EU |
 | [INSPIRE registry](https://inspire.ec.europa.eu/registry) | INSPIRE themes and code lists | Decision 2011/833/EU |
 
-The same notice ships with the package, at the bottom of [LICENSE](../LICENSE)
-and in the `_comment` key of `vocabulary.json` itself.
+The same notice ships with the package, in [NOTICE](../NOTICE) and in the
+`_comment` key of `vocabulary.json` itself.

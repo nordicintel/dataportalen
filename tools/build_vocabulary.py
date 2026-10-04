@@ -287,8 +287,8 @@ def dereference(uris: Iterable[str]) -> Dict[str, Dict[str, str]]:
 #: Fields whose values are genuine controlled vocabularies. dcterms:conformsTo
 #: is deliberately absent: it holds arbitrary specification URLs.
 #: (report name, model property) for the fields whose values are controlled
-#: vocabulary URIs. Measured from the URIs rather than from ``to_dict()``,
-#: which now returns short names and no longer says whether a label was found.
+#: vocabulary URIs. Coverage is measured from the raw URIs, because
+#: ``to_dict()`` returns short names and cannot say whether a label was found.
 #: Values publishers use that no authority table labels. Without these the
 #: name falls back to the URI's tail -- "vnd_iso_19139_xml", a bare GeoNames
 #: id -- and two spellings of one format (application/ld+json and
@@ -516,7 +516,7 @@ def main(argv: Optional[list] = None) -> int:
             "t code: labels come from DIGG's DCAT-AP-SE (CC BY 4.0), the GeoNames"
             ' bulk exports (CC BY 4.0), the EU Publications Office authority tabl'
             'es and the INSPIRE registry (both reusable under Commission Decision'
-            ' 2011/833/EU). See LICENSE. Do not edit by hand; re-run the '
+            ' 2011/833/EU). See NOTICE. Do not edit by hand; re-run the '
             'script instead.'
         ),
         "labels": {uri: vocabulary[uri] for uri in sorted(vocabulary)},

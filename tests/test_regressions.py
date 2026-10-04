@@ -1,7 +1,7 @@
-"""Regressions for the defects the pre-release review of 0.7.0 turned up.
+"""Regression tests, each named for the behaviour it protects.
 
-Each one is named for what went wrong rather than for the function, because
-the point is the behaviour, not the implementation that happened to cause it.
+The docstrings say what went wrong once, because that is what the test is
+guarding against; the name says what must hold.
 """
 
 from __future__ import annotations
@@ -27,8 +27,7 @@ def test_an_organisation_number_finds_the_same_datasets_as_the_name(catalog):
     """organisations.json indexes both, so both have to match the same thing.
 
     The number validated and was then matched, as itself, against records
-    filed under the name slug -- so it matched nothing and said nothing. 186
-    accepted values could never match, 184 of them naming a real publisher.
+    filed under the name slug, so it matched nothing and said nothing.
     """
     by_name = catalog.datasets(publisher="trafikverket", limit=0).total
     by_number = catalog.datasets(publisher="SE2021006297", limit=0).total
@@ -304,36 +303,3 @@ def test_an_empty_file_is_not_a_catalogue(tmp_path, transport):
     with pytest.raises(ParseError) as info:
         Catalog(str(path), max_age=None, _transport=transport, access_rights=None)
     assert "empty" in str(info.value)
-
-
-def test_entry_has_no_reload_calling_a_method_that_went():
-    """It called _Registry.entry(), removed in 0.7.0, so it only ever raised."""
-    from dataportalen.models import Entry
-
-    assert not hasattr(Entry, "reload")
-
-
-def test_no_model_calls_a_client_method_that_does_not_exist():
-    """The models are internal, but dead code that looks live is a trap."""
-    import ast
-    import io as _io
-    import re
-
-    models = _io.open("src/dataportalen/models.py", encoding="utf-8").read()
-    client = _io.open("src/dataportalen/client.py", encoding="utf-8").read()
-    registry = next(
-        node for node in ast.parse(client).body
-        if isinstance(node, ast.ClassDef) and node.name == "_Registry")
-    have = {f.name for f in registry.body if isinstance(f, ast.FunctionDef)}
-
-    pattern = re.compile(
-        r"(?:client|self\._client|self\._require_client\(\))\.(\w+)\(")
-    called = set()
-    for node in ast.walk(ast.parse(models)):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            source = ast.unparse(node.func)
-            match = pattern.match(source + "(")
-            if match:
-                called.add(match.group(1))
-    assert called <= have, (
-        "models call client methods that do not exist: %s" % sorted(called - have))

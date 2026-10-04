@@ -4,16 +4,16 @@ The registry at ``dataportal.se`` describes its datasets in RDF, where every
 value is a web address. This downloads the catalogue once and serves searches
 from that copy, in short lowercase names::
 
-    from dataportalen import Catalog
+    from dataportalen import Catalog, text
 
     cat = Catalog()
     page = cat.datasets(theme="transport", format="csv")
     print(page.total)                    # 72
     print(page.facets["publisher"])      # who publishes them
     for dataset in page:
-        print(dataset["title"]["sv"], dataset["distributions"])
+        print(text(dataset["title"]), dataset["distributions"])
 
-The first use downloads about 58 MB, once; every search after that is local
+The first use downloads about 64 MB, once; every search after that is local
 and immediate. Text comes back as ``{"sv": ..., "en": ...}`` -- both languages
 when the publisher wrote both -- and everything from a controlled vocabulary
 as one short English word you can filter on.

@@ -209,7 +209,7 @@ def progress_reporter(
 
 
 
-DEFAULT_USER_AGENT = "dataportalen/%s (+https://github.com/nordicintel/dataportal)" % __version__
+DEFAULT_USER_AGENT = "dataportalen/%s (+https://github.com/nordicintel/dataportalen)" % __version__
 
 
 def build_url(base: str, path: str, params: Optional[Mapping[str, Any]] = None) -> str:
