@@ -4,7 +4,7 @@ All notable changes to this package. Versions are on
 [PyPI](https://pypi.org/project/dataportalen/); the headings link to the
 GitHub release.
 
-## 0.12.0 — unreleased
+## [0.12.0](https://github.com/nordicintel/dataportalen/releases/tag/v0.12.0) — 2026-10-04
 
 Breaking. Everything since 0.7.1; versions 0.8.0 to 0.11.0 were never
 published, so this is the upgrade from 0.7.1. A catalogue file written by
