@@ -242,3 +242,32 @@ def test_a_file_the_check_never_saw_is_simply_unmarked(tmp_path, transport):
         for dist in record["distributions"]:
             assert "broken" not in dist and "unverified" not in dist
     assert cat.datasets(limit=0).total == 2
+
+
+# -- what was left out is reported --------------------------------------------
+
+
+def test_info_counts_what_the_scope_left_out(path, transport):
+    """A shortcoming is reported with the answer, not only in a log line."""
+    info = Catalog(path, max_age=None, _transport=transport).info()
+    assert info["excluded"] == {"access_rights": 0, "dead_distributions": 2,
+                                "dead_datasets": 1}
+    everything = Catalog(path, max_age=None, _transport=transport,
+                         exclude_broken=False, access_rights=None).info()
+    assert everything["excluded"] == {"access_rights": 0, "dead_distributions": 0,
+                                      "dead_datasets": 0}
+
+
+def test_info_counts_records_outside_the_access_scope(tmp_path, transport):
+    info = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport).info()
+    assert info["excluded"]["access_rights"] >= 1
+
+
+def test_info_counts_the_unverified_it_still_holds(tmp_path, transport):
+    record = with_files(CATALOG_RECORDS[0],
+                        ("https://example.org/a.csv", "timeout"),
+                        ("https://example.org/b.csv", "Too Many Requests"),
+                        ("https://example.org/c.csv", ALIVE))
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport)
+    assert cat.info()["unverified_distributions"] == 2

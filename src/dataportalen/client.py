@@ -97,6 +97,7 @@ from .records import (
     Publisher,
     PublisherDetail,
 )
+from .retrieval import KINDS, classify
 
 # ==========================================================================
 # client_base: The synchronous client for the Sveriges dataportal registry API.
@@ -646,6 +647,10 @@ def local_facets(
         ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
         if name == "publisher":
             return [FacetValue(value, n, names.get(value) or {}) for value, n in ordered]
+        if name == "kind":
+            # The package's own values, not vocabulary terms: `file` and `api`
+            # must not borrow the label of a term that shares the name.
+            return [FacetValue(value, n, {}) for value, n in ordered]
         # A label comes from the vocabulary only for a vocabulary filter.
         # Looked up by bare value across every filter, 45 keywords wore the
         # label of a term that happened to share their name.
@@ -1508,6 +1513,7 @@ class Catalog:
         self._services: List[Dict[str, Any]] = []
         self._first_retrieved: Optional[str] = None
         self._last_refreshed: Optional[str] = None
+        self._excluded: Dict[str, int] = {}
         self._load(rebuild)
 
     # -- the file ----------------------------------------------------------
@@ -1585,10 +1591,14 @@ class Catalog:
         ``exclude_broken`` narrow it when the object is built, so every
         search and every count after that already agrees with them.
         """
+        excluded = {"access_rights": 0, "dead_distributions": 0,
+                    "dead_datasets": 0}
+        self._excluded = excluded
         if self.access_rights is not None:
             before = len(every)
             every = [r for r in every
                      if (r.get("access_rights") or "none") in self.access_rights]
+            excluded["access_rights"] = before - len(every)
             if before - len(every):
                 logger.info("left out %s records outside access_rights=%s",
                             f"{before - len(every):,}",
@@ -1608,6 +1618,8 @@ class Catalog:
                     record["distributions"] = alive
                 kept.append(record)
             every = kept
+            excluded["dead_distributions"] = files
+            excluded["dead_datasets"] = dead
             if files:
                 logger.info("left out %s dead files and the %s datasets that "
                             "had nothing else", f"{files:,}", f"{dead:,}")
@@ -1664,7 +1676,16 @@ class Catalog:
              "last_refreshed": "2026-10-01T06:38:13",
              "downloaded": "2026-10-01T06:38:13",
              "age_days": 0, "bytes": 98725888,
-             "datasets": 23582, "data_services": 599, "publishers": 356}
+             "datasets": 23582, "data_services": 599, "publishers": 356,
+             "excluded": {"access_rights": 0, "dead_distributions": 0,
+                          "dead_datasets": 0},
+             "unverified_distributions": 10858}
+
+        ``excluded`` is what ``access_rights`` and ``exclude_broken`` left out
+        when this object was built: records outside the access scope, dead
+        distributions, and the datasets that had nothing but dead ones.
+        ``unverified_distributions`` counts what is held but that the
+        registry's checker could not reach.
         """
         when = self.downloaded
         try:
@@ -1685,6 +1706,11 @@ class Catalog:
             # Museer...), and counting URIs would claim 365 next to a list of
             # 356.
             "publishers": len(self._rows()),
+            "excluded": dict(self._excluded),
+            "unverified_distributions": sum(
+                1 for record in self._records
+                for dist in record.get("distributions") or ()
+                if "unverified" in dist),
         }
 
     # -- lifecycle ---------------------------------------------------------
@@ -2057,6 +2083,10 @@ def _present(record: Dict[str, Any]) -> Dict[str, Any]:
         mark = dist.get("broken")
         if mark is not None and not _is_dead(mark.get("reason")):
             dist["unverified"] = dist.pop("broken")
+        # What the distribution is -- a file, an API, a web page -- read out
+        # of its metadata. Added here for the same reason as the split above:
+        # the rules can change without anybody downloading anything.
+        dist["kind"] = classify(dist)
 
     # `id` is what publisher= takes and what the publisher facet reports;
     # without it a record had no public route to its own filter value, and an
@@ -2086,7 +2116,7 @@ def _publisher_dict(agent: Dict[str, Any]) -> Dict[str, Any]:
 #: The filters whose facets describe a publisher. `keyword` is left out -- one
 #: publisher has 4,230 distinct keywords -- and so are `publisher` and
 #: `publisher_type`, which are the publisher itself.
-_PUBLISHER_FACETS = ("theme", "format", "license", "access_rights",
+_PUBLISHER_FACETS = ("theme", "format", "kind", "license", "access_rights",
                      "updated", "language")
 
 
@@ -2235,6 +2265,9 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "format":
         return [d["format"] for d in (record.get("distributions") or [])
                 if d.get("format")]
+    if filter == "kind":
+        return [d.get("kind") or classify(d)
+                for d in (record.get("distributions") or [])]
     if filter == "updated":
         value = record.get("accrual_periodicity")
         return [value] if value else []
@@ -2349,8 +2382,8 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
-    if name in ("query", "keyword", "publisher", "theme", "format", "license",
-                "access_rights", "updated", "language",
+    if name in ("query", "keyword", "publisher", "theme", "format", "kind",
+                "license", "access_rights", "updated", "language",
                 "publisher_type", "service_type"):
         _require_values(value, name)
 
@@ -2414,6 +2447,17 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
                        for keyword in _local_values(record, "keyword"))
 
         return keyword_test
+
+    if name == "kind":
+        # The package's own classification, not a vocabulary: the values are
+        # the keys of retrieval.KINDS and nothing else.
+        wanted = set()
+        for item in _as_list(value):
+            key = slugify(item)
+            if key not in KINDS:
+                raise _suggest_from(key, KINDS, "kind")
+            wanted.add(key)
+        return lambda record: bool(wanted & set(_local_values(record, "kind")))
 
     if name in ("theme", "format", "license", "access_rights", "updated",
                 "language", "publisher_type", "service_type"):

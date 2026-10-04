@@ -126,14 +126,17 @@ class _DistributionAlways(TypedDict):
     issued: Optional[str]
     modified: Optional[str]
     access_service_uris: List[str]
+    kind: str
 
 
 class DistributionRecord(_DistributionAlways, total=False):
-    """One file or access point of a dataset.
+    """One distribution of a dataset: a file, an API or a web page.
 
-    ``broken`` is on a file the registry got an HTTP error for or found no host
-    for, ``unverified`` on one its checker could not get through to, and ``byte_size`` on the 1.4%
-    whose publisher states a size. Each is absent otherwise.
+    ``kind`` says which, as :func:`dataportalen.retrieval.classify` reads it
+    from the metadata. ``broken`` is on a distribution the registry got an
+    HTTP error for or found no host for, ``unverified`` on one its checker
+    could not get through to, and ``byte_size`` on the 1.4% whose publisher
+    states a size. Those three are absent otherwise.
     """
 
     broken: LinkMark

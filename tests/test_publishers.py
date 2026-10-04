@@ -119,11 +119,11 @@ def test_the_detail_is_the_row_plus_facets(catalog):
 
 
 def test_the_facets_are_the_search_s_own(catalog):
-    """Six of them, and every value feeds back in beside publisher=."""
+    """Seven of them, and every value feeds back in beside publisher=."""
     for row in catalog.publishers():
         facets = catalog.publisher(row["id"])["facets"]
-        assert list(facets) == ["theme", "format", "license", "access_rights",
-                                "updated", "language"]
+        assert list(facets) == ["theme", "format", "kind", "license",
+                                "access_rights", "updated", "language"]
         search = catalog.datasets(publisher=row["id"], limit=0).facets.to_dict()
         for name in facets:
             assert facets[name] == search[name]

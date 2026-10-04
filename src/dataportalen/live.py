@@ -301,6 +301,11 @@ class LiveCatalog:
             if name == "text":
                 raise QueryError("'text' is called 'query' now: datasets(query=%r)"
                                  % (filters[name],))
+            if name == "kind":
+                raise QueryError(
+                    "kind is not something the registry can search by: it is "
+                    "worked out from each distribution after it is fetched. "
+                    "Every record still carries it; use Catalog to filter.")
             if name in ("sort", "page_size"):
                 raise QueryError("%r is not an argument; results come in a "
                                  "fixed order, %d to a page at most"
@@ -563,7 +568,8 @@ class LiveCatalog:
         if row is None:
             return None
         found = self._search("dataset", None, 0, 0, None, {"publisher": pid},
-                             facets=_PUBLISHER_FACETS)
+                             facets=tuple(
+                                 n for n in _PUBLISHER_FACETS if n in _FIELDS))
         return dict(_copy_publisher(row), facets=found.facets.to_dict())
 
     def info(self) -> Dict[str, Any]:

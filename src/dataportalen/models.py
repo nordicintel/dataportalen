@@ -1307,8 +1307,12 @@ class FacetValue(_namedtuple("FacetValue", "value count")):
 #: internal department on 150. The ~930 that named someone else were citing a
 #: source, not a second publisher. A filter whose two largest values are
 #: 4,468 datasets pointing at their own publisher is not a search axis.
+#:
+#: `kind` is the one filter that is not a field of the registry's: it is what
+#: `retrieval.classify` reads out of each distribution, so it exists in a
+#: downloaded catalogue and not in the registry's index.
 DATASET_FILTERS = ("publisher", "publisher_type", "theme",
-                   "keyword", "format", "license", "access_rights",
+                   "keyword", "format", "kind", "license", "access_rights",
                    "updated", "language")
 
 #: The same for a data service, and it is a different list. Over all 599:
