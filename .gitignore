@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.so
 
 # Packaging
 build/
@@ -23,3 +24,11 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Local notes and scratch
+**/*devnotes.md
+/tmp/
+testing.ipynb
+
+# Catalogue databases, including any a doc snippet creates in the repo
+*.sqlite

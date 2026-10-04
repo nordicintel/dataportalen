@@ -14,21 +14,21 @@ raw RDF on request -- nothing else reaches the network.
 from __future__ import annotations
 
 import concurrent.futures
-import contextlib
 import datetime as _dt
 import difflib
-import gzip
-import io
 import json
 import os
 import random
 import re
+import sqlite3
 import threading
 import time
+from http import HTTPStatus
 from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     Iterator,
     List,
     Mapping,
@@ -43,6 +43,7 @@ from urllib.parse import quote as _quote
 from .core import (
     DEFAULT_USER_AGENT,
     BaseTransport,
+    DataportalError,
     HTTPError,
     NotFoundError,
     ParseError,
@@ -51,6 +52,7 @@ from .core import (
     Response,
     ServerError,
     TransportError,
+    __version__,
     build_url,
     default_transport,
     enable_logging,
@@ -58,33 +60,42 @@ from .core import (
     progress_reporter,
 )  # noqa: F401  (NotFoundError re-exported for callers catching it here)
 from .models import (
+    _EMPTY_AGENT,
     DATA_SERVICE_FILTERS,
     DATASET_FILTERS,
     Agent,
-    Breakdown,
     ContactPoint,
     DataService,
     Dataset,
     Distribution,
     Entry,
+    Facets,
+    FacetValue,
     Results,
     SearchPage,
-    ValueCount,
+    _iso,
     wrap_entry,
 )
 from .query import SORT_MODIFIED_DESC, Q
 from .rdf import (
     DCAT,
+    DCTERMS,
     FOAF,
     PROV,
-    SUPPORTED_LANGUAGES,
     VCARD,
+    aliases_for,
     label_for,
     publisher_for,
     resolve,
     resolve_publisher,
     slug_for,
     slugify,
+)
+from .records import (
+    DataServiceRecord,
+    DatasetRecord,
+    Publisher,
+    PublisherDetail,
 )
 
 # ==========================================================================
@@ -100,6 +111,9 @@ DEFAULT_BASE_URL = "https://admin.dataportal.se"
 
 #: The Solr index caps a page at 100 entries.
 MAX_LIMIT = 100
+
+#: The longest request sent. The registry refuses one near 8,190 characters.
+MAX_URL = 8000
 
 _RETRY_STATUSES = frozenset([408, 425, 429, 500, 502, 503, 504])
 
@@ -171,27 +185,29 @@ def default_catalog_path() -> str:
     else:
         base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache")
-    return os.path.join(base, "dataportalen", "catalog.jsonl")
+    return os.path.join(base, "dataportalen", "catalog.sqlite")
 
 
-#: A copy older than this is reported as stale. Nothing is re-downloaded on
-#: its own -- a six-minute download should never surprise a running program.
-STALE_AFTER_DAYS = 7
+#: How old a copy may be before :class:`Catalog` brings it up to date. A
+#: refresh is incremental -- a day's churn is about 630 datasets, under a
+#: minute -- which is why it can happen on its own where a rebuild could not.
+DEFAULT_MAX_AGE = 7
+
+#: Parallel requests while downloading. Measured against the real registry:
+#: one thread gets 0.84 requests/second, two get 2.26, and four and eight get
+#: the same 2.26 -- the registry is the limit, not the client. Two is the
+#: whole gain; a full build is 6 minutes with it and 17 without.
+_WORKERS = 2
 
 #: The date filters, which only datasets support: `modified` is on 89.1% of
 #: them and `issued` on 42.1%, against 7.5% and 0.8% of the 599 data services.
-_DATE_FILTERS = ("updated_after", "updated_before",
-                 "published_after", "published_before")
+_DATE_FILTERS = ("modified_after", "modified_before",
+                 "issued_after", "issued_before")
 
 #: Every name that is a filter for something. A name outside this set is a
 #: typo, not a question the wrong kind of record cannot answer.
 _EVERY_FILTER = frozenset(
-    DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("text",))
-
-#: When :class:`Catalog` is allowed to write the file. Anything that replaces
-#: 58 MB on disk is a decision made when the object is built, never a side
-#: effect of something that read like a search.
-_REFRESH_MODES = ("if_missing", "if_stale", "always", "never")
+    DATASET_FILTERS + DATA_SERVICE_FILTERS + _DATE_FILTERS + ("query",))
 
 #: Shorthands for the RDF serializations ``get(format=...)`` accepts. Anything
 #: else is passed to the registry as a media type unchanged, so a format this
@@ -324,6 +340,15 @@ class _Registry:
         endpoints the typed helpers do not cover.
         """
         url = absolute_url or build_url(self.base_url, path, params)
+        if len(url) > MAX_URL:
+            # The registry answers HTTP 414 somewhere near 8,190 characters.
+            # A search naming a few hundred values gets there -- every
+            # national authority is 170 publisher URIs, 12,703 characters --
+            # and "URI Too Long" says nothing about which argument did it.
+            raise QueryError(
+                "this search needs a %s-character request and the registry "
+                "stops at about 8,190; ask for fewer values at once"
+                % f"{len(url):,}")
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             started = time.time()
@@ -544,52 +569,109 @@ class _Registry:
                 pending.append(uri)
         for start in range(0, len(pending), batch_size):
             batch = pending[start:start + batch_size]
-            page = self._search(
-                Q.resource(*batch), limit=min(MAX_LIMIT, max(len(batch), 1)),
-                sort=None, model=model,
-            )
-            for entry in page.entries:
-                uri = entry.resource_uri
-                if uri:
-                    found[uri] = entry
-                    if use_cache:
-                        self._cache.set(uri, entry)
+            # A full page, and the next one if there is one: a URI can belong
+            # to two entries, so 20 URIs are not 20 hits. Asking for exactly
+            # len(batch) returned the first 20 of 22 for one batch of the 365
+            # publisher URIs, and the agent that fell off the end was the one
+            # nine of Svenska kraftnät's ten datasets name.
+            offset = 0
+            while True:
+                page = self._search(
+                    Q.resource(*batch), limit=MAX_LIMIT, offset=offset,
+                    sort=STABLE_SORT, model=model,
+                )
+                for entry in page.entries:
+                    uri = entry.resource_uri
+                    if uri:
+                        found[uri] = entry
+                        if use_cache:
+                            self._cache.set(uri, entry)
+                offset += len(page.entries)
+                if len(page.entries) < MAX_LIMIT or offset >= page.total:
+                    break
         out = [found[u] for u in wanted if u in found]
         return [e.as_(model) for e in out] if model else out
 
-def local_breakdown(
+def local_facets(
     records: Sequence[Dict[str, Any]],
     limit: Optional[int] = None,
     filters: Sequence[str] = DATASET_FILTERS,
-) -> Breakdown:
-    """A breakdown counted over records in hand -- one pass, every filter.
+    names: Optional[Mapping[str, Dict[str, Any]]] = None,
+) -> Facets:
+    """Facets counted over records in hand -- one pass, every filter.
 
-    ``filters`` is the set that applies to these records, so a data service
-    breakdown carries the seven keys it has rather than empty lists for the
-    four it does not.
+    ``names`` labels the publisher facet: ``{id: name}``, from the Catalog's
+    publishers, so a facet row and :meth:`Catalog.publisher` never disagree
+    about what an organisation is called. Without it the name is the first
+    one seen on a record, which for 2 publishers is not the same thing.
+
+    ``filters`` is the set that applies to these records, so the facets of a
+    data service search carry the keys it has rather than empty lists for
+    the ones it does not.
     """
     tallies: Dict[str, Dict[str, int]] = {name: {} for name in filters}
-    names: Dict[str, Dict[str, Any]] = {}
+    collect = names is None
+    names = {} if collect else names
+    spellings: Dict[str, Dict[str, int]] = {}
     for record in records:
         for name, counts in tallies.items():
+            if name == "keyword":
+                # One keyword, however it is spelt: `Kommun` and `kommun` are
+                # a count of one each for the same thing, and a dataset that
+                # carries both spellings (395 do) still counts once.
+                seen: Dict[str, set] = {}
+                for keyword in _local_values(record, "keyword"):
+                    seen.setdefault(_fold_keyword(keyword), set()).add(keyword.strip())
+                for key, forms in seen.items():
+                    counts[key] = counts.get(key, 0) + 1
+                    tally = spellings.setdefault(key, {})
+                    for form in forms:
+                        tally[form] = tally.get(form, 0) + 1
+                continue
             for value in set(_local_values(record, name)):
                 counts[value] = counts.get(value, 0) + 1
-        _collect_names(record, names)
-    return Breakdown({
-        name: [ValueCount(value, count, names.get(value) or label_for(value))
-               for value, count in
-               sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
-        for name, counts in tallies.items()
-    }, limit=limit)
+        if collect:
+            _collect_names(record, names)
+
+    def rows(name: str, counts: Dict[str, int]) -> List[FacetValue]:
+        if name == "keyword":
+            # Shown as the publisher wrote it: the commonest spelling, and for
+            # the 479 groups where that is a tie, the first alphabetically.
+            # Showing the folded form would have rewritten 60% of all values
+            # into spellings no record carries.
+            shown = [(min(spellings[key], key=lambda f: (-spellings[key][f], f)), n)
+                     for key, n in counts.items()]
+            return [FacetValue(value, n, {})
+                    for value, n in sorted(shown, key=lambda pair: (-pair[1], pair[0]))]
+        ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        if name == "publisher":
+            return [FacetValue(value, n, names.get(value) or {}) for value, n in ordered]
+        # A label comes from the vocabulary only for a vocabulary filter.
+        # Looked up by bare value across every filter, 45 keywords wore the
+        # label of a term that happened to share their name.
+        return [FacetValue(value, n, label_for(value)) for value, n in ordered]
+
+    return Facets({name: rows(name, counts) for name, counts in tallies.items()},
+                  limit=limit)
+
+
+def _fold_keyword(value: Any) -> str:
+    """What two spellings of one keyword have in common.
+
+    Strip and casefold, nothing more: 23,373 exact values become 21,359. Not
+    `slugify`, which the vocabulary filters use and which would also merge 169
+    groups that are different words.
+    """
+    return str(value).strip().casefold()
 
 
 def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
-    """The filter value for one publisher or creator.
+    """The filter value for one publisher.
 
     The package's URI table first, because those slugs are stable across
     releases. Failing that, the organisation's own name from the record --
-    without which 13 of the 365 publishers and 98 of the 146 creators would
-    have no filter value at all, since they mint URIs the table never saw
+    without which 13 of the 365 publishers would have no filter value at all,
+    since they mint URIs the table never saw
     (``fohm-app.folkhalsomyndigheten.se/...``, ``myndighetsregistret.scb.se/...``).
     """
     if not org:
@@ -604,15 +686,15 @@ def _org_slug(org: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 def _collect_names(record: Dict[str, Any], out: Dict[str, Dict[str, Any]]) -> None:
-    """Remember the readable name of each publisher and creator seen.
+    """Remember the readable name of each publisher seen.
 
     The vocabulary has no entry for an organisation, so its label comes from
     the records -- the same place the slug came from.
     """
-    for org in [record.get("publisher")] + list(record.get("creators") or []):
-        slug = _org_slug(org)
-        if slug and slug not in out and isinstance((org or {}).get("name"), dict):
-            out[slug] = org["name"]
+    org = record.get("publisher")
+    slug = _org_slug(org)
+    if slug and slug not in out and isinstance((org or {}).get("name"), dict):
+        out[slug] = org["name"]
 
 def _date(value: Any) -> Optional[str]:
     """Accept "2024-01-01", a date or a datetime; emit the full timestamp Solr needs.
@@ -751,40 +833,97 @@ class _Counter:
         return self._value
 
 
-@contextlib.contextmanager
-def _writing(path: str):
-    """Write ``path`` atomically: a partial download must not become the file.
+#: The database layout. `harvested` is the registry's own timestamp for the
+#: entry, not the publisher's `modified` -- it is what "changed since we last
+#: looked" means, and the only thing an incremental refresh can trust.
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+CREATE TABLE IF NOT EXISTS record (
+    context_id TEXT NOT NULL,
+    entry_id   TEXT NOT NULL,
+    uri        TEXT,
+    type       TEXT NOT NULL,
+    harvested  TEXT,
+    doc        TEXT NOT NULL,
+    PRIMARY KEY (context_id, entry_id)
+);
+CREATE INDEX IF NOT EXISTS record_uri ON record(uri);
+CREATE INDEX IF NOT EXISTS record_type ON record(type);
+-- No index on `harvested`: the registry filters by it, we never do.
+"""
 
-    Everything goes to ``<path>.part`` and is renamed only once the last line
-    is written. Without that, a connection dropping at minute six of seven
-    leaves a short -- or empty -- file where the catalogue should be, and the
-    default ``refresh="if_missing"`` then reads it as a perfectly valid
-    catalogue of no datasets, forever, because a file is there. Every search
-    would answer nothing and nothing would ever fetch it again.
+#: Bumped when the layout changes in a way an older file cannot satisfy --
+#: including a change to the record shape, since `doc` holds the record as it
+#: was written. Version 2 dropped `creators`; version 3 is the 0.10.0 record
+#: shape (licence dicts, ISO language codes, no ids below the top level);
+#: version 4 adds `byte_size` where a file states one and makes an empty
+#: `keywords` a dict.
+SCHEMA_VERSION = "4"
 
-    The directory is created if missing, because the default location is a
-    cache directory that may not exist yet and seven minutes of downloading
-    must not end in a FileNotFoundError.
-    """
+
+def _connect(path: str) -> Any:
+    """Open the catalogue database, creating the file and layout if needed."""
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    partial = path + ".part"
-    if path.endswith(".gz"):
-        handle = gzip.open(partial, "wt", encoding="utf-8", newline="\n")
-    else:
-        handle = io.open(partial, "w", encoding="utf-8", newline="\n")
-    try:
-        with handle:
-            yield handle
-    except BaseException:
-        # Leave nothing behind that could be mistaken for a catalogue.
-        try:
-            os.remove(partial)
-        except OSError:                                   # pragma: no cover
-            pass
-        raise
-    os.replace(partial, path)
+    db = sqlite3.connect(path)
+    db.row_factory = sqlite3.Row
+    db.executescript(_SCHEMA)
+    return db
+
+
+def _meta_get(db: Any, key: str) -> Optional[str]:
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def _meta_set(db: Any, **values: Any) -> None:
+    db.executemany(
+        "INSERT INTO meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [(k, None if v is None else str(v)) for k, v in values.items()])
+
+
+#: One upsert, keyed on the registry's own identity for an entry.
+_UPSERT = (
+    "INSERT INTO record (context_id, entry_id, uri, type, harvested, doc) "
+    "VALUES (?, ?, ?, ?, ?, ?) "
+    "ON CONFLICT(context_id, entry_id) DO UPDATE SET "
+    "uri = excluded.uri, type = excluded.type, "
+    "harvested = excluded.harvested, doc = excluded.doc"
+)
+
+
+def _write_records(db: Any, rows: Iterable[Dict[str, Any]],
+                   kinds: Any = None, harvested: Any = None) -> int:
+    """Insert or replace records. Returns how many were written.
+
+    The upsert is the whole reason this is a database: a changed dataset
+    overwrites its own row and a new one appends itself, with no index to
+    maintain and no file to rewrite.
+
+    ``rows`` yields ``(kind, harvested, record)``. The key is the record's
+    ``context_id``/``entry_id`` -- not its ``uri``, because four datasets in
+    the corpus share a URI with another and keying on that would merge them.
+    """
+    written = 0
+    batch = []
+    for kind, stamp, record in rows:
+        batch.append((
+            str(record.get("context_id")), str(record.get("entry_id")),
+            record.get("uri"), kind, stamp,
+            json.dumps(record, ensure_ascii=False, separators=(",", ":"))))
+        if len(batch) >= 1000:
+            db.executemany(_UPSERT, batch)
+            written += len(batch)
+            batch = []
+    if batch:
+        db.executemany(_UPSERT, batch)
+        written += len(batch)
+    return written
 
 
 def _pages(total: int, page_size: int = PAGE_SIZE) -> List[int]:
@@ -843,12 +982,119 @@ def _take(entries, count):
         yield entry
 
 
-#: Publishers and creators are not all typed the same way. Most are
-#: `foaf:Agent` (5,846), but 69 are `foaf:Organization` and 1,693 are
-#: `prov:Agent` -- and the Organization ones are load-bearing: they account
-#: for 2,073 creator references, a third of them, which a `foaf:Agent`-only
-#: crawl left as bare URIs.
+#: Publishers are not all typed the same way: most are `foaf:Agent` (5,846),
+#: but 69 are `foaf:Organization` and 1,693 are `prov:Agent`. The crawl asks
+#: for all three. It once had to, because the Organization entries carried a
+#: third of the creator references; creators are gone, but narrowing this to
+#: `foaf:Agent` is a separate question -- it would have to be measured against
+#: the publisher URIs alone, and silently losing a publisher costs more than
+#: the 18 extra pages of an 856-request build.
 _AGENT_TYPES = (FOAF.Agent, FOAF.Organization, PROV.Agent)
+
+
+#: The nightly link check. Each catalogue publishes a report entry whose
+#: metadata is a set of counters and whose *resource* is the detail: one JSON
+#: object per link, naming the URL, the entry it belongs to, the verdict and
+#: when it was reached. 159 of them, ~29 MiB, about ten seconds -- against a
+#: 691-request crawl that is noise, and it is the only place the per-link
+#: result exists.
+LINK_CHECK_TYPE = "http://entryscape.com/terms/LinkCheckReport"
+
+
+def _link_checks(client, counter):
+    """``{url: check}`` from every catalogue's latest link-check report.
+
+    A catalogue keeps about three days of reports; only the newest is read.
+    The verdict is the registry's, passed through as it stands -- ``status``
+    is ``success``, ``broken`` or ``excluded``, and ``message`` is whatever
+    reason it gave, which is often none.
+    """
+    query = Q.rdf_type(LINK_CHECK_TYPE) & Q.public()
+    total = client._count(query)
+    counter.add()
+
+    newest: Dict[str, Tuple[str, str]] = {}
+    for offset in _pages(total):
+        raw = client._search_raw(query, limit=PAGE_SIZE, offset=offset,
+                                 sort=STABLE_SORT)
+        counter.add()
+        for child in (raw.get("resource") or {}).get("children") or []:
+            graphs = list((child.get("metadata") or {}).values())
+            if not graphs:
+                continue
+            created = (graphs[0].get(DCTERMS.created) or [{}])[0].get("value", "")
+            context = child.get("contextId")
+            if context and (context not in newest or created > newest[context][0]):
+                newest[context] = (created, child.get("entryId"))
+
+    checks: Dict[str, Dict[str, Any]] = {}
+    for context, (_, entry_id) in sorted(newest.items()):
+        try:
+            response = client._request(
+                "/store/%s/resource/%s" % (_quote(str(context), safe=""),
+                                           _quote(str(entry_id), safe="")),
+                {}, accept="application/json")
+            records = response.json()
+        except (DataportalError, ValueError):             # pragma: no cover
+            # One unreadable report must not cost the whole download.
+            logger.warning("link-check report for context %s is unreadable",
+                           context)
+            continue
+        counter.add()
+        if not isinstance(records, list):                 # pragma: no cover
+            continue
+        for record in records:
+            url = record.get("uri")
+            if not url:
+                continue
+            # A URL checked twice keeps the later verdict.
+            seen = checks.get(url)
+            if seen is None or (record.get("checkedAt") or "") >= (
+                    seen.get("checkedAt") or ""):
+                checks[url] = record
+    logger.info("link checks: %s URLs over %s catalogues",
+                f"{len(checks):,}", f"{len(newest):,}")
+    return checks
+
+
+def _urls_of(dist: Dict[str, Any]) -> List[str]:
+    """Every URL a distribution names, whichever shape the field is in."""
+    out: List[str] = []
+    for key in ("download_url", "access_url"):
+        value = dist.get(key)
+        if isinstance(value, str):
+            out.append(value)
+        elif value:
+            out.extend(v for v in value if v)
+    return out
+
+
+def _attach_links(record: Dict[str, Any], checks: Dict[str, Dict[str, Any]]) -> None:
+    """Mark each file the registry's nightly check found broken.
+
+    A broken file carries ``{"reason": ..., "checked": ...}`` under ``broken``;
+    a working one carries nothing. The 18,360 successes and 5,021 the check
+    skipped were a ``link`` dict on every file for the one in three that
+    matters, and a landing-page verdict on the dataset that was ``None`` on
+    10,331 of them -- 277 datasets had a broken landing page and perfectly
+    good files, which is not what "dead" means.
+
+    Only files. The registry checks ``accessURL``, ``downloadURL``,
+    ``landingPage``, ``foaf:page``, ``conformsTo`` and ``endpointDescription``
+    -- never ``endpointURL`` -- so whether a data service's API answers is
+    something it does not know, and this does not pretend to.
+    """
+    if not checks:
+        return
+    for dist in record.get("distributions") or []:
+        for url in _urls_of(dist):
+            check = checks.get(url)
+            if check and check.get("status") == "broken":
+                dist["broken"] = {
+                    "reason": check.get("statusMessage") or None,
+                    "checked": (check.get("checkedAt") or "")[:19] or None,
+                }
+                break
 
 
 def _bulk_indexes(client, workers, counter):
@@ -895,7 +1141,8 @@ def _targeted_indexes(client, datasets, workers, counter):
     agent_uris = {}
     contact_uris = {}
     for dataset in datasets:
-        for uri in dataset.distribution_uris:
+        # A data service has no distributions, and no such attribute.
+        for uri in getattr(dataset, "distribution_uris", ()):
             distribution_uris.setdefault(uri, None)
         if dataset.publisher_uri:
             agent_uris.setdefault(dataset.publisher_uri, None)
@@ -921,99 +1168,130 @@ def _targeted_indexes(client, datasets, workers, counter):
 def download_catalog(
     path: str,
     *,
-    workers: int = 8,
     limit: Optional[int] = None,
-    progress: Any = "auto",
     client: Any = None,
-    base_url: Optional[str] = None,
+    links: bool = True,
+    since: Optional[str] = None,
 ) -> CatalogSummary:
     """Download the catalogue to ``path`` as JSONL and return a summary.
 
     One JSON object per line: every ``dcat:Dataset`` and every
     ``dcat:DataService``, each carrying a ``type`` that says which. A line
-    stands on its own -- distributions, publisher, creators and contact points
-    are resolved and nested, so nothing needs a further lookup.
+    stands on its own -- distributions, publisher and contact points are
+    resolved and nested, so nothing needs a further lookup.
 
-    :param path: where to write; a ``.gz`` suffix gzips the output.
-    :param workers: parallel requests. The registry tolerates 8 comfortably.
+    :param path: the SQLite database to fill.
     :param limit: stop after this many datasets, for smoke tests. Data services
         are skipped entirely when it is set -- they are the small half, and a
         smoke test should stay small.
-    :param progress: ``"auto"`` (the default) draws a live progress line on
-        stderr when it is a terminal, and otherwise logs progress periodically
-        -- a five-minute run should never look like a hang. ``None`` is
-        silent; a callable is invoked as ``progress(done, total)``.
     :param client: an existing ``_Registry`` to reuse.
-    :param base_url: registry root, when not passing ``client``.
+    :param links: also read the registry's nightly link check and mark every
+        file it found broken. 159 requests, about ten seconds. Skipped for a
+        partial export, where the reports would dwarf the work.
+    :param since: only fetch entries the registry has touched since this
+        timestamp, and leave the rest of the database alone. This is what makes
+        a refresh cheap: a day's churn is about 630 datasets -- seven pages
+        instead of 236. It cannot see deletions, so a row whose dataset has
+        been withdrawn stays until a full rebuild.
     """
     owned = client is None
     if owned:
-        kwargs = {}
-        if base_url:
-            kwargs["base_url"] = base_url
-        client = _Registry(**kwargs)
+        client = _Registry()
+    workers = _WORKERS
 
     started_all = time.time()
-    report = progress_reporter(progress, "datasets")
+    # A live line on a terminal, a log line every so often otherwise: a
+    # five-minute run must never look like a hang, and nobody needs silence.
+    report = progress_reporter("datasets")
     counter = _Counter()
     written = 0
     services_written = 0
     bytes_written = 0
     distributions_written = 0
 
+    # A refresh only asks for what the registry has touched since we looked.
+    # It is the registry's own timestamp, not the publisher's `modified`:
+    # a publisher can leave that empty or set it to 2100, and neither tells
+    # us whether the entry changed.
+    scope = Q.rdf_type(DCAT.Dataset)
+    if since:
+        scope = scope & Q.raw("modified:[%s TO *]" % _solr_stamp(since))
+
     try:
-        dataset_total = client._count(Q.rdf_type(DCAT.Dataset))
+        dataset_total = client._count(scope)
         counter.add()
         if limit is not None:
             dataset_total = min(dataset_total, limit)
-        logger.info("exporting %s datasets to %s", f"{dataset_total:,}", path)
+        logger.info("%s %s datasets to %s",
+                    "refreshing" if since else "exporting",
+                    f"{dataset_total:,}", path)
 
-        datasets = _crawl(
-            client, Q.rdf_type(DCAT.Dataset), Dataset, dataset_total, workers, counter
-        )
+        datasets = _crawl(client, scope, Dataset, dataset_total, workers, counter)
         missing: Dict[str, None] = {}
 
-        if limit is None:
+        if limit is None and not since:
             # Full export: every distribution is needed anyway, so one bulk
             # crawl per referenced type beats resolving dataset by dataset.
             indexes = _bulk_indexes(client, workers, counter)
         else:
-            # Partial export: crawling 35k distributions to serve a few
-            # hundred datasets would dwarf the actual work, so resolve only
-            # what this batch references.
-            datasets = list(_take(datasets, limit))
+            # A refresh or a partial export touches a few hundred datasets, and
+            # crawling 35k distributions to serve them would dwarf the work.
+            datasets = list(_take(datasets, limit) if limit else datasets)
             indexes = _targeted_indexes(client, datasets, workers, counter)
+            if limit is not None:
+                links = False
 
         distributions, agents, contacts = indexes
+        checks = _link_checks(client, counter) if links else {}
 
-        with _writing(path) as handle:
+        def rows():
+            nonlocal written, services_written, distributions_written, bytes_written
             for dataset in datasets:
                 record, used = _assemble(
-                    dataset, distributions, agents, contacts, missing
-                )
-                line = json.dumps(record, ensure_ascii=False) + "\n"
-                handle.write(line)
+                    dataset, distributions, agents, contacts, missing)
+                _attach_links(record, checks)
                 written += 1
-                bytes_written += len(line.encode("utf-8"))
                 distributions_written += used
+                bytes_written += len(json.dumps(record, ensure_ascii=False).encode())
                 if report is not None:
                     report(written, dataset_total)
+                yield "dataset", _iso(dataset.modified), record
 
             if limit is None:
-                # 599 services in six pages: the one real DCAT class the file
-                # would otherwise lack, for about 1% of the dataset crawl.
-                for record in _service_records(client, workers, counter,
-                                               agents, contacts, missing):
-                    line = json.dumps(record, ensure_ascii=False) + "\n"
-                    handle.write(line)
+                # 599 services in six pages: the one real DCAT class the
+                # database would otherwise lack, for ~1% of the dataset crawl.
+                for entry, record in _service_records(
+                        client, workers, counter, agents, contacts, missing,
+                        since=since):
                     services_written += 1
-                    bytes_written += len(line.encode("utf-8"))
+                    bytes_written += len(json.dumps(record, ensure_ascii=False).encode())
+                    yield "data_service", _iso(entry.modified), record
+
+        db = _connect(path)
+        try:
+            with db:
+                if since is None:
+                    # A full build is a rebuild, not an upsert over whatever is
+                    # already there. Without this, a dataset the registry has
+                    # withdrawn keeps its row forever -- and so does the shape
+                    # it was written in, which is what `SCHEMA_VERSION` tells
+                    # people to use `refresh="always"` to be rid of. It is in
+                    # the same transaction as the write, so a download that
+                    # dies leaves the old catalogue untouched.
+                    db.execute("DELETE FROM record")
+                _write_records(db, rows())
+                now = _dt.datetime.now().replace(microsecond=0).isoformat()
+                _meta_set(db, schema=SCHEMA_VERSION, package=__version__,
+                          last_refreshed=now)
+                if not _meta_get(db, "first_retrieved"):
+                    _meta_set(db, first_retrieved=now)
+        finally:
+            db.close()
 
         if missing:
             # Anything the crawl did not cover -- a distribution in a
             # non-public context, say. Reported, never silently dropped.
             _report_missing(missing)
-
 
     finally:
         if owned:
@@ -1024,6 +1302,10 @@ def download_catalog(
                 path, f"{written:,}", f"{services_written:,}",
                 f"{distributions_written:,}",
                 bytes_written / (1 << 20), time.time() - started_all, counter.value)
+    try:
+        bytes_written = os.path.getsize(path)
+    except OSError:                                       # pragma: no cover
+        pass
     return CatalogSummary(
         path=path,
         datasets=written,
@@ -1035,16 +1317,24 @@ def download_catalog(
     )
 
 
-def _service_records(client, workers, counter, agents, contacts, missing):
-    """Every ``dcat:DataService``, assembled like a dataset and yielded."""
-    total = client._count(Q.rdf_type(DCAT.DataService))
+def _service_records(client, workers, counter, agents, contacts, missing,
+                     since=None):
+    """Every ``dcat:DataService``, assembled like a dataset.
+
+    Yields ``(entry, record)`` so the caller can store the registry's own
+    timestamp alongside the record, which is what a refresh filters on.
+    """
+    scope = Q.rdf_type(DCAT.DataService)
+    if since:
+        scope = scope & Q.raw("modified:[%s TO *]" % _solr_stamp(since))
+    total = client._count(scope)
     counter.add()
-    logger.info("exporting %s data services", f"{total:,}")
-    for service in _crawl(client, Q.rdf_type(DCAT.DataService), DataService,
-                          total, workers, counter):
+    logger.info("%s %s data services", "refreshing" if since else "exporting",
+                f"{total:,}")
+    for service in _crawl(client, scope, DataService, total, workers, counter):
         record, _ = _assemble(service, {}, agents, contacts, missing,
                               with_distributions=False)
-        yield record
+        yield service, record
 
 
 def _assemble(
@@ -1084,31 +1374,15 @@ def _assemble(
         if found is not None:
             record["publisher"] = found
         elif record.get("publisher") is None:
-            record["publisher"] = {"uri": publisher_uri, "name": {}}
-
-    # Creators are organisations, not people: 146 distinct URIs over the whole
-    # corpus, and the agent index already holds them. A bare URI would be a
-    # dead end now that nothing resolves one on demand.
-    creators = []
-    for uri in entry.creator_uris:
-        found = agents.get(uri)
-        if found is None:
-            # One of the 146 is a plain web page rather than a managed entry,
-            # so it stays a bare URI -- reported, not quietly named absent.
-            missing.setdefault(uri, None)
-            creators.append({"uri": uri})
-        else:
-            creators.append(dict(found))
-    if creators:
-        record["creators"] = creators
+            record["publisher"] = dict(_EMPTY_AGENT, uri=publisher_uri)
 
     if not record.get("contact_points"):
         resolved = []
         for uri in entry.contact_point_uris:
             found = contacts.get(uri)
             if found is None:
-                # Reported like an unresolved distribution or creator rather
-                # than dropped: a record that names a contact and shows none
+                # Reported like an unresolved distribution rather than
+                # dropped: a record that names a contact and shows none
                 # should not do so in silence.
                 missing.setdefault(uri, None)
             else:
@@ -1140,6 +1414,29 @@ __all__ = [
 # --- the catalogue on disk ---------------------------------------------------
 
 
+#: What ``access_rights=`` may name. ``none`` is the record that sets nothing.
+_ACCESS_VALUES = ("public", "non_public", "restricted", "none")
+
+
+def _access_scope(value: Any) -> Optional[frozenset]:
+    """The access_rights values a Catalog holds, or ``None`` for all of them."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = (value,)
+    try:
+        wanted = frozenset(str(v).strip().lower() for v in value)
+    except TypeError:
+        raise QueryError("access_rights must be a list of values or None; got %r"
+                         % (value,))
+    unknown = wanted - set(_ACCESS_VALUES)
+    if unknown or not wanted:
+        raise QueryError(
+            "access_rights takes %s; got %r"
+            % (", ".join(_ACCESS_VALUES), sorted(unknown)[0] if unknown else value))
+    return wanted
+
+
 class Catalog:
     """Sweden's open-data catalogue, downloaded once and searched locally.
 
@@ -1152,104 +1449,113 @@ class Catalog:
         cat = Catalog()                                  # downloads on first use
         page = cat.datasets(theme="transport", format="csv")
         page.total                                       # 72
-        page.breakdown["publisher"]                      # who publishes them
+        page.facets["publisher"]                      # who publishes them
         for dataset in page:
             print(text(dataset["title"]), dataset["distributions"])
 
-    Everything that creates or replaces the file is an argument here, so
-    nothing downloads 64 MB behind a call that looked like a search.
+    Everything that creates or replaces the database is an argument here, so
+    nothing downloads 94 MB behind a call that looked like a search.
 
-    :param path: the JSONL file; a ``.gz`` suffix is read and written as gzip.
-        Defaults to :func:`default_catalog_path`.
-    :param refresh: when to download.
-
-        ``"if_missing"`` (the default)
-            download only when the file is not there. An old file is used and
-            reported, never replaced behind your back.
-        ``"if_stale"``
-            also download when it is older than ``stale_after`` days.
-        ``"always"``
-            download now, whatever is there.
-        ``"never"``
-            never download; a missing file raises
-            :class:`FileNotFoundError`. For a program that must not reach the
-            network.
-
-    :param stale_after: days before a copy counts as stale. The registry
-        re-harvests nightly, so a week is already behind.
-    :param progress: ``"auto"`` draws a progress line on a terminal and logs
-        periodically otherwise -- a five-minute download should never look
-        like a hang. ``None`` is silent; a callable gets ``(done, total)``.
-    :param workers: parallel requests while downloading. Eight is comfortable.
-    :param base_url: registry root, to point at another EntryStore.
-    :param transport: your own :class:`~dataportalen.core.BaseTransport`.
+    :param database: the SQLite file. Defaults to :func:`default_catalog_path`.
+    :param max_age: days. A copy older than this -- or missing -- is brought
+        up to date when the object is built: a download if there is nothing,
+        otherwise an incremental refresh of what the registry has touched
+        since, under a minute. ``None`` means use whatever is there and only
+        download if there is nothing.
+    :param rebuild: fetch everything again now, whatever is there. What a
+        schema change asks for, and the only thing that drops a dataset the
+        registry has since withdrawn.
+    :param exclude_broken: drop every dead file, and any dataset whose every
+        file is dead. Dead means the registry's nightly link check got an HTTP
+        error for it -- Not Found, Forbidden, Too Many Requests: 3,342 of
+        35,148 files, 81 public datasets. The 8,419 files its checker could
+        not reach at all (no answer, connection reset, timeout) are not dead;
+        they stay and carry ``unverified: {"reason", "checked"}``. A dataset
+        that never had files (1,647: APIs, registers) stays too. ``False``
+        keeps everything and marks each dead file with ``broken``, same two
+        keys.
+    :param access_rights: which ``access_rights`` values the catalogue holds.
+        ``"public"``, ``"non_public"``, ``"restricted"``, and ``"none"`` for
+        the 4,167 datasets -- 17.7%, mostly universities -- that set nothing.
+        ``None`` holds everything.
     """
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        database: Optional[str] = None,
         *,
-        refresh: str = "if_missing",
-        stale_after: int = STALE_AFTER_DAYS,
-        progress: Any = "auto",
-        workers: int = 8,
-        base_url: str = DEFAULT_BASE_URL,
-        transport: Optional[BaseTransport] = None,
+        max_age: Optional[int] = DEFAULT_MAX_AGE,
+        rebuild: bool = False,
+        exclude_broken: bool = True,
+        access_rights: Optional[Sequence[str]] = ("public",),
+        _transport: Optional[BaseTransport] = None,
     ) -> None:
-        if refresh not in _REFRESH_MODES:
-            raise QueryError(
-                "refresh must be one of %s; got %r"
-                % (", ".join(map(repr, _REFRESH_MODES)), refresh))
-        self.path = path or default_catalog_path()
-        self.stale_after = int(stale_after)
-        self._progress = progress
-        self._workers = workers
-        self._registry = _Registry(base_url, transport=transport)
+        if max_age is not None and (isinstance(max_age, bool) or max_age < 0):
+            raise QueryError("max_age must be a number of days, or None; got %r"
+                             % (max_age,))
+        self.database = database or default_catalog_path()
+        self.max_age = max_age
+        self.exclude_broken = bool(exclude_broken)
+        self.access_rights = _access_scope(access_rights)
+        self._registry = _Registry(transport=_transport)
         self._owns_registry = True
         self._by_uri: Optional[Dict[str, Dict[str, Any]]] = None
+        self._publisher_rows: Optional[List[Dict[str, Any]]] = None
         self._seen: Dict[str, set] = {}
         self._records: List[Dict[str, Any]] = []
         self._services: List[Dict[str, Any]] = []
-        self._load(refresh)
+        self._first_retrieved: Optional[str] = None
+        self._last_refreshed: Optional[str] = None
+        self._load(rebuild)
 
     # -- the file ----------------------------------------------------------
 
-    def _load(self, refresh: str) -> None:
-        """Read the file, downloading first if this mode says to."""
-        exists = os.path.exists(self.path)
-        if refresh == "always" or not exists:
-            if refresh == "never":
-                raise FileNotFoundError(
-                    "%s does not exist and refresh=\"never\" forbids downloading "
-                    "it; use refresh=\"if_missing\" or point path= at a copy"
-                    % self.path)
-            self._download()
+    def _load(self, rebuild: bool) -> None:
+        """Read the database, bringing it up to date first if asked to."""
+        if rebuild or not os.path.exists(self.database):
+            self._download(full=True)
             return
         self._read()
-        if refresh == "if_stale" and self.stale:
-            logger.info("%s is %d days old; refreshing", self.path, self.age_days)
-            self._download()
-        elif self.stale:
-            # Never on its own: a program that answered in a second yesterday
-            # must not block for six minutes today. The age is reported so the
-            # decision stays yours.
-            logger.warning(
-                "%s is %d days old; the registry re-harvests nightly. Build "
-                "the Catalog with refresh=\"if_stale\" for current data.",
-                self.path, self.age_days)
+        age = self.age_days
+        if self.max_age is not None and age is not None and age >= self.max_age:
+            # Incremental: only what the registry has touched since we looked.
+            # A day of churn is about 630 datasets, seven pages -- so keeping a
+            # copy current costs seconds rather than the minutes a rebuild does.
+            logger.info("%s is %d days old; refreshing what changed",
+                        self.database, age)
+            self._download(full=False)
+        elif age:
+            logger.info("%s is %d days old and max_age is %s; used as is",
+                        self.database, age, self.max_age)
 
-    def _download(self) -> None:
-        download_catalog(self.path, progress=self._progress,
-                         workers=self._workers, client=self._registry)
+    def _download(self, full: bool = True) -> None:
+        """Fill the database, or bring it up to date.
+
+        ``full=False`` asks the registry only for entries it has touched since
+        our last refresh, and every row it returns replaces its own. It cannot
+        see a deletion: a dataset withdrawn from the registry keeps its row
+        until a full rebuild, which ``rebuild=True`` does.
+        """
+        since = None if full else self.last_refreshed
+        download_catalog(self.database, client=self._registry, since=since)
         self._read()
 
     def _read(self) -> None:
-        """Load the file and split it by ``type``.
-
-        One file holds both kinds of line. A record written before 0.7.0 has no
-        ``type`` at all, and is read as a dataset -- that is all the file held.
-        """
-        every = _read_jsonl(self.path)
+        """Load the database and split its rows by type."""
+        db = _connect(self.database)
+        try:
+            version = _meta_get(db, "schema")
+            if version is not None and version != SCHEMA_VERSION:
+                raise ParseError(
+                    "%s was written with catalogue schema %s and this is "
+                    "version %s. Build the Catalog with rebuild=True."
+                    % (self.database, version, SCHEMA_VERSION))
+            self._first_retrieved = _meta_get(db, "first_retrieved")
+            self._last_refreshed = _meta_get(db, "last_refreshed")
+            every = [_present(json.loads(row["doc"]))
+                     for row in db.execute("SELECT doc FROM record")]
+        finally:
+            db.close()
         if not every:
             # A catalogue with nothing in it is not a catalogue. Writes are
             # atomic now, so this means the file was emptied by something
@@ -1257,20 +1563,80 @@ class Catalog:
             # nothing" would hide that for as long as the file sat there.
             raise ParseError(
                 "%s is empty, so it is not a usable catalogue. Delete it, or "
-                "build the Catalog with refresh=\"always\" to fetch a fresh "
-                "one." % self.path)
+                "build the Catalog with rebuild=True to fetch a fresh one."
+                % self.database)
+        self._publishers = _Publishers(             # before scope, on purpose
+            (record["publisher"], 1) for record in every)
+        every = self._scope(every)
         self._records = [r for r in every if r.get("type", "dataset") == "dataset"]
         self._services = [r for r in every if r.get("type") == "data_service"]
         self._by_uri = None
         self._seen = {}
+        self._publisher_rows = None
         logger.info("read %s datasets and %s data services from %s",
-                    f"{len(self._records):,}", f"{len(self._services):,}", self.path)
+                    f"{len(self._records):,}", f"{len(self._services):,}", self.database)
+
+    def _scope(self, every: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """What this Catalog holds of what the database holds.
+
+        The database is the whole registry; ``access_rights`` and
+        ``exclude_broken`` narrow it when the object is built, so every
+        search and every count after that already agrees with them.
+        """
+        if self.access_rights is not None:
+            before = len(every)
+            every = [r for r in every
+                     if (r.get("access_rights") or "none") in self.access_rights]
+            if before - len(every):
+                logger.info("left out %s records outside access_rights=%s",
+                            f"{before - len(every):,}",
+                            "/".join(sorted(self.access_rights)))
+        if self.exclude_broken:
+            # `broken` here already means dead: _present moved the files the
+            # registry merely could not reach to `unverified`, and those stay.
+            kept, files, dead = [], 0, 0
+            for record in every:
+                dists = record.get("distributions")
+                if dists:
+                    alive = [d for d in dists if not d.get("broken")]
+                    files += len(dists) - len(alive)
+                    if not alive:
+                        dead += 1
+                        continue
+                    record["distributions"] = alive
+                kept.append(record)
+            every = kept
+            if files:
+                logger.info("left out %s dead files and the %s datasets that "
+                            "had nothing else", f"{files:,}", f"{dead:,}")
+        return every
+
+    @property
+    def first_retrieved(self) -> Optional[str]:
+        """When this copy was first built, as the database recorded it."""
+        return self._first_retrieved
+
+    @property
+    def last_refreshed(self) -> Optional[str]:
+        """When it was last brought up to date. What a refresh asks from."""
+        return self._last_refreshed
 
     @property
     def downloaded(self) -> Optional[_dt.datetime]:
-        """When the file was written, which is how old the data is."""
+        """When the copy was last refreshed, which is how old the data is.
+
+        The database's own record of it, not the file's mtime: an incremental
+        refresh touches the file for a few hundred rows, and that must not make
+        the whole copy look new.
+        """
+        stamp = self._last_refreshed
+        if stamp:
+            try:
+                return _dt.datetime.fromisoformat(stamp)
+            except ValueError:                            # pragma: no cover
+                pass
         try:
-            return _dt.datetime.fromtimestamp(os.path.getmtime(self.path))
+            return _dt.datetime.fromtimestamp(os.path.getmtime(self.database))
         except OSError:                                   # pragma: no cover
             return None
 
@@ -1288,41 +1654,35 @@ class Catalog:
             return None
         return max(0, (_dt.datetime.now() - when).days)
 
-    @property
-    def stale(self) -> bool:
-        age = self.age_days
-        return age is not None and age >= self.stale_after
-
     def info(self) -> Dict[str, Any]:
         """What this copy is and how old::
 
-            {"path": "...\\catalog.jsonl",
-             "downloaded": "2026-09-30T08:12:41",
-             "age_days": 0, "stale": False, "bytes": 67527943,
-             "datasets": 23576, "data_services": 599, "publishers": 356}
+            {"database": "...\\catalog.sqlite",
+             "first_retrieved": "2026-09-30T17:57:14",
+             "last_refreshed": "2026-10-01T06:38:13",
+             "downloaded": "2026-10-01T06:38:13",
+             "age_days": 0, "bytes": 98725888,
+             "datasets": 23582, "data_services": 599, "publishers": 356}
         """
         when = self.downloaded
         try:
-            size = os.path.getsize(self.path)
+            size = os.path.getsize(self.database)
         except OSError:                                   # pragma: no cover
             size = 0
         return {
-            "path": self.path,
+            "database": self.database,
+            "first_retrieved": self._first_retrieved,
+            "last_refreshed": self._last_refreshed,
             "downloaded": when.isoformat() if when else None,
             "age_days": self.age_days,
-            "stale": self.stale,
             "bytes": size,
             "datasets": len(self._records),
             "data_services": len(self._services),
-            # Counted as filter values, so this is the same number
-            # filters()["publisher"] has rows. Eight organisations mint two
-            # URIs each for one name (Folkhälsomyndigheten, SLU, Malmö
+            # The length of publishers(): organisations, not URIs. Eight of
+            # them mint two URIs each (Folkhälsomyndigheten, SLU, Malmö
             # Museer...), and counting URIs would claim 365 next to a list of
             # 356.
-            "publishers": len({
-                slug for r in self._records + self._services
-                if (slug := _org_slug(r.get("publisher")))
-            }),
+            "publishers": len(self._rows()),
         }
 
     # -- lifecycle ---------------------------------------------------------
@@ -1346,19 +1706,32 @@ class Catalog:
 
     def __repr__(self) -> str:                            # pragma: no cover
         return "<Catalog %s: %d datasets, %d data services>" % (
-            self.path, len(self._records), len(self._services))
+            self.database, len(self._records), len(self._services))
 
     # -- searching ---------------------------------------------------------
 
     def _observed(self, filter: str, kind: str = "dataset") -> Optional[set]:
         """Every value this file actually holds for one filter.
 
-        What makes "the breakdown reports it, so you can filter on it" true
+        What makes "a facet reports it, so you can filter on it" true
         even where the vocabulary table has no entry for the value. Kept per
         kind of record, because a data service's values are its own.
         """
         if filter not in DATASET_FILTERS and filter not in DATA_SERVICE_FILTERS:
             return None
+        if filter == "keyword":
+            # Across both kinds, folded. A keyword has no vocabulary to vouch
+            # for it, so "known" has to mean "somewhere in this Catalog":
+            # checked per kind, data_services(keyword="kommun") would raise
+            # for the commonest keyword there is, because no service has it.
+            key = ("*", "keyword")
+            if key not in self._seen:
+                self._seen[key] = {
+                    _fold_keyword(value)
+                    for record in self._records + self._services
+                    for value in _local_values(record, "keyword")
+                }
+            return self._seen[key]
         key = (kind, filter)
         if key not in self._seen:
             records = self._services if kind == "data_service" else self._records
@@ -1403,18 +1776,92 @@ class Catalog:
                 % (what, name, ", ".join(allowed)))
 
     def _matching(self, records, filters, kind="dataset"):
-        tests = [_local_test(name, value, self._observed(name, kind))
-                 for name, value in filters.items()]
+        tests = []
+        for name, value in filters.items():
+            if name == "publisher":
+                # Resolved by the Catalog, which knows its publishers; the
+                # other filters need only the vocabulary and the record.
+                wanted = {self._publishers.resolve(item)
+                          for item in _require_values(value, name)}
+                tests.append(lambda record, wanted=wanted:
+                             record["publisher"]["id"] in wanted)
+            else:
+                tests.append(_local_test(name, value, self._observed(name, kind)))
         return [r for r in records if all(test(r) for test in tests)]
+
+    # -- publishers --------------------------------------------------------
+
+    def _rows(self) -> List[Dict[str, Any]]:
+        """One row per publisher this Catalog holds something from."""
+        if self._publisher_rows is None:
+            counts: Dict[str, List[int]] = {}
+            for column, records in enumerate((self._records, self._services)):
+                for record in records:
+                    pid = record["publisher"]["id"]
+                    if pid:
+                        counts.setdefault(pid, [0, 0])[column] += 1
+            rows = [dict(self._publishers.entities[pid],
+                         dataset_count=datasets, data_service_count=services)
+                    for pid, (datasets, services) in counts.items()]
+            rows.sort(key=lambda row: (-row["dataset_count"], row["id"]))
+            self._publisher_rows = rows
+        return self._publisher_rows
+
+    def publishers(self) -> List[Publisher]:
+        """Every publisher this Catalog holds something from, biggest first.
+
+            >>> catalog.publishers()[0]                    # doctest: +SKIP
+            {'id': 'radet_for_framjande_av_kommunala_analyser_kolada',
+             'uri': 'http://dataportal.se/organisation/SE2220000315',
+             'name': {'sv': 'Rådet för främjande av kommunala analyser - Kolada'},
+             'aliases': ['kolada'], 'type': 'non_governmental_organisation',
+             'homepage': ..., 'email': ..., 'identifiers': ['2220000315'],
+             'dataset_count': 5863, 'data_service_count': 1}
+
+        A plain list, not paginated and without arguments: it is a few hundred
+        rows, and "who publishes the most CSV" is the ``publisher`` facet of a
+        search. ``id`` is what ``publisher=`` takes and what that facet
+        reports. The two counts are this Catalog's -- they equal
+        ``datasets(publisher=id, limit=0).total`` and the same for data
+        services -- so a publisher with nothing in scope is not listed.
+        """
+        return [_copy_publisher(row) for row in self._rows()]
+
+    def publisher(self, value: str) -> Optional[PublisherDetail]:
+        """One publisher, with what it publishes; ``None`` if nothing here.
+
+            >>> catalog.publisher("scb")["facets"]["format"]   # doctest: +SKIP
+            {'json': 4270, 'html': 16, ...}
+
+        ``value`` is anything a publisher shows: its ``id``, an alias, its
+        URI, an organisation number, or its name in either language -- the
+        same resolver ``publisher=`` uses. The result is a ``publishers()``
+        row plus ``facets``: exactly
+        ``datasets(publisher=id, limit=0).facets.to_dict()`` over theme,
+        format, license, access_rights, updated and language, so every value
+        in it can be fed back in beside ``publisher=``.
+
+        ``None`` for an organisation with nothing in this Catalog; a value
+        nobody knows raises :class:`QueryError` with suggestions, as the
+        filter does.
+        """
+        pid = self._publishers.resolve(value)
+        row = next((row for row in self._rows() if row["id"] == pid), None)
+        if row is None:
+            return None
+        mine = [r for r in self._records if r["publisher"]["id"] == pid]
+        return dict(_copy_publisher(row),
+                    facets=local_facets(mine, filters=_PUBLISHER_FACETS).to_dict())
 
     def datasets(
         self,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
-        breakdown_limit: Optional[int] = None,
+        facet_limit: Optional[int] = None,
         **filters: Any,
-    ) -> Results:
+    ) -> Results[DatasetRecord]:
         """Search datasets. A list of dicts that knows its own total.
 
             >>> page = cat.datasets(theme="transport")       # doctest: +SKIP
@@ -1424,54 +1871,56 @@ class Catalog:
             'Ändamålskatalogen'
 
         ``limit`` caps the rows you hold -- ``None`` for every match, ``0`` for
-        the count and the breakdown alone. ``breakdown_limit`` caps each list
-        in the breakdown, and what it cuts is counted in
-        :attr:`~dataportalen.Breakdown.omitted`.
+        the count and the facets alone. ``facet_limit`` caps each facet, and
+        what it cuts is counted in :attr:`~dataportalen.Facets.omitted`.
         """
-        for unsupported in ("sort", "page_size", "query"):
+        for unsupported in ("sort", "page_size"):
             if unsupported in filters:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        if query is not None:
+            filters = dict(filters, query=query)
         self._window(limit, offset)
-        self._check(filters, DATASET_FILTERS + ("text",) + _DATE_FILTERS,
+        self._check(filters, DATASET_FILTERS + ("query",) + _DATE_FILTERS,
                     "datasets")
         found = self._matching(self._records, filters)
-        breakdown = local_breakdown(found, limit=breakdown_limit,
-                                    filters=DATASET_FILTERS)
+        facets = local_facets(found, limit=facet_limit, filters=DATASET_FILTERS,
+                              names=self._publishers.names)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
-                       breakdown=breakdown)
+                       facets=facets)
 
-    def filters(self, limit: Optional[int] = None) -> Breakdown:
-        """What you can filter datasets by, with counts and readable names.
+    def facets(self, limit: Optional[int] = None) -> Facets:
+        """Every dataset facet: which values each filter has, with counts.
 
         The one thing a search cannot tell you: the options, before you search.
 
-            >>> cat.filters()["publisher"][0]              # doctest: +SKIP
-            ValueCount(value='radet_for_..._kolada', dataset_count=5863)
-            >>> list(cat.filters())                        # doctest: +SKIP
-            ['publisher', 'publisher_type', 'creator', 'theme', ...]
+            >>> catalog.facets()["publisher"][0]           # doctest: +SKIP
+            FacetValue(value='radet_for_..._kolada', count=5863)
+            >>> list(catalog.facets())                     # doctest: +SKIP
+            ['publisher', 'publisher_type', 'theme', 'keyword', ...]
 
-        The same :class:`~dataportalen.Breakdown` a search carries, counted
-        over every dataset -- about a third of a second for the whole corpus.
-        ``limit`` caps each list and what it cuts is counted in
-        :attr:`~dataportalen.Breakdown.omitted`.
+        The same :class:`~dataportalen.Facets` a search carries as
+        ``page.facets``, counted over every dataset this Catalog holds --
+        about half a second for the whole corpus. ``limit`` caps each facet
+        and what it cuts is counted in :attr:`~dataportalen.Facets.omitted`.
 
-        Data service options come from ``data_services(limit=0).breakdown``,
-        which is the identical structure over the other seven filters.
+        Data service facets are ``data_services(limit=0).facets``, the
+        identical structure over that kind's own filters.
         """
-        return local_breakdown(self._records, limit=limit,
-                               filters=DATASET_FILTERS)
+        return local_facets(self._records, limit=limit, filters=DATASET_FILTERS,
+                            names=self._publishers.names)
 
     def data_services(
         self,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = 50,
         offset: int = 0,
-        breakdown_limit: Optional[int] = None,
+        facet_limit: Optional[int] = None,
         **filters: Any,
-    ) -> Results:
+    ) -> Results[DataServiceRecord]:
         """Search data services -- the registry's APIs rather than its files.
 
             >>> cat.data_services(service_type="view")     # doctest: +SKIP
@@ -1484,19 +1933,22 @@ class Catalog:
         single value. There are no date filters either -- ``modified`` is on
         7.5% and ``issued`` on 0.8%.
         """
-        for unsupported in ("sort", "page_size", "query"):
+        for unsupported in ("sort", "page_size"):
             if unsupported in filters:
                 raise QueryError(
                     "%r is a search-index argument; a local catalogue matches "
                     "every record at once" % unsupported)
+        if query is not None:
+            filters = dict(filters, query=query)
         self._window(limit, offset)
-        self._check(filters, DATA_SERVICE_FILTERS + ("text",), "data services")
+        self._check(filters, DATA_SERVICE_FILTERS + ("query",), "data services")
         found = self._matching(self._services, filters, "data_service")
-        breakdown = local_breakdown(found, limit=breakdown_limit,
-                                    filters=DATA_SERVICE_FILTERS)
+        facets = local_facets(found, limit=facet_limit,
+                              filters=DATA_SERVICE_FILTERS,
+                              names=self._publishers.names)
         window = found[offset:] if limit is None else found[offset:offset + limit]
         return Results(window, total=len(found), offset=offset, limit=limit,
-                       breakdown=breakdown)
+                       facets=facets)
 
     def get(self, uri: str, format: str = "dict") -> Any:
         """One record by its URI, or ``None`` if this copy has no such thing.
@@ -1530,21 +1982,223 @@ class Catalog:
         ).text
 
 
-def _read_jsonl(path: str) -> List[Dict[str, Any]]:
-    opener = gzip.open if path.endswith(".gz") else io.open
-    with opener(path, "rt", encoding="utf-8") as handle:    # type: ignore[operator]
-        return [json.loads(line) for line in handle if line.strip()]
+#: The registry's reasons that are a server answering with an error. Every
+#: standard HTTP reason phrase from 400 up, the bare status numbers, and the
+#: three non-standard phrasings the registry's checker has been seen to use.
+#: Matched case-insensitively against the whole message.
+_DEAD_REASONS = frozenset(
+    [status.phrase.casefold() for status in HTTPStatus if status >= 400]
+    + [str(int(status)) for status in HTTPStatus if status >= 400]
+    + ["file not found", "access denied", "site not found"]
+)
 
 
-#: How each filter reads out of a record. A dataset's format lives on its
-#: distributions, its publisher is only there as a URI, and the rest are
-#: plain fields.
+def _is_dead(reason: Any) -> bool:
+    """Whether the registry's reason for `broken` is an HTTP error.
+
+    The registry records no status code for a broken link (it is null on all
+    11,900), only a message, and the messages are two different things:
+
+    ========================================================  =====
+    an HTTP error: Too Many Requests 2,624, Not Found 395,
+    Forbidden 212, Internal Server Error 40, Bad Request 33,
+    Unauthorized 14, Access Denied 8, ...                     3,342
+    no usable answer: no message 5,263, `request to ...
+    failed` 2,883, `timeout` 255, `maximum redirect` 11,
+    an ftp:// URL with credentials in it 7                    8,419
+    ========================================================  =====
+
+    Only the first is a server saying no. The second is the registry's
+    checker failing to get through: 7,091 of SCB's 14,228 links are in it,
+    because api.scb.se resets the checker's connections, and each of those
+    files answers 200 to an ordinary GET. Treating both as dead removed 4,270
+    of SCB's 4,306 datasets from the default catalogue.
+
+    An allow-list, not a deny-list: a message the checker invents next year
+    is unverified until someone adds it here, so the default keeps files
+    rather than dropping them.
+    """
+    return bool(reason) and str(reason).strip().casefold() in _DEAD_REASONS
+
+
+def _present(record: Dict[str, Any]) -> Dict[str, Any]:
+    """A stored record as the package hands it out.
+
+    The database keeps what the registry said; this turns it into what a
+    caller reads, and it is the one place that happens, so `Catalog` and
+    :func:`read_catalog` cannot disagree about a record.
+
+    The download marks every file the registry called broken with
+    ``broken: {reason, checked}``. Here the ones whose reason is not an HTTP
+    error become ``unverified`` instead -- same two keys -- so ``broken``
+    means dead and nothing else. Because it is done on reading, changing the
+    list is not a re-download.
+    """
+    for dist in record.get("distributions") or ():
+        mark = dist.get("broken")
+        if mark is not None and not _is_dead(mark.get("reason")):
+            dist["unverified"] = dist.pop("broken")
+
+    # `id` is what publisher= takes and what the publisher facet reports;
+    # without it a record had no public route to its own filter value, and an
+    # alias would point at nothing. Both are the package's, not the
+    # registry's, and both can change between releases (the organisation
+    # table, aliases.json) while the database does not -- so they are added
+    # here rather than stored, and a new alias needs no rebuild.
+    record["publisher"] = _publisher_dict(record.get("publisher") or {})
+    return record
+
+
+def _publisher_dict(agent: Dict[str, Any]) -> Dict[str, Any]:
+    """A registry agent as the nested ``publisher`` of a record."""
+    slug = _org_slug(agent)
+    return {
+        "id": slug,
+        "uri": agent.get("uri"),
+        "name": agent.get("name") or {},
+        "aliases": aliases_for(slug) if slug else [],
+        "type": agent.get("type"),
+        "homepage": agent.get("homepage"),
+        "email": agent.get("email"),
+        "identifiers": list(agent.get("identifiers") or []),
+    }
+
+
+#: The filters whose facets describe a publisher. `keyword` is left out -- one
+#: publisher has 4,230 distinct keywords -- and so are `publisher` and
+#: `publisher_type`, which are the publisher itself.
+_PUBLISHER_FACETS = ("theme", "format", "license", "access_rights",
+                     "updated", "language")
+
+
+class _Publishers:
+    """Who publishes, worked out from every record in the database.
+
+    Built before ``access_rights`` and ``exclude_broken`` narrow anything, so
+    who a publisher *is* does not depend on scope -- only how much of theirs a
+    Catalog holds does. Built from the scoped records, Region Uppsala would
+    be a regional authority in one Catalog and a local one in another.
+
+    A publisher is one or more registry agents, one per URI: 8 of the 356
+    have two. Its attributes are those of **one** of them -- the URI the
+    package's table knows first, then the one on most records, then the
+    lowest URI -- never a merge. Field-by-field majority was measured against
+    this: it differs for 2 publishers and builds an object no agent matches
+    (Folkhälsomyndigheten's fohm-app URI beside an organisation number only
+    its other agent carries).
+    """
+
+    def __init__(self, seen: Iterable[Tuple[Dict[str, Any], int]]) -> None:
+        # `seen` is (publisher dict, how many records carry it): one pair per
+        # record from a database, one per agent from the registry's own
+        # publisher facet -- so both classes work out who is who the same way.
+        agents: Dict[str, Dict[Optional[str], List[Any]]] = {}
+        for publisher, n in seen:
+            pid = (publisher or {}).get("id")
+            if not pid:
+                continue                 # 27 records name no publisher at all
+            slot = agents.setdefault(pid, {}).setdefault(
+                publisher.get("uri"), [publisher, 0])
+            slot[1] += n
+        #: Every URI each publisher goes by -- what the registry is asked for.
+        self.uris = {pid: sorted(u for u in by_uri if u)
+                     for pid, by_uri in agents.items()}
+
+        self.entities: Dict[str, Dict[str, Any]] = {}
+        for pid, by_uri in agents.items():
+            ordered = sorted(by_uri.items(), key=lambda item: (
+                publisher_for(item[0]) is None, -item[1][1], item[0] or ""))
+            self.entities[pid] = ordered[0][1][0]
+        self.names = {pid: agent["name"] for pid, agent in self.entities.items()}
+
+        # What a publisher object shows, the filter takes. In tiers, and the
+        # first tier to claim a key keeps it: an id always means itself, even
+        # where it is also somebody else's slugified name (one such case).
+        keys: Dict[str, str] = {}
+        ordered_ids = sorted(agents)
+        for pid in ordered_ids:
+            keys.setdefault(pid, pid)
+        for pid in ordered_ids:
+            for alias in aliases_for(pid):
+                keys.setdefault(alias, pid)
+        for pid in ordered_ids:
+            for uri in sorted(u for u in agents[pid] if u):
+                keys.setdefault(uri, pid)
+        for pid in ordered_ids:
+            for agent, _ in agents[pid].values():
+                for identifier in agent.get("identifiers") or ():
+                    keys.setdefault(str(identifier).strip(), pid)
+        for pid in ordered_ids:
+            for agent, _ in agents[pid].values():
+                name = agent.get("name")
+                for spelling in (name.values() if isinstance(name, dict) else [name]):
+                    if spelling:
+                        keys.setdefault(slugify(spelling), pid)
+        self._keys = keys
+
+    def resolve(self, value: Any) -> str:
+        """The id of the publisher ``value`` names.
+
+        An id, an alias, a URI, an organisation number or a name in either
+        language. An organisation the package knows but this database does
+        not hold still resolves, to an id nothing carries -- so the filter
+        answers 0 and ``publisher()`` answers ``None`` rather than raising.
+        Only a value nobody knows is an error.
+        """
+        if not isinstance(value, str) or not value.strip():
+            raise QueryError("publisher needs a value; got %r" % (value,))
+        raw = value.strip()
+        for key in (raw, slugify(raw)):
+            if key in self._keys:
+                return self._keys[key]
+        try:
+            uris = resolve_publisher(raw)
+        except QueryError:
+            known = sorted(set(self.entities) | {
+                alias for pid in self.entities for alias in aliases_for(pid)})
+            raise _suggest_from(slugify(raw) or raw, known, "publisher") from None
+        for uri in uris:
+            if uri in self._keys:
+                return self._keys[uri]
+        for uri in uris:
+            known = publisher_for(uri)
+            if known:
+                return known
+        return slugify(raw)
+
+
+def _copy_publisher(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A publisher dict the caller may change without changing ours."""
+    return dict(row, name=dict(row["name"]), aliases=list(row["aliases"]),
+                identifiers=list(row["identifiers"]))
+
+
+def read_catalog(path: str) -> List[Union[DatasetRecord, DataServiceRecord]]:
+    """Every record in a catalogue database, in insertion order.
+
+    For reading a copy without building a :class:`Catalog` around it. The
+    whole registry as downloaded: every ``access_rights`` value and every
+    file, the dead ones carrying ``broken`` and the ones the registry could
+    not check carrying ``unverified``.
+    """
+    if not os.path.exists(path):
+        # _connect would create an empty database here and this would return
+        # [] -- a typo in the path read as "a catalogue with nothing in it".
+        raise FileNotFoundError("%s does not exist" % path)
+    db = _connect(path)
+    try:
+        return [_present(json.loads(row["doc"]))
+                for row in db.execute("SELECT doc FROM record")]
+    finally:
+        db.close()
+
+
 def _local_values(record: Dict[str, Any], filter: str) -> List[str]:
     """Every value one filter reads out of one record, blanks excluded.
 
     33 datasets carry a keyword that is nothing but a newline and four
     spaces. It is not a value anybody can filter on, so it does not belong in
-    a breakdown that promises every row can be fed back in.
+    facets that promise every row can be fed back in.
     """
     return [v for v in _local_values_raw(record, filter) if str(v).strip()]
 
@@ -1553,12 +2207,7 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter in ("theme", "themes"):
         return list(record.get("themes") or [])
     if filter == "language":
-        # Only the two the filter supports: the rest is a long tail of
-        # corpora languages, still present on the record itself.
-        return [lang for lang in (record.get("languages") or [])
-                if lang in SUPPORTED_LANGUAGES]
-    if filter == "place":
-        return list(record.get("spatial") or [])
+        return list(record.get("languages") or [])
     if filter == "keyword":
         keywords = record.get("keywords") or []
         if isinstance(keywords, dict):                      # {sv: [...], en: [...]}
@@ -1570,22 +2219,19 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
     if filter == "updated":
         value = record.get("accrual_periodicity")
         return [value] if value else []
-    if filter in ("license", "access_rights"):
+    if filter == "license":
+        value = (record.get("license") or {}).get("id")
+        return [value] if value else []
+    if filter == "access_rights":
         value = record.get(filter)
         return [value] if value else []
     if filter == "publisher":
-        slug = _org_slug(record.get("publisher"))
+        publisher = record.get("publisher") or {}
+        slug = publisher.get("id") or _org_slug(publisher)
         return [slug] if slug else []
     if filter == "publisher_type":
         kind = (record.get("publisher") or {}).get("type")
         return [kind] if kind else []
-    if filter == "creator":
-        out = []
-        for creator in record.get("creators") or []:
-            slug = _org_slug(creator)
-            if slug:
-                out.append(slug)
-        return out
     if filter == "service_type":
         value = record.get("service_type")
         return [value] if value else []
@@ -1594,12 +2240,26 @@ def _local_values_raw(record: Dict[str, Any], filter: str) -> List[str]:
         % (filter, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
 
 
+def _solr_stamp(value: Any) -> str:
+    """A timestamp the index will accept in a range, from anything date-ish."""
+    text = _iso(value) if not isinstance(value, str) else value
+    text = (text or "").strip()
+    if not text:
+        raise QueryError("since needs a timestamp, got %r" % (value,))
+    if len(text) == 10:
+        text += "T00:00:00Z"
+    elif not text.endswith("Z"):
+        text = text.split("+")[0].split(".")[0]
+        text += "Z"
+    return text
+
+
 def _require_date(value: Any, name: str) -> str:
     """A date bound that is really a date.
 
     `_date` normalises the shapes publishers write, but it checked the shape
-    and not the calendar, so `updated_after="2024-13-45"` became a bound that
-    silently matched 12,584 datasets and `updated_after=None` became the
+    and not the calendar, so `modified_after="2024-13-45"` became a bound that
+    silently matched 12,584 datasets and `modified_after=None` became the
     empty string, which every stamp sorts after. Both looked like an answer.
     """
     if value is None or (isinstance(value, str) and not value.strip()):
@@ -1638,14 +2298,14 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     the value as given then that value is the whole answer. Expanding it
     through the vocabulary would over-match: ``json`` also resolves to
     ``application/json+zip``, whose own slug is ``json_in_a_zip``, so
-    ``format="json"`` would quietly return 54 datasets the breakdown counts
-    under a different name -- and the breakdown's counts would stop agreeing
+    ``format="json"`` would quietly return 54 datasets the facet counts
+    under a different name -- and the facet's counts would stop agreeing
     with the searches its values produce.
 
     Failing that, the vocabulary resolves synonyms and extension aliases, so
     ``xlsx`` still finds what is stored as ``microsoft_excel_xml_xlsx``. And a
     value the table has never heard of but the file does contain -- ``parquet``,
-    a bare GeoNames id -- resolves to itself, because everything a breakdown
+    a bare GeoNames id -- resolves to itself, because everything a facet
     reports has to be usable as a filter. Only a value that is neither known
     nor present is an error, and then the suggestions come from the file.
     """
@@ -1661,35 +2321,6 @@ def _local_slugs(value: Any, name: str, observed: Optional[Any] = None) -> set:
     return slugs
 
 
-def _org_value(value: Any, name: str, observed: Optional[Any] = None) -> str:
-    """One publisher or creator value, checked against the table and the file.
-
-    A name-derived slug is not in the package's table, so the file it came from
-    is the only thing that can vouch for it. Everything the breakdown reports
-    has to be usable as a filter, and the breakdown reports these.
-
-    Where the table does vouch for it, the value is translated to the slug a
-    record actually stores. ``organisations.json`` indexes every publisher
-    under both its slugged name and its organisation number, so
-    ``publisher="SE2021006297"`` has to end up matching records filed under
-    ``trafikverket``, not be compared against them as itself.
-    """
-    slug = slugify(value)
-    if observed is not None and slug in observed:
-        return slug
-    try:
-        uris = resolve_publisher(value)                    # raises with a hint
-    except QueryError:
-        if observed is None:
-            raise
-        raise _suggest_from(slug, observed, name) from None
-    for uri in uris:
-        canonical = publisher_for(uri)
-        if canonical and (observed is None or canonical in observed):
-            return canonical
-    return slug
-
-
 def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
     """The unknown-value error, with the suggestions drawn from this file."""
     close = difflib.get_close_matches(value, sorted(observed), n=3, cutoff=0.7)
@@ -1699,16 +2330,22 @@ def _suggest_from(value: str, observed: Any, what: str) -> QueryError:
 
 def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
     """One filter as a predicate over a record."""
-    if name in ("text", "keyword", "publisher", "creator", "theme", "format",
-                "license", "access_rights", "updated", "language", "place",
+    if name in ("query", "keyword", "publisher", "theme", "format", "license",
+                "access_rights", "updated", "language",
                 "publisher_type", "service_type"):
         _require_values(value, name)
 
     if name == "text":
-        # The one free-text filter, over both languages of the title and the
-        # description and every keyword. The narrower title=/description=/uri=
-        # variants earned nothing a caller could not do by reading the record,
-        # and one record by URI is what get() is for.
+        raise QueryError("'text' is called 'query' now: datasets(query=%r)"
+                         % (value,))
+
+    if name == "query":
+        # The one free-text input: a phrase, matched as a case-insensitive
+        # substring of the title, the description and every keyword, in both
+        # languages. `query` is the conventional name for it; the matching is
+        # what `text=` did. Splitting it into terms that must all match was
+        # considered and measured -- "air quality" goes from 15 datasets to
+        # 481 -- and is a different feature from a rename.
         needle = str(value).lower()
 
         def text_test(record: Dict[str, Any]) -> bool:
@@ -1723,11 +2360,12 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
 
         return text_test
 
-    if name.endswith("_after") or name.endswith("_before"):
-        field = {"updated": "modified", "published": "issued"}.get(
-            name.rsplit("_", 1)[0])
-        if field is None:
-            raise QueryError("unknown filter %r" % (name,))
+    field, _, edge = name.rpartition("_")
+    if edge in ("after", "before") and field in ("modified", "issued"):
+        # Named after the record field they read, so there is nothing to
+        # translate: modified_after= bounds record["modified"]. Any other
+        # *_after falls through to the unknown-filter message, which names
+        # these four -- the only way to learn what updated_after became.
         bound = _iso_stamp(_require_date(value, name))
         after = name.endswith("_after")
 
@@ -1740,46 +2378,32 @@ def _local_test(name: str, value: Any, observed: Optional[Any] = None) -> Any:
         return date_test
 
     if name == "keyword":
-        # Exact when the file holds the keyword, substring otherwise -- the
-        # same rule the vocabulary filters use, and for the same reason. A
-        # pure substring match broke the contract the breakdown states: the
-        # keyword `BARN` is carried by 24 datasets and matched 680, because
-        # it is inside `BARNOMSORG` and the rest. 68 of the 120 commonest
-        # keywords disagreed with their own count.
-        # Case matters in the exact branch: the breakdown counts `BARN` and
-        # `Barn` as the two different values they are, so folding case here
-        # would make a value match more datasets than its own row claims.
-        given = [str(v) for v in _as_list(value)]
-        known = set(observed or ())
+        # An ordinary filter now: exact, case-insensitive, any of a list, and
+        # an unknown value is an error. It used to be three special cases --
+        # case-sensitive, substring when the value was not in the file, and
+        # all-of-a-list where every other filter is any-of. Substring search
+        # is what `query` is for; `BARN` must not match `BARNOMSORG`.
+        wanted = set()
+        for item in _as_list(value):
+            key = _fold_keyword(item)
+            if observed is not None and key not in observed:
+                raise _suggest_from(key, observed, "keyword")
+            wanted.add(key)
 
         def keyword_test(record: Dict[str, Any]) -> bool:
-            have = _local_values(record, "keyword")
-            lowered = None
-            for needle in given:
-                if needle in known:
-                    if needle not in have:
-                        return False
-                else:
-                    if lowered is None:
-                        lowered = [k.lower() for k in have]
-                    if not any(needle.lower() in k for k in lowered):
-                        return False
-            return True
+            return any(_fold_keyword(keyword) in wanted
+                       for keyword in _local_values(record, "keyword"))
 
         return keyword_test
 
-    if name in ("publisher", "creator"):
-        wanted = {_org_value(item, name, observed) for item in _as_list(value)}
-        return lambda record: bool(wanted & set(_local_values(record, name)))
-
     if name in ("theme", "format", "license", "access_rights", "updated",
-                "language", "place", "publisher_type", "service_type"):
+                "language", "publisher_type", "service_type"):
         wanted = set()
         for item in _as_list(value):
             wanted.update(_local_slugs(item, name, observed))
         return lambda record: bool(wanted & set(_local_values(record, name)))
 
     raise QueryError(
-        "unknown filter %r; supported: %s, published_after, published_before, "
-        "text, updated_after, updated_before"
-        % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS)))))
+        "unknown filter %r; supported: %s, query, %s"
+        % (name, ", ".join(sorted(set(DATASET_FILTERS + DATA_SERVICE_FILTERS))),
+           ", ".join(_DATE_FILTERS)))

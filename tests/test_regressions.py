@@ -16,8 +16,8 @@ from dataportalen import Catalog, QueryError, text
 
 @pytest.fixture
 def catalog(tmp_path, transport):
-    return Catalog(write_catalog(tmp_path), refresh="never",
-                   transport=transport, progress=None)
+    return Catalog(write_catalog(tmp_path), max_age=None,
+                   _transport=transport, access_rights=None)
 
 
 # -- an organisation number is a publisher, not a dead end -------------------
@@ -33,18 +33,6 @@ def test_an_organisation_number_finds_the_same_datasets_as_the_name(catalog):
     by_number = catalog.datasets(publisher="SE2021006297", limit=0).total
     assert by_name == by_number == 1
     assert catalog.datasets(publisher="se2021006297", limit=0).total == by_name
-
-
-def test_a_creator_takes_an_organisation_number_too(tmp_path, transport):
-    record = dict(
-        CATALOG_RECORDS[0],
-        creators=[{"uri": "http://dataportal.se/organisation/SE2021006297",
-                   "name": {"sv": "Trafikverket"},
-                   "type": "national_authority"}],
-    )
-    cat = Catalog(write_catalog(tmp_path, [record]), refresh="never",
-                  transport=transport, progress=None)
-    assert cat.datasets(creator="SE2021006297", limit=0).total == 1
 
 
 # -- publisher is always a dict ---------------------------------------------
@@ -68,7 +56,7 @@ def test_a_record_without_a_publisher_still_has_a_publisher_dict():
     assert record["publisher"]["identifiers"] == []
 
 
-# -- a breakdown value filters to exactly its own count ----------------------
+# -- a facet value filters to exactly its own count ----------------------
 
 
 def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
@@ -80,41 +68,98 @@ def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
         dict(CATALOG_RECORDS[1], uri="https://example.org/b",
              keywords={"sv": ["BARNOMSORG"]}),
     ]
-    cat = Catalog(write_catalog(tmp_path, records), refresh="never",
-                  transport=transport, progress=None)
-    counts = dict((v, c) for v, c in cat.filters()["keyword"])
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    counts = dict((v, c) for v, c in cat.facets()["keyword"])
     assert counts == {"BARN": 1, "BARNOMSORG": 1}
     for value, count in counts.items():
         assert cat.datasets(keyword=value, limit=0).total == count, value
 
 
-def test_case_is_not_folded_in_the_exact_branch(tmp_path, transport):
-    """The breakdown counts `BARN` and `Barn` separately, so matching must."""
+def test_case_is_folded_and_the_facet_agrees(tmp_path, transport):
+    """`BARN` and `Barn` are one keyword: one row, and it counts both.
+
+    1,765 keywords in the registry are spelt more than one way (`Hälsa` 290,
+    `HÄLSA` 102, `hälsa` 9). The row shows a spelling a record carries -- the
+    commonest, and on a tie the first alphabetically -- never the folded form.
+    """
     records = [
         dict(CATALOG_RECORDS[0], uri="https://example.org/a",
              keywords={"sv": ["BARN"]}),
         dict(CATALOG_RECORDS[1], uri="https://example.org/b",
              keywords={"sv": ["Barn"]}),
     ]
-    cat = Catalog(write_catalog(tmp_path, records), refresh="never",
-                  transport=transport, progress=None)
-    assert cat.datasets(keyword="BARN", limit=0).total == 1
-    assert cat.datasets(keyword="Barn", limit=0).total == 1
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert list(cat.facets()["keyword"]) == [("BARN", 2)]
+    for spelling in ("BARN", "Barn", "barn", " bArN "):
+        assert cat.datasets(keyword=spelling, limit=0).total == 2, spelling
 
 
-def test_a_keyword_the_file_lacks_still_matches_on_substring(tmp_path, transport):
+def test_the_commonest_spelling_is_the_one_shown(tmp_path, transport):
+    records = [
+        dict(CATALOG_RECORDS[0], uri="https://example.org/%d" % i,
+             context_id=str(i), keywords={"sv": [spelling]})
+        for i, spelling in enumerate(["Kommun", "Kommun", "kommun", "KOMMUN\n"])
+    ]
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert list(cat.facets()["keyword"]) == [("Kommun", 4)]
+
+
+def test_a_record_with_two_spellings_counts_once(tmp_path, transport):
+    """395 dataset-keyword pairs in the registry are this."""
+    record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Kommun"], "en": ["kommun"]})
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert [row.count for row in cat.facets()["keyword"]] == [1]
+    assert cat.datasets(keyword="KOMMUN", limit=0).total == 1
+
+
+def test_an_unknown_keyword_raises_and_suggests(tmp_path, transport):
+    """It used to fall back to a substring match; that is what query= is for."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Geodata"]})
-    cat = Catalog(write_catalog(tmp_path, [record]), refresh="never",
-                  transport=transport, progress=None)
-    assert cat.datasets(keyword="geoda", limit=0).total == 1
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    with pytest.raises(QueryError) as info:
+        cat.datasets(keyword="geoda")
+    assert "unknown keyword" in str(info.value)
+    assert "geodata" in str(info.value)
+    assert cat.datasets(query="geoda", limit=0).total == 1
 
 
-def test_a_blank_value_never_reaches_the_breakdown(tmp_path, transport):
+def test_a_keyword_list_is_any_of_like_every_other_filter(tmp_path, transport):
+    """It was all-of: the one filter whose list meant something else."""
+    records = [
+        dict(CATALOG_RECORDS[0], uri="https://example.org/a",
+             keywords={"sv": ["Kommun"]}),
+        dict(CATALOG_RECORDS[1], uri="https://example.org/b",
+             keywords={"sv": ["Region"]}),
+    ]
+    cat = Catalog(write_catalog(tmp_path, records), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert cat.datasets(keyword=["kommun", "region"], limit=0).total == 2
+    assert cat.datasets(keyword=["kommun"], limit=0).total == 1
+
+
+def test_a_keyword_only_the_other_kind_has_is_zero_not_an_error(catalog):
+    """`vägnät` is on a dataset and on no data service.
+
+    A keyword has no vocabulary to vouch for it, so "known" means somewhere
+    in this Catalog. Checked per kind, data_services(keyword="kommun") would
+    raise for the commonest keyword in the registry.
+    """
+    assert catalog.datasets(keyword="vägnät", limit=0).total == 1
+    assert catalog.data_services(keyword="vägnät", limit=0).total == 0
+    assert catalog.datasets(keyword="innovation", limit=0).total == 0
+
+
+def test_a_blank_value_never_reaches_the_facets(tmp_path, transport):
     """33 datasets carry a keyword that is a newline and four spaces."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["\n    ", "riktig"]})
-    cat = Catalog(write_catalog(tmp_path, [record]), refresh="never",
-                  transport=transport, progress=None)
-    assert [v for v, _ in cat.filters()["keyword"]] == ["riktig"]
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    assert [v for v, _ in cat.facets()["keyword"]] == ["riktig"]
 
 
 # -- garbage is refused, not coerced into a plausible number -----------------
@@ -122,7 +167,7 @@ def test_a_blank_value_never_reaches_the_breakdown(tmp_path, transport):
 
 @pytest.mark.parametrize("filters", [
     {"keyword": []}, {"theme": []}, {"publisher": []},
-    {"text": ""}, {"text": None}, {"keyword": None}, {"theme": "   "},
+    {"query": ""}, {"query": "   "}, {"keyword": None}, {"theme": "   "},
 ])
 def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
     """`keyword=[]` returned all 23,576 while `theme=[]` returned none."""
@@ -133,16 +178,16 @@ def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
 
 @pytest.mark.parametrize("value", [None, "", "notadate", "2024-13-45", "20240101"])
 def test_a_date_bound_has_to_be_a_date(catalog, value):
-    """`updated_after=None` became "" and matched every dated record."""
+    """`modified_after=None` became "" and matched every dated record."""
     with pytest.raises(QueryError) as info:
-        catalog.datasets(limit=0, updated_after=value)
+        catalog.datasets(limit=0, modified_after=value)
     assert "date" in str(info.value)
 
 
 @pytest.mark.parametrize("value", ["2024", "2024-01", "2024-01-01",
                                    "2024-01-01T09:00:00"])
 def test_the_date_shapes_publishers_write_are_still_accepted(catalog, value):
-    catalog.datasets(limit=0, updated_after=value)
+    catalog.datasets(limit=0, modified_after=value)
 
 
 # -- smaller contracts -------------------------------------------------------
@@ -166,14 +211,11 @@ def test_an_unregistered_rdf_type_gives_a_plain_entry_not_a_keyerror():
     assert isinstance(entry, Entry)
 
 
-def test_the_request_path_quotes_the_ids_it_interpolates(cat, transport):
-    """Catalog(path=...) accepts any file; a crafted id must not redirect."""
+def test_the_request_path_quotes_the_ids_it_interpolates(tmp_path, transport):
+    """Catalog(path=..., access_rights=None) accepts any file; a crafted id must not redirect."""
     record = dict(CATALOG_RECORDS[0], context_id="../../evil", entry_id="9")
-    import json as _json
-    path = cat.info()["path"]
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(_json.dumps(record) + "\n")
-    fresh = Catalog(path, refresh="never", transport=transport)
+    fresh = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                    _transport=transport, access_rights=None)
     transport.push("x", content_type="text/turtle")
     fresh.get(record["uri"], format="turtle")
     assert "/store/..%2F..%2Fevil/metadata/9" in transport.requests[-1]
@@ -259,5 +301,5 @@ def test_an_empty_file_is_not_a_catalogue(tmp_path, transport):
     path = tmp_path / "empty.jsonl"
     path.write_text("", encoding="utf-8")
     with pytest.raises(ParseError) as info:
-        Catalog(str(path), refresh="never", transport=transport)
+        Catalog(str(path), max_age=None, _transport=transport, access_rights=None)
     assert "empty" in str(info.value)

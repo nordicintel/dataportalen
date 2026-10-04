@@ -179,20 +179,11 @@ def test_terminal_progress_always_shows_the_final_update():
     assert stream.getvalue().count("\r") == 2
 
 
-def test_progress_reporter_modes():
-    assert progress_reporter(None, "x") is None
-    callback = lambda done, total: None            # noqa: E731
-    assert progress_reporter(callback, "x") is callback
-    assert callable(progress_reporter("auto", "x"))
-    with pytest.raises(ValueError):
-        progress_reporter("nonsense", "x")
-
-
 def test_non_tty_progress_logs_instead_of_drawing():
     stream = io.StringIO()
     enable_logging("INFO", stream=stream)
     # stderr under pytest is not a tty, so "auto" takes the logging path.
-    report = progress_reporter("auto", "datasets", log_every=10)
+    report = progress_reporter("datasets", log_every=10)
     for done in range(1, 21):
         report(done, 20)
     out = stream.getvalue()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import sys
 from pathlib import Path
@@ -91,8 +92,29 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
-#: Two datasets, enough to exercise every filter and the breakdown. Text is
-#: a language map, as every record the download writes is.
+def _file(name: str, format: str) -> Dict[str, Any]:
+    """One distribution as the download stores it: every key, always."""
+    return {
+        "uri": "https://example.org/dist/" + name,
+        "title": {}, "description": {},
+        "access_url": "https://example.org/files/" + name,
+        "download_url": None,
+        "format": format, "license": None, "status": None,
+        "availability": None, "languages": [], "issued": None,
+        "modified": None, "access_service_uris": [],
+    }
+
+
+def _agent(uri: str, name: str) -> Dict[str, Any]:
+    """A publisher as the download stores it; `id` and `aliases` are added
+    when the record is read."""
+    return {"uri": uri, "name": {"sv": name}, "type": "national_authority",
+            "homepage": None, "email": None, "identifiers": []}
+
+
+#: Two datasets, enough to exercise every filter and the facets, in the full
+#: shape a download writes -- so a test that checks record shapes offline is
+#: checking something.
 CATALOG_RECORDS = [
     {
         "uri": "https://example.org/roads",
@@ -101,18 +123,24 @@ CATALOG_RECORDS = [
         "entry_id": "1",
         "title": {"sv": "Vägtrafiknät", "en": "Road traffic network"},
         "description": {"sv": "Nationellt vägnät med cykelvägar"},
-        "keywords": {"sv": ["vägnät", "Geodata"]},
+        "keywords": {"sv": ["vägnät", "Geodata"], "en": ["geodata "]},
         "themes": ["transport"],
-        "license": "cc_by_4_0",
+        "license": {"id": "cc_by_4_0", "label": {"en": "CC BY 4.0 (Attribution)"},
+                    "uri": "http://creativecommons.org/licenses/by/4.0/"},
         "access_rights": "public",
         "accrual_periodicity": "annual",
-        "languages": ["swedish"],
+        "languages": ["sv"],
         "spatial": ["kingdom_of_sweden"],
         "issued": "2020-03-04",
         "modified": "2024-05-06T09:00:00+02:00",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                      "name": {"sv": "Trafikverket"}, "type": "national_authority"},
-        "distributions": [{"format": "csv"}, {"format": "json"}],
+        "identifier": "roads-1",
+        "landing_page": "https://example.org/roads",
+        "temporal": {"start": "2020-01-01", "end": None},
+        "contact_points": [{"uri": None, "name": "Vägdata",
+                            "email": "vag@example.org"}],
+        "publisher": _agent("http://dataportal.se/organisation/SE2021006297",
+                            "Trafikverket"),
+        "distributions": [_file("roads.csv", "csv"), _file("roads.json", "json")],
     },
     {
         "uri": "https://example.org/budget",
@@ -123,17 +151,22 @@ CATALOG_RECORDS = [
         "description": {"sv": "Utbetalda bidrag per kommun"},
         "keywords": {"sv": ["ekonomi"]},
         "themes": ["economy_and_finance"],
-        "license": "cc0_1_0",
+        "license": {"id": "cc0_1_0",
+                    "label": {"en": "CC0 1.0 (Public Domain Dedication, No Copyright)"},
+                    "uri": "http://creativecommons.org/publicdomain/zero/1.0/"},
         "access_rights": "non_public",
         "accrual_periodicity": "monthly",
-        "languages": ["swedish", "english"],
+        "languages": ["sv", "en"],
         "spatial": [],
         "issued": "2014-01-01",
         "modified": "2019-01-01",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
-                      "name": {"sv": "Försäkringskassan"},
-                      "type": "national_authority"},
-        "distributions": [{"format": "xlsx"}],
+        "identifier": None,
+        "landing_page": None,
+        "temporal": None,
+        "contact_points": [],
+        "publisher": _agent("http://dataportal.se/organisation/SE2021005521",
+                            "Försäkringskassan"),
+        "distributions": [_file("budget.xlsx", "xlsx")],
     },
 ]
 
@@ -152,12 +185,18 @@ SERVICE_RECORDS = [
         "keywords": {"sv": ["Innovation"]},
         "service_type": "rest",
         "endpoint_url": "https://api.example.org/v1",
+        "endpoint_description": "https://api.example.org/docs",
+        "serves_datasets": ["https://example.org/roads"],
+        "conforms_to": [],
+        "landing_page": None,
+        "contact_points": [],
         "themes": ["education_culture_and_sport"],
-        "license": "cc0_1_0",
+        "license": {"id": "cc0_1_0",
+                    "label": {"en": "CC0 1.0 (Public Domain Dedication, No Copyright)"},
+                    "uri": "http://creativecommons.org/publicdomain/zero/1.0/"},
         "access_rights": "public",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021006297",
-                      "name": {"sv": "Trafikverket"},
-                      "type": "national_authority"},
+        "publisher": _agent("http://dataportal.se/organisation/SE2021006297",
+                            "Trafikverket"),
     },
     {
         "uri": "https://geodata.example.org/wms",
@@ -169,24 +208,59 @@ SERVICE_RECORDS = [
         "keywords": {"sv": ["Geodata"]},
         "service_type": "view_service",
         "endpoint_url": "https://geodata.example.org/wms",
+        "endpoint_description": None,
+        "serves_datasets": [],
+        "conforms_to": [],
+        "landing_page": None,
+        "contact_points": [],
         "themes": ["transport"],
-        "license": "cc_by_4_0",
+        "license": {"id": "cc_by_4_0", "label": {"en": "CC BY 4.0 (Attribution)"},
+                    "uri": "http://creativecommons.org/licenses/by/4.0/"},
         "access_rights": "public",
-        "publisher": {"uri": "http://dataportal.se/organisation/SE2021005521",
-                      "name": {"sv": "Försäkringskassan"},
-                      "type": "national_authority"},
+        "publisher": _agent("http://dataportal.se/organisation/SE2021005521",
+                            "Försäkringskassan"),
     },
 ]
 
 
-def write_catalog(tmp_path, records=None, name="catalog.jsonl"):
-    """A catalogue file on disk, for a Catalog that must not download."""
+#: What the registry's nightly link check says about the fixture's files.
+#: The verdicts are its vocabulary, not ours: success, broken, excluded.
+LINK_CHECKS = [
+    {"entryType": "dcat:Distribution", "context": "50",
+     "uri": "https://example.org/roads.csv", "property": "dcat:accessURL",
+     "status": "broken", "statusMessage": "Not Found",
+     "checkedAt": "2026-09-28T02:44:17.095Z", "attempts": 3},
+    {"entryType": "dcat:Distribution", "context": "50",
+     "uri": "https://example.org/roads.json", "property": "dcat:accessURL",
+     "status": "success", "statusMessage": "OK",
+     "checkedAt": "2026-09-28T02:44:18.001Z", "attempts": 1},
+    {"entryType": "dcat:Distribution", "context": "51",
+     "uri": "https://example.org/budget.xlsx", "property": "dcat:accessURL",
+     "status": "broken", "statusMessage": "Too Many Requests",
+     "checkedAt": "2026-09-28T02:44:19.002Z", "attempts": 2},
+]
+
+
+def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None):
+    """A catalogue database on disk, for a Catalog that must not download.
+
+    `stamp` defaults to now, so the copy is fresh whenever the suite runs. It
+    used to be the literal date the fixture was written, which made every
+    `age_days == 0` assertion pass for one day and fail forever after. Pass a
+    stamp explicitly to test what age and staleness do.
+    """
+    from dataportalen.client import SCHEMA_VERSION, _connect, _meta_set, _write_records
+
+    rows = CATALOG_RECORDS + SERVICE_RECORDS if records is None else records
+    stamp = stamp or _dt.datetime.now().replace(microsecond=0).isoformat()
     path = tmp_path / name
-    path.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False)
-                  for r in (CATALOG_RECORDS + SERVICE_RECORDS
-                            if records is None else records)) + "\n",
-        encoding="utf-8")
+    db = _connect(str(path))
+    with db:
+        _write_records(db, [
+            (r.get("type", "dataset"), r.get("modified"), r) for r in rows])
+        _meta_set(db, schema=SCHEMA_VERSION,
+                  first_retrieved=stamp, last_refreshed=stamp)
+    db.close()
     return str(path)
 
 
@@ -204,8 +278,8 @@ def cat(transport: FakeTransport, tmp_path):
     """A Catalog over the two canned records; nothing is downloaded."""
     from dataportalen import Catalog
 
-    with Catalog(write_catalog(tmp_path), refresh="never",
-                 transport=transport, progress=None) as catalog:
+    with Catalog(write_catalog(tmp_path), max_age=None,
+                 _transport=transport, access_rights=None) as catalog:
         yield catalog
 
 

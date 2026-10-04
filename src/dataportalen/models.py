@@ -48,6 +48,7 @@ from .rdf import (
     Graph,
     Resource,
     expand,
+    label_for,
     slug_for,
 )
 
@@ -58,11 +59,10 @@ __all__ = [
     "DataService",
     "Agent",
     "ContactPoint",
-    "ValueCount",
+    "FacetValue",
     "PeriodOfTime",
-    "Breakdown",
-    "ValueList",
-    "BREAKDOWN_FILTERS",
+    "Facets",
+    "Facet",
     "text",
     "DATASET_FILTERS",
     "DATA_SERVICE_FILTERS",
@@ -72,6 +72,8 @@ __all__ = [
 ]
 
 E = TypeVar("E", bound="Entry")
+#: The record a :class:`Results` holds: a dataset or a data service dict.
+R = TypeVar("R")
 
 _MISSING = object()
 
@@ -152,12 +154,30 @@ def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
     return found
 
 
-#: The shape a publisher or creator always has, even when there is none. A
-#: record never hands back a bare None where a dict is documented.
+_SPACES = dict.fromkeys(map(ord, " \t\n\r\u00a0\u202f\u2009"))
+
+
+def _whole_number(text: Any) -> Optional[int]:
+    """A non-negative whole number as publishers write one, or ``None``.
+
+        >>> _whole_number("5 420 000")
+        5420000
+        >>> _whole_number("39000.0")
+        39000
+        >>> _whole_number("2022-02-09") is None
+        True
+    """
+    digits = str(text).translate(_SPACES)
+    whole, dot, fraction = digits.partition(".")
+    if whole.isdigit() and (not dot or fraction.strip("0") == ""):
+        return int(whole)
+    return None
+
+
+#: The shape a publisher always has, even when there is none. A record never
+#: hands back a bare None where a dict is documented.
 _EMPTY_AGENT = {
     "uri": None,
-    "context_id": None,
-    "entry_id": None,
     "name": {},
     "type": None,
     "identifiers": [],
@@ -468,16 +488,16 @@ class Entry:
             "entry_id": self.entry_id,
         }
 
-    def _text(self, values: Dict[Optional[str], Any], empty: Any = None) -> Any:
-        """Localized values as ``{"sv": ..., "en": ...}``.
+    def _text(self, values: Dict[Optional[str], Any]) -> Dict[str, Any]:
+        """Localized values as ``{"sv": ..., "en": ...}``, ``{}`` when empty.
 
         There is no language setting: the record carries what the publisher
-        wrote, in both languages when both exist. ``empty`` is kept for the
-        few callers that want ``None`` over ``{}`` for a field with nothing
-        in it at all.
+        wrote, in both languages when both exist. Always a dict. `keywords`
+        used to come back as ``[]`` when a record had none -- 1,324 records,
+        5.5% -- so ``record["keywords"].get("sv")`` raised on exactly the
+        records with nothing to say.
         """
-        mapped = _langmap(values)
-        return mapped if mapped else ({} if empty is None else empty)
+        return _langmap(values) or {}
 
     def _term(self, uri: Optional[str]) -> Optional[str]:
         """One controlled value as a short name: ``"local_authority"``.
@@ -485,6 +505,19 @@ class Entry:
         Not a URI and not an object -- see :mod:`dataportalen.rdf`.
         """
         return slug_for(uri)
+
+    def _licence(self, uri: Optional[str]) -> Optional[Dict[str, Any]]:
+        """A licence as ``{"id", "label", "uri"}``, or ``None``.
+
+        The one vocabulary value that is not self-explanatory: nobody knows
+        what ``cc_by_nc_sa_4_0`` permits without looking it up, so the
+        readable name and the page to look it up on travel with it. ``id``
+        is still what ``license=`` filters on.
+        """
+        if not uri:
+            return None
+        slug = slug_for(uri)
+        return {"id": slug, "label": label_for(slug), "uri": uri}
 
     def _terms(self, uris: Sequence[str]) -> List[str]:
         out = []
@@ -686,7 +719,7 @@ class ContactPoint(Entry):
 
 
 class Agent(Entry):
-    """``foaf:Agent`` -- a publisher, creator or contact organisation."""
+    """``foaf:Agent`` -- a publisher or contact organisation."""
 
     rdf_types = (FOAF.Agent, FOAF.Organization, PROV.Agent)
 
@@ -734,7 +767,8 @@ class Agent(Entry):
         return out
 
     def to_dict(self):
-        return dict(self._envelope_dict(), **{
+        # No context/entry id: a nested object is not something you fetch.
+        return dict(uri=self.resource_uri, **{
             "name": self._text(self.names),
             "type": self._term(self.agent_type),
             "homepage": self.homepage,
@@ -780,7 +814,19 @@ class Distribution(Entry):
 
     @property
     def byte_size(self) -> Optional[int]:
-        return self.resource.integer(DCAT.byteSize)
+        """The file's size in bytes, where the publisher states one.
+
+        485 of 34,931 distributions do. A plain integer parse reads 470 of
+        them: 11 are written with a space or a no-break space between the
+        thousands (``5 420 000``), 3 are typed as decimals, and 1 is a date.
+        This reads 484; the date stays unread. Two distributions give two
+        sizes, and the first readable one is used.
+        """
+        for raw in self.resource.values(DCAT.byteSize):
+            size = _whole_number(raw)
+            if size is not None:
+                return size
+        return None
 
     @property
     def license(self) -> Optional[str]:
@@ -822,13 +868,16 @@ class Distribution(Entry):
         return self.resource.uri_of(DCATAP.availability)
 
     def to_dict(self):
-        return dict(self._envelope_dict(), **{
+        # One field per URL. 147 of 35,148 distributions name two access
+        # URLs and 130 two download URLs; the first is kept, and a reader
+        # stops writing `["..."]` around the other 99.6%.
+        out = dict(uri=self.resource_uri, **{
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "access_url": self.access_urls,
-            "download_url": self.download_urls,
+            "access_url": self.access_url,
+            "download_url": self.download_url,
             "format": self._term(self.format),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "status": self._term(self.status),
             "availability": self._term(self.availability),
             "languages": self._terms(self.language_uris),
@@ -836,6 +885,12 @@ class Distribution(Entry):
             "modified": _iso(self.modified_date),
             "access_service_uris": self.access_service_uris,
         })
+        # Present only when known, like `broken`: 1.4% of files state a size,
+        # and a null on the other 98.6% would be a key that says nothing.
+        size = self.byte_size
+        if size is not None:
+            out["byte_size"] = size
+        return out
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "<Distribution %r %s>" % (self.title, self.download_url or self.access_url or "")
@@ -880,10 +935,6 @@ class DataService(Entry):
         for lit in self.resource.literals(DCAT.keyword):
             out.setdefault(lit.lang, []).append(lit.value)
         return out
-
-    @property
-    def creator_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.creator)
 
     @property
     def publisher_uri(self) -> Optional[str]:
@@ -936,17 +987,19 @@ class DataService(Entry):
             "type": "data_service",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language, empty=[]),
+            "keywords": self._text(self.keywords_by_language),
             "service_type": self.service_type,
+            # One field per thing. Over all 599: four name more than one
+            # endpoint URL and one more than one description -- the first is
+            # kept. servesDataset (8 of 48) and conformsTo (36 of 177) are
+            # plural often enough to stay lists.
             "endpoint_url": self.endpoint_url,
-            "endpoint_urls": self.endpoint_urls,
-            "endpoint_descriptions": self.endpoint_description_uris,
-            "serves_dataset_uris": self.serves_dataset_uris,
+            "endpoint_description": (self.endpoint_description_uris or [None])[0],
+            "serves_datasets": self.serves_dataset_uris,
             "conforms_to": self.conforms_to,
             "publisher": self._publisher_dict(),
-            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "access_rights": self._term(self.access_rights),
             "landing_page": self.landing_page,
             "contact_points": [c.to_dict() for c in self.contact_points],
@@ -1084,10 +1137,6 @@ class Dataset(Entry):
         return self.resource.uri_of(DCTERMS.publisher)
 
     @property
-    def creator_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.creator)
-
-    @property
     def distribution_uris(self) -> List[str]:
         return self.resource.uris(DCAT.distribution)
 
@@ -1171,23 +1220,18 @@ class Dataset(Entry):
         graph -- all of them after a ``recursive=True`` fetch, none of them
         for a plain search hit, where ``distribution_uris`` still lists the
         references.
-
-        ``creators`` starts as ``[{"uri": ...}]`` here and is filled in with
-        the name and type during a download, where the 146 distinct creator
-        URIs across the corpus are resolved in about two batched requests.
         """
         temporal = self.temporal
         out = dict(self._envelope_dict(), **{
             "type": "dataset",
             "title": self._text(self.titles),
             "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language, empty=[]),
+            "keywords": self._text(self.keywords_by_language),
             "identifier": self.identifier,
             "landing_page": self.landing_page,
             "publisher": self._publisher_dict(),
-            "creators": [{"uri": uri} for uri in self.creator_uris],
             "themes": self._terms(self.theme_uris),
-            "license": self._term(self.license),
+            "license": self._licence(self.license),
             "access_rights": self._term(self.access_rights),
             "accrual_periodicity": self._term(self.accrual_periodicity),
             "languages": self._terms(self.language_uris),
@@ -1209,21 +1253,24 @@ class Dataset(Entry):
         return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
 
 
-class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
+class FacetValue(_namedtuple("FacetValue", "value count")):
     """One value a filter accepts, and how many records carry it.
 
-    Still a plain ``(value, dataset_count)`` pair, so it unpacks in a loop and
-    compares equal to one::
+    Still a plain ``(value, count)`` pair, so it unpacks in a loop and
+    compares equal to one. ``count`` is records of whatever was searched --
+    datasets from ``datasets()``, data services from ``data_services()`` --
+    which is why it is not called ``count`` any more. It shadows
+    ``tuple.count`` on purpose: nobody counts occurrences in a pair::
 
-        for value, count in page.breakdown["theme"]:
+        for value, count in page.facets["theme"]:
             ...
 
     :attr:`label` rides alongside rather than in the tuple -- ``{"sv": ...,
     "en": ...}``, from the vocabulary for a controlled value and from the
-    records themselves for a publisher or creator. It is ``{}`` for values
+    records themselves for a publisher. It is ``{}`` for values
     that are their own label, such as keywords.
 
-        row = page.breakdown["publisher"][0]
+        row = page.facets["publisher"][0]
         row.value                     # 'trafikverket', what you filter with
         row.label["sv"]               # 'Trafikverket', what you show
 
@@ -1232,8 +1279,8 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
     cannot use ``__slots__``.
     """
 
-    def __new__(cls, value, dataset_count, label=None):
-        row = super().__new__(cls, value, dataset_count)
+    def __new__(cls, value, count, label=None):
+        row = super().__new__(cls, value, count)
         row.label = label or {}
         return row
 
@@ -1241,65 +1288,78 @@ class ValueCount(_namedtuple("ValueCount", "value dataset_count")):
 # --- search results ---------------------------------------------------------
 
 
-#: What a dataset can be filtered and broken down by. Coverage over the
-#: corpus: publisher and license on 100% of datasets, keyword 94.8%, language
-#: 89.3%, access_rights 82.3%, theme 78.2%, format 69.7%, updated 63.3%,
-#: creator 30.1%, place 23.6%.
-DATASET_FILTERS = ("publisher", "publisher_type", "creator", "theme",
+#: What a dataset can be filtered and faceted by. Every one was measured
+#: over all 23,575 datasets: publisher and license are on 100% of them,
+#: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
+#: 69.7%, updated 63.3%.
+#:
+#: `place` was one of these and is not any more. 4,471 datasets set a
+#: spatial coverage (19%), and 3,068 of those say "Sweden". The 1,902 with a
+#: sub-national place spread over 540 values, 223 of them on exactly one
+#: dataset, and the common ones -- malmo 185, linkopings_kommun 160,
+#: sodertalje_kommun 103 -- are municipal publishers tagging their own
+#: municipality, which `publisher` already gives you. The field stays on the
+#: record as `spatial`.
+#:
+#: `creator` was one of these and is not any more. 7,104 datasets named one,
+#: and on 6,174 of them it was the publisher again -- the same agent URI on
+#: 5,292, the publisher's name plus a survey or system suffix on 634, an
+#: internal department on 150. The ~930 that named someone else were citing a
+#: source, not a second publisher. A filter whose two largest values are
+#: 4,468 datasets pointing at their own publisher is not a search axis.
+DATASET_FILTERS = ("publisher", "publisher_type", "theme",
                    "keyword", "format", "license", "access_rights",
-                   "updated", "language", "place")
+                   "updated", "language")
 
 #: The same for a data service, and it is a different list. Over all 599:
 #: access_rights 97.8%, publisher 97.3%, keyword 83.5%, service_type 55.9%,
-#: theme 53.8%, license 51.8%. The four that are missing are missing for a
+#: theme 53.8%, license 51.8%. The three that are missing are missing for a
 #: reason -- a data service has no distributions (so no `format`) and no
-#: `accrual_periodicity` (no `updated`), `place` is set on 7.8% of them and
-#: `language` has one single value across all 599.
-DATA_SERVICE_FILTERS = ("publisher", "publisher_type", "creator",
+#: `accrual_periodicity` (no `updated`), and `language` has one single value
+#: across all 599.
+DATA_SERVICE_FILTERS = ("publisher", "publisher_type",
                         "service_type", "theme", "keyword", "license",
                         "access_rights")
 
-#: Kept as the union, for code that asks "is this a filter at all".
-BREAKDOWN_FILTERS = DATASET_FILTERS
 
+class Facet(list):
+    """One facet: the values of one filter, with a count of any left out.
 
-class ValueList(list):
-    """The values for one filter, with a count of any left out.
+    A plain list of ``(value, count)`` pairs, biggest first::
 
-    A plain list of ``(value, dataset_count)`` pairs::
-
-        for value, count in page.breakdown["publisher"]:
+        for value, count in page.facets["publisher"]:
             ...
 
     ``omitted`` is how many further values there were, above whatever
-    ``breakdown_limit`` the search was given -- 0 when nothing was cut.
+    ``facet_limit`` the search was given -- 0 when nothing was cut.
     """
 
     __slots__ = ("omitted",)
 
-    def __init__(self, values: Sequence["ValueCount"] = (), omitted: int = 0) -> None:
+    def __init__(self, values: Sequence["FacetValue"] = (), omitted: int = 0) -> None:
         super().__init__(values)
         self.omitted = omitted
 
     def __repr__(self) -> str:                            # pragma: no cover
         more = " +%d more" % self.omitted if self.omitted else ""
-        return "<ValueList %d%s>" % (len(self), more)
+        return "<Facet %d%s>" % (len(self), more)
 
 
-class Breakdown(_Mapping):
-    """What a search result is made of, per filter, biggest first.
+class Facets(_Mapping):
+    """The facets of a result: per filter, which values exist and how often.
 
     Every filter you can search by, counted over everything that matched --
     not just the rows you are holding::
 
-        page = dp.datasets(text="cykel")
-        page.total                      # 388
-        page.breakdown["publisher"]     # [('trafikverket', 88), ...]
-        page.breakdown["theme"]         # [('transport', 201), ...]
+        page = catalog.datasets(query="cykel")
+        page.total                   # 388
+        page.facets["publisher"]     # [('trafikverket', 88), ...]
+        page.facets["theme"]         # [('transport', 201), ...]
 
-    Each value is one you can feed straight back in to narrow the search::
+    You filter with a value; a facet tells you which values there are. Each
+    one can be fed straight back in to narrow the search::
 
-        dp.datasets(text="cykel", publisher="trafikverket")
+        catalog.datasets(query="cykel", publisher="trafikverket")
 
     Counts are per dataset: a dataset with three CSV files counts once under
     ``format`` -> ``csv``.
@@ -1309,36 +1369,36 @@ class Breakdown(_Mapping):
 
     def __init__(
         self,
-        counts: Mapping[str, Sequence["ValueCount"]],
+        counts: Mapping[str, Sequence["FacetValue"]],
         limit: Optional[int] = None,
     ) -> None:
         self._counts = {}
         for name in counts:
             values = list(counts[name])
             if limit is not None and len(values) > limit:
-                self._counts[name] = ValueList(values[:limit], len(values) - limit)
+                self._counts[name] = Facet(values[:limit], len(values) - limit)
             else:
-                self._counts[name] = ValueList(values)
+                self._counts[name] = Facet(values)
 
     @property
     def omitted(self) -> Dict[str, int]:
         """``{filter: how many values were cut}``, for the ones that were.
 
-        Empty unless the search was given a ``breakdown_limit``.
+        Empty unless the search was given a ``facet_limit``.
         """
         return {name: values.omitted
                 for name, values in self._counts.items() if values.omitted}
 
-    def __getitem__(self, filter: str) -> "ValueList":
+    def __getitem__(self, filter: str) -> "Facet":
         if filter in self._counts:
             return self._counts[filter]
         raise QueryError(
-            "nothing is broken down by %r; this result knows: %s"
+            "no facet %r; this result has: %s"
             % (filter, ", ".join(self._counts)))
 
     def __contains__(self, filter: object) -> bool:
         # Mapping's default catches KeyError, and __getitem__ raises
-        # QueryError -- so `"format" in breakdown` would propagate instead of
+        # QueryError -- so `"format" in facets` would propagate instead of
         # answering False.
         return filter in self._counts
 
@@ -1348,7 +1408,7 @@ class Breakdown(_Mapping):
     def __len__(self) -> int:
         return len(self._counts)
 
-    def top(self, filter: str) -> Optional["ValueCount"]:  # noqa: D401
+    def top(self, filter: str) -> Optional["FacetValue"]:  # noqa: D401
         """The commonest value for one filter, or ``None`` if there is none."""
         found = self[filter]
         return found[0] if found else None
@@ -1356,7 +1416,7 @@ class Breakdown(_Mapping):
     def to_dict(self) -> Dict[str, Dict[str, int]]:
         """``{filter: {value: count}}``, JSON-serializable and still ordered.
 
-        Any values cut by a ``breakdown_limit`` are counted in
+        Any values cut by a ``facet_limit`` are counted in
         :attr:`omitted` rather than here.
         """
         return {
@@ -1365,45 +1425,43 @@ class Breakdown(_Mapping):
         }
 
     def __repr__(self) -> str:                            # pragma: no cover
-        return "<Breakdown %s>" % " ".join(
+        return "<Facets %s>" % " ".join(
             "%s=%d" % (name, len(values)) for name, values in self._counts.items())
 
 
-class Results(list):
-    """What a search gives you: a list of dataset dicts, and the total.
+class Results(List[R]):
+    """What a search gives you: a list of record dicts, and the total.
 
     It *is* a list -- index it, slice it, loop over it, pass it to
     ``pandas.DataFrame`` -- and it carries what the registry said about the
     wider result::
 
-        page = dp.datasets(theme="transport")
+        page = catalog.datasets(theme="transport")
         len(page)        # what you got, at most `limit`
         page.total       # how many matched altogether
         page.has_more    # whether anything follows
-        page.breakdown   # what all of them are made of, per filter
+        page.facets      # what all of them are made of, per filter
 
     The same type comes back whether the search ran against the local
     catalogue or the registry, so code does not care which it used.
     """
 
-    __slots__ = ("total", "offset", "limit", "facets", "breakdown")
+    __slots__ = ("total", "offset", "limit", "facets")
 
     def __init__(
         self,
-        records: Sequence[Dict[str, Any]] = (),
+        records: Sequence[R] = (),
         total: Optional[int] = None,
         offset: int = 0,
         limit: Optional[int] = None,
-        facets: Sequence[Any] = (),
-        breakdown: Optional[Breakdown] = None,
+        facets: Optional["Facets"] = None,
     ) -> None:
         super().__init__(records)
         self.total = len(self) if total is None else int(total)
         self.offset = offset
         self.limit = limit
-        self.facets = list(facets)
-        #: What everything that matched is made of -- see :class:`Breakdown`.
-        self.breakdown = breakdown if breakdown is not None else Breakdown({})
+        #: What everything that matched is made of -- see :class:`Facets`.
+        self.facets = facets if facets is not None else Facets({})
 
     @property
     def has_more(self) -> bool:
@@ -1414,12 +1472,6 @@ class Results(list):
         """
         return self.offset + len(self) < self.total
 
-    def facet(self, name: str) -> Optional[Any]:
-        for facet in self.facets:
-            if facet.name == name:
-                return facet
-        return None
-
     def __repr__(self) -> str:                            # pragma: no cover
         return "<Results %d of %d>" % (len(self), self.total)
 
@@ -1428,10 +1480,11 @@ class SearchPage(_ABCSequence):
     """One page of search results.
 
     Behaves like a list of entries and additionally carries ``total``,
-    ``offset``, ``limit`` and any requested facets.
+    ``offset`` and ``limit``. The registry's own facet response, when one was
+    asked for, is in ``raw["facetFields"]``.
     """
 
-    __slots__ = ("entries", "total", "offset", "limit", "facets", "raw", "_client", "_params")
+    __slots__ = ("entries", "total", "offset", "limit", "raw", "_client", "_params")
 
     def __init__(
         self,
@@ -1439,7 +1492,6 @@ class SearchPage(_ABCSequence):
         total: int,
         offset: int,
         limit: int,
-        facets: Sequence[Any] = (),
         raw: Optional[Mapping[str, Any]] = None,
         client: Any = None,
         params: Optional[Mapping[str, Any]] = None,
@@ -1448,7 +1500,6 @@ class SearchPage(_ABCSequence):
         self.total = total
         self.offset = offset
         self.limit = limit
-        self.facets = list(facets)
         self.raw = dict(raw or {})
         self._client = client
         self._params = dict(params or {})
@@ -1472,7 +1523,7 @@ class SearchPage(_ABCSequence):
         return self.offset + len(self.entries) < self.total and bool(self.entries)
 
     def to_dict(self) -> Dict[str, Any]:
-        """The whole page as a plain dict: totals, entries and facets."""
+        """The whole page as a plain dict: totals and entries."""
         return {
             "total": self.total,
             "offset": self.offset,

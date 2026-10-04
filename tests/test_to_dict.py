@@ -62,12 +62,34 @@ def test_controlled_values_are_short_names_not_uris(dataset):
         assert isinstance(theme, str)
         assert "://" not in theme
         assert theme == theme.lower()
-    for key in ("license", "access_rights", "accrual_periodicity"):
+    for key in ("access_rights", "accrual_periodicity"):
         if out[key] is not None:
             assert isinstance(out[key], str), key
             assert "://" not in out[key], key
     for language in out["languages"]:
         assert isinstance(language, str) and "://" not in language
+        assert len(language) in (2, 3) and language.islower(), language
+
+
+def test_a_licence_is_a_dict_you_can_read_and_filter_on(dataset):
+    """Nobody knows what cc_by_nc_sa_4_0 permits without the page."""
+    out = dataset.to_dict()
+    lic = out["license"]
+    assert set(lic) == {"id", "label", "uri"}
+    assert lic["id"] and "://" not in lic["id"]
+    assert lic["uri"].startswith("http")
+    assert isinstance(lic["label"], dict)
+    for dist in out["distributions"]:
+        if dist["license"] is not None:
+            assert set(dist["license"]) == {"id", "label", "uri"}
+
+
+def test_ids_are_on_the_record_and_nowhere_below_it(dataset):
+    """context/entry id fetch a record; a nested object is not fetched."""
+    out = dataset.to_dict()
+    assert out["context_id"] and out["entry_id"]
+    for nested in [out["publisher"]] + out["distributions"] + out["contact_points"]:
+        assert "context_id" not in nested and "entry_id" not in nested
 
 
 def test_dates_are_iso_strings_not_objects(dataset):
@@ -136,9 +158,10 @@ def test_distribution_dict_shape(dataset):
     # Near-always-empty fields are not carried in the dict.
     for key in ("byte_size", "checksum", "media_type", "rights"):
         assert key not in out
-    # access_url is the complete list, not a scalar plus a plural.
-    assert isinstance(out["access_url"], list)
-    assert "access_urls" not in out
+    # One field per URL: 99.6% of distributions have exactly one.
+    assert out["access_url"] is None or isinstance(out["access_url"], str)
+    assert out["download_url"] is None or isinstance(out["download_url"], str)
+    assert "access_urls" not in out and "download_urls" not in out
 
 
 def test_raw_json_still_exposes_the_registry_payload(search_hit):
@@ -292,3 +315,76 @@ def test_text_on_a_real_record(dataset):
     from dataportalen import text
 
     assert text(dataset.to_dict()["title"]) == dataset.titles["sv"]
+
+
+# -- a file's size, where the publisher states one ----------------------------
+
+
+def _distribution(*sizes, datatype=None):
+    from dataportalen.models import Distribution
+
+    literals = [dict({"type": "literal", "value": s},
+                     **({"datatype": datatype} if datatype else {})) for s in sizes]
+    metadata = {
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+            {"type": "uri", "value": "http://www.w3.org/ns/dcat#Distribution"}],
+        "http://www.w3.org/ns/dcat#accessURL": [
+            {"type": "uri", "value": "https://example.org/f.csv"}],
+    }
+    if literals:
+        metadata["http://www.w3.org/ns/dcat#byteSize"] = literals
+    return Distribution.from_json({
+        "contextId": "1", "entryId": "2",
+        "info": {"https://admin.dataportal.se/store/1/entry/2": {
+            "http://entrystore.org/terms/resource": [
+                {"type": "uri", "value": "https://example.org/dist"}]}},
+        "metadata": {"https://example.org/dist": metadata},
+    }).to_dict()
+
+
+@pytest.mark.parametrize("written,size", [
+    ("200704", 200704),
+    ("5 420 000", 5420000),           # 11 of the registry's 485 are like this
+    ("1\u00a0744\u00a0896", 1744896),  # ...or with no-break spaces
+    ("39000.0", 39000),               # 3 are typed as decimals
+    ("0", 0),                         # the publisher's claim, passed through
+])
+def test_byte_size_reads_what_publishers_write(written, size):
+    assert _distribution(written)["byte_size"] == size
+
+
+def test_a_file_with_no_stated_size_has_no_byte_size_key():
+    """1.4% of files state one. The key is there when known and absent
+    otherwise, the rule `broken` follows -- not a null on the other 98.6%."""
+    assert "byte_size" not in _distribution()
+
+
+@pytest.mark.parametrize("written", ["2022-02-09", "about 3 MB", "", "1.5", "-4"])
+def test_an_unreadable_size_is_not_a_size(written):
+    assert "byte_size" not in _distribution(written)
+
+
+def test_the_first_readable_size_wins():
+    assert _distribution("unknown", "1024")["byte_size"] == 1024
+
+
+# -- an empty language map is {} everywhere -----------------------------------
+
+
+def test_a_record_with_no_keywords_has_an_empty_dict_not_a_list():
+    """`keywords` was [] on 1,324 records and a {sv, en} map on the rest, so
+    record["keywords"].get("sv") raised on 5.5% of the registry."""
+    from dataportalen.models import DataService
+
+    for model, rdf_type in ((Dataset, "Dataset"), (DataService, "DataService")):
+        record = model.from_json({
+            "contextId": "1", "entryId": "1",
+            "info": {"https://admin.dataportal.se/store/1/entry/1": {
+                "http://entrystore.org/terms/resource": [
+                    {"type": "uri", "value": "https://example.org/x"}]}},
+            "metadata": {"https://example.org/x": {
+                "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
+                    {"type": "uri", "value": "http://www.w3.org/ns/dcat#" + rdf_type}]}},
+        }).to_dict()
+        assert record["keywords"] == {}
+        assert record["keywords"].get("sv") is None

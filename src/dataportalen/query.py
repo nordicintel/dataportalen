@@ -231,6 +231,26 @@ class Q:
         return cls("%s:(%s)" % (field, rendered))
 
     @classmethod
+    def phrase(cls, field: Optional[str], *values: Any) -> "Q":
+        """``field:"value"`` -- an exact match that survives a space.
+
+        :meth:`term` escapes the special characters but a space still ends the
+        term, so ``Q.term(field, "Öppna data")`` asks for ``Öppna`` in the
+        field and ``data`` anywhere: 0 hits on the exact-string index where
+        the phrase finds 229. Several values are OR-ed. Without a field the
+        phrase goes to the catch-all full-text index.
+
+        >>> str(Q.phrase("tag", "Öppna data", 'say "hi"'))
+        'tag:("Öppna data" OR "say \\\\"hi\\\\"")'
+        """
+        quoted = ['"%s"' % str(v).replace("\\", "\\\\").replace('"', '\\"')
+                  for v in values]
+        if not quoted:
+            return cls.empty()
+        body = quoted[0] if len(quoted) == 1 else "(%s)" % " OR ".join(quoted)
+        return cls("%s:%s" % (field, body) if field else body)
+
+    @classmethod
     def range(
         cls,
         field: str,

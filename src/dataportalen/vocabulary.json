@@ -3708,6 +3708,14 @@
   "https://creativecommons.org/licenses/by/2.5/se/": {
    "sv": "Erkännande 2.5"
   },
+  "https://dataportal.se/concepts/licensecategories/nolicense": {
+   "en": "No licence stated",
+   "sv": "Ingen licens angiven"
+  },
+  "https://dataportal.se/concepts/licensecategories/otherlicense": {
+   "en": "Other licence",
+   "sv": "Annan licens"
+  },
   "https://dataportal.se/concepts/orgAspects/feeFinanzing": {
    "en": "Regulated to take out fees on some service and data",
    "sv": "Reglerad att ta ut avgifter på tjänster och data"

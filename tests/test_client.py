@@ -227,3 +227,34 @@ def test_closing_the_client_closes_a_transport_it_owns():
     with _Registry(transport=fake):
         pass
     assert not fake.closed
+
+
+def test_lookup_many_reads_on_when_uris_have_more_entries_than_fit(client, transport,
+                                                                 search_response):
+    """A URI can belong to two entries, so 20 URIs are not 20 hits.
+
+    Asking for exactly len(batch) returned 20 of 22 and dropped an agent.
+    """
+    child = search_response["resource"]["children"][0]
+    full = dict(search_response, results=101,
+                resource={"children": [child] * 100})
+    rest = dict(search_response, results=101,
+                resource={"children": [search_response["resource"]["children"][1]]})
+    transport.push(full)
+    transport.push(rest)
+    found = client._lookup_many(["http://example.org/a", "http://example.org/b"])
+    assert len(transport.requests) == 2
+    assert params_of(transport.requests[0])["limit"] == "100"
+    assert params_of(transport.requests[1])["offset"] == "100"
+    assert params_of(transport.requests[0])["sort"] == "uri asc"
+    assert found == []                      # neither fixture entry is a or b
+
+
+def test_a_request_too_long_for_the_registry_is_refused_before_it_is_sent(client,
+                                                                        transport):
+    from dataportalen import QueryError
+
+    uris = ["http://dataportal.se/organisation/SE%010d" % n for n in range(170)]
+    with pytest.raises(QueryError, match="ask for fewer values"):
+        client._search(Q.publisher(*uris))
+    assert transport.requests == []

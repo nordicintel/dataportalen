@@ -17,62 +17,74 @@ from dataportalen.models import DATA_SERVICE_FILTERS, DATASET_FILTERS
 
 @pytest.fixture
 def catalog(tmp_path, transport):
-    return Catalog(write_catalog(tmp_path), refresh="never",
-                   transport=transport, progress=None)
+    return Catalog(write_catalog(tmp_path), max_age=None,
+                   _transport=transport, access_rights=None)
 
 
 # -- filters() ---------------------------------------------------------------
 
 
-def test_filters_lists_every_dataset_filter(catalog):
-    found = catalog.filters()
+def test_facets_lists_every_dataset_filter(catalog):
+    found = catalog.facets()
     assert list(found) == list(DATASET_FILTERS)
 
 
-def test_filters_agrees_with_a_search_breakdown(catalog):
+def test_facets_agree_with_a_search_s_facets(catalog):
     """The same structure, so browsing and reading a result are one thing."""
-    assert catalog.filters().to_dict() == \
-        catalog.datasets(limit=0).breakdown.to_dict()
+    assert catalog.facets().to_dict() == \
+        catalog.datasets(limit=0).facets.to_dict()
 
 
-def test_filters_values_are_what_you_feed_back_in(catalog):
-    value, count = catalog.filters()["theme"][0]
+def test_facets_values_are_what_you_feed_back_in(catalog):
+    value, count = catalog.facets()["theme"][0]
     assert catalog.datasets(theme=value).total == count
 
 
-def test_filters_limit_reports_what_it_cut(catalog):
-    found = catalog.filters(limit=1)
+def test_facets_limit_reports_what_it_cut(catalog):
+    found = catalog.facets(limit=1)
     assert len(found["theme"]) == 1
     assert found.omitted["theme"] == 1
 
 
-def test_filters_is_json_serializable(catalog):
-    json.dumps(catalog.filters().to_dict())
+def test_facets_is_json_serializable(catalog):
+    json.dumps(catalog.facets().to_dict())
 
 
 # -- labels ------------------------------------------------------------------
 
 
 def test_a_controlled_value_carries_its_vocabulary_label(catalog):
-    rows = {row.value: row.label for row in catalog.filters()["access_rights"]}
+    rows = {row.value: row.label for row in catalog.facets()["access_rights"]}
     assert rows["public"] == {"en": "Public", "sv": "Publik"}
     assert rows["non_public"] == {"en": "Non-public", "sv": "Ej offentlig"}
 
 
 def test_a_publisher_carries_the_name_from_the_records(catalog):
     """The vocabulary has no entry for an organisation; the file does."""
-    rows = {row.value: row.label for row in catalog.filters()["publisher"]}
+    rows = {row.value: row.label for row in catalog.facets()["publisher"]}
     assert rows["trafikverket"] == {"sv": "Trafikverket"}
 
 
 def test_a_keyword_is_its_own_label(catalog):
-    for row in catalog.filters()["keyword"]:
+    for row in catalog.facets()["keyword"]:
         assert row.label == {}
+
+
+def test_a_keyword_never_wears_a_vocabulary_term_s_label(tmp_path, transport):
+    """`german` showed "tyska" and `transport` the theme's label: 45 keywords
+    in the registry share a name with a term of some other vocabulary."""
+    record = dict(CATALOG_RECORDS[0], keywords={"sv": ["transport", "csv", "sv"]})
+    cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                  _transport=transport, access_rights=None)
+    facets = cat.facets()
+    assert {row.value: row.label for row in facets["keyword"]} == {
+        "transport": {}, "csv": {}, "sv": {}}
+    assert facets["theme"][0].label, "the theme still has its own"
 
 
 def test_a_value_count_still_unpacks_and_compares_as_a_pair(catalog):
     """The label rides alongside the tuple, it is not part of it."""
-    row = next(r for r in catalog.filters()["access_rights"]
+    row = next(r for r in catalog.facets()["access_rights"]
                if r.value == "public")
     value, count = row
     assert (value, count) == row == ("public", 1)
@@ -98,14 +110,14 @@ def test_data_services_search_like_datasets(catalog):
     ({"access_rights": "public"},
      ["https://api.example.org/v1", "https://geodata.example.org/wms"]),
     ({"keyword": "geodata"}, ["https://geodata.example.org/wms"]),
-    ({"text": "WMS"}, ["https://geodata.example.org/wms"]),
+    ({"query": "WMS"}, ["https://geodata.example.org/wms"]),
 ])
 def test_the_seven_that_apply_to_a_data_service(catalog, filters, expected):
     assert [r["uri"] for r in catalog.data_services(limit=None, **filters)] == expected
 
 
-def test_a_data_service_breakdown_has_only_the_keys_it_has(catalog):
-    found = catalog.data_services(limit=0).breakdown
+def test_data_service_facets_have_only_the_keys_they_have(catalog):
+    found = catalog.data_services(limit=0).facets
     assert list(found) == list(DATA_SERVICE_FILTERS)
     assert "format" not in found
     assert "updated" not in found
@@ -114,10 +126,9 @@ def test_a_data_service_breakdown_has_only_the_keys_it_has(catalog):
 @pytest.mark.parametrize("filter,value", [
     ("format", "csv"),          # a data service has no distributions
     ("updated", "annual"),      # nor an accrual periodicity
-    ("place", "kingdom_of_sweden"),   # set on 7.8% of the 599
-    ("language", "swedish"),     # one single value across all 599
-    ("updated_after", "2024-01-01"),  # modified is on 7.5% of them
-    ("published_after", "2020"),      # issued on 0.8%
+    ("language", "sv"),          # one single value across all 599
+    ("modified_after", "2024-01-01"),  # modified is on 7.5% of them
+    ("issued_after", "2020"),          # issued on 0.8%
 ])
 def test_a_filter_that_cannot_apply_is_refused_not_silently_empty(
         catalog, filter, value):
@@ -130,54 +141,83 @@ def test_a_filter_that_cannot_apply_is_refused_not_silently_empty(
 
 
 def test_a_dataset_still_takes_all_of_its_own(catalog):
-    for name in ("format", "updated", "place", "language"):
+    for name in ("format", "updated", "language"):
         catalog.datasets(limit=0, **{name: {
-            "format": "csv", "updated": "annual",
-            "place": "kingdom_of_sweden", "language": "swedish"}[name]})
+            "format": "csv", "updated": "annual", "language": "sv"}[name]})
 
 
-# -- creators ----------------------------------------------------------------
+def test_place_is_not_a_filter_but_spatial_is_still_on_the_record(catalog):
+    """19% set it and two thirds of those say 'Sweden'; the rest restate the
+    publisher. Not demonstrated, so dropped -- the field itself stays."""
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(place="kingdom_of_sweden")
+    assert "unknown filter" in str(info.value)
+    assert "place" not in catalog.facets()
+    assert catalog.datasets()[0]["spatial"] == ["kingdom_of_sweden"]
 
 
-def test_creator_filters_and_breaks_down(tmp_path, transport):
-    """30% of datasets name a creator, and it is an organisation, not a person."""
-    with_creator = dict(
-        CATALOG_RECORDS[0],
-        creators=[{"uri": "http://dataportal.se/organisation/SE2021005521",
-                   "name": {"sv": "Försäkringskassan"},
-                   "type": "national_authority"}],
-    )
-    catalog = Catalog(write_catalog(tmp_path, [with_creator, CATALOG_RECORDS[1]]),
-                      refresh="never", transport=transport, progress=None)
-    assert catalog.datasets(creator="forsakringskassan").total == 1
-    row = catalog.filters()["creator"][0]
-    assert row.value == "forsakringskassan"
-    assert row.label == {"sv": "Försäkringskassan"}
+def test_the_date_filters_are_named_after_the_fields_they_read(catalog):
+    for old in ("updated_after", "updated_before", "published_after",
+                "published_before"):
+        with pytest.raises(QueryError) as info:
+            catalog.datasets(**{old: "2020-01-01"})
+        assert "modified_after" in str(info.value)
 
 
-def test_an_unknown_creator_is_rejected_with_a_hint(catalog):
-    with pytest.raises(QueryError):
-        catalog.datasets(creator="trafikvrket")
+# -- aliases -----------------------------------------------------------------
 
 
-# -- a breakdown value must filter to exactly its own count ------------------
+def test_an_alias_filters_like_the_publisher_it_names(tmp_path, transport):
+    from dataportalen.rdf import resolve_publisher
+
+    scb = dict(CATALOG_RECORDS[0], publisher={
+        "uri": resolve_publisher("scb")[0],
+        "name": {"sv": "Statistikmyndigheten SCB"}, "type": "national_authority"})
+    catalog = Catalog(write_catalog(tmp_path, [scb, CATALOG_RECORDS[1]]),
+                      max_age=None, _transport=transport, access_rights=None)
+    long = "statistikmyndigheten_scb_statistiska_centralbyran"
+    assert catalog.datasets(publisher="scb", limit=0).total == 1
+    by_alias = catalog.datasets(publisher="scb", limit=0).total
+    assert by_alias == catalog.datasets(publisher=long, limit=0).total
+    values = {row.value for row in catalog.facets()["publisher"]}
+    assert long in values and "scb" not in values, "canonical slug in output"
+
+
+# -- creator is not a filter any more ----------------------------------------
+
+
+def test_creator_is_not_a_filter(catalog):
+    """It was, and it told the truth; it just never told anyone anything.
+
+    7,104 datasets named a creator and 6,174 named their own publisher again.
+    A name that is no filter anywhere is reported as unknown rather than as
+    inapplicable, which is what it now is.
+    """
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(creator="trafikverket")
+    assert "unknown filter" in str(info.value)
+    assert "creator" not in catalog.facets()
+    assert "creator" not in catalog.data_services(limit=0).facets
+
+
+# -- a facet value must filter to exactly its own count ------------------
 
 
 def test_a_value_filters_to_exactly_the_count_it_claims(tmp_path, transport):
     """`json` also resolves to application/json+zip, whose slug is different.
 
     Expanding a local value through the vocabulary made `format="json"` match
-    datasets the breakdown counted under `json_in_a_zip` -- 54 of them in the
+    datasets the facet counted under `json_in_a_zip` -- 54 of them in the
     real corpus -- so the counts and the searches disagreed.
     """
     plain = dict(CATALOG_RECORDS[0], uri="https://example.org/a",
                  distributions=[{"format": "json"}])
     zipped = dict(CATALOG_RECORDS[1], uri="https://example.org/b",
                   distributions=[{"format": "json_in_a_zip"}])
-    catalog = Catalog(write_catalog(tmp_path, [plain, zipped]), refresh="never",
-                      transport=transport, progress=None)
+    catalog = Catalog(write_catalog(tmp_path, [plain, zipped]), max_age=None,
+                      _transport=transport, access_rights=None)
 
-    counts = dict((value, count) for value, count in catalog.filters()["format"])
+    counts = dict((value, count) for value, count in catalog.facets()["format"])
     assert counts == {"json": 1, "json_in_a_zip": 1}
     for value, count in counts.items():
         assert catalog.datasets(limit=0, format=value).total == count, value
@@ -192,14 +232,14 @@ def test_an_alias_still_resolves_when_the_file_has_no_such_slug(tmp_path,
     """
     record = dict(CATALOG_RECORDS[0],
                   distributions=[{"format": "microsoft_excel_xml"}])
-    catalog = Catalog(write_catalog(tmp_path, [record]), refresh="never",
-                      transport=transport, progress=None)
+    catalog = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                      _transport=transport, access_rights=None)
     assert catalog.datasets(limit=0, format="xlsx").total == 1
 
 
-def test_every_breakdown_value_round_trips(catalog):
+def test_every_facet_value_round_trips(catalog):
     """The contract the docs state: a value goes straight back in."""
-    options = catalog.filters()
+    options = catalog.facets()
     for name in options:
         for value, count in options[name]:
             assert catalog.datasets(limit=0, **{name: value}).total == count, (

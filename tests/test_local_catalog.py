@@ -1,4 +1,4 @@
-"""Searching the catalogue: the filters, the values and the breakdown.
+"""Searching the catalogue: the filters, the values and the facets.
 
 No network anywhere in here. The two records come from `conftest`, so the
 shape these tests assert against is the shape the download writes.
@@ -14,8 +14,8 @@ from dataportalen import Catalog, QueryError
 
 @pytest.fixture
 def catalog(tmp_path, transport):
-    return Catalog(write_catalog(tmp_path), refresh="never",
-                   transport=transport, progress=None)
+    return Catalog(write_catalog(tmp_path), max_age=None,
+                   _transport=transport, access_rights=None)
 
 
 def uris(results):
@@ -30,12 +30,11 @@ def uris(results):
     ({"license": "cc_by_4_0"}, ["roads"]),
     ({"access_rights": "public"}, ["roads"]),
     ({"updated": "monthly"}, ["budget"]),
-    ({"language": "english"}, ["budget"]),
-    ({"place": "kingdom_of_sweden"}, ["roads"]),
+    ({"language": "en"}, ["budget"]),
     ({"publisher": "trafikverket"}, ["roads"]),
     ({"publisher_type": "national_authority"}, ["roads", "budget"]),
-    ({"text": "cykel"}, ["roads"]),
-    ({"text": "bidrag"}, ["budget"]),
+    ({"query": "cykel"}, ["roads"]),
+    ({"query": "bidrag"}, ["budget"]),
     ({"keyword": "geodata"}, ["roads"]),
     ({"theme": "transport", "format": "csv"}, ["roads"]),
     ({"theme": "transport", "format": "xlsx"}, []),
@@ -45,16 +44,16 @@ def test_every_filter_matches_what_it_says(catalog, filters, expected):
 
 
 def test_text_searches_both_languages(catalog):
-    """`text=` reads the whole language map, not one key of it."""
-    assert uris(catalog.datasets(text="Road traffic")) == ["roads"]
-    assert uris(catalog.datasets(text="Vägtrafiknät")) == ["roads"]
+    """`query=` reads the whole language map, not one key of it."""
+    assert uris(catalog.datasets(query="Road traffic")) == ["roads"]
+    assert uris(catalog.datasets(query="Vägtrafiknät")) == ["roads"]
 
 
 @pytest.mark.parametrize("filters,expected", [
-    ({"updated_after": "2024-01-01"}, ["roads"]),
-    ({"updated_before": "2020-01-01"}, ["budget"]),
-    ({"published_after": "2020"}, ["roads"]),
-    ({"published_before": "2015-06"}, ["budget"]),
+    ({"modified_after": "2024-01-01"}, ["roads"]),
+    ({"modified_before": "2020-01-01"}, ["budget"]),
+    ({"issued_after": "2020"}, ["roads"]),
+    ({"issued_before": "2015-06"}, ["budget"]),
 ])
 def test_dates_compare_across_the_forms_publishers_use(catalog, filters, expected):
     """A bare date, a timestamp and one with an offset must sort together."""
@@ -66,11 +65,11 @@ def test_limit_caps_the_rows(catalog):
     assert len(catalog.datasets(limit=None)) == 2
 
 
-def test_limit_zero_gives_the_count_and_the_breakdown_only(catalog):
+def test_limit_zero_gives_the_count_and_the_facets_only(catalog):
     page = catalog.datasets(limit=0)
     assert len(page) == 0
     assert page.total == 2
-    assert page.breakdown["theme"]
+    assert page.facets["theme"]
 
 
 def test_offset_walks_the_match(catalog):
@@ -92,41 +91,96 @@ def test_unknown_values_and_filters_are_rejected_the_same_way(catalog):
 
 
 def test_index_only_arguments_say_so(catalog):
-    """`query=`/`sort=` are raw index expressions; a file cannot answer one."""
-    for argument in ("query", "sort", "page_size"):
+    """`sort=` and `page_size=` belong to an index; a file answers at once."""
+    for argument in ("sort", "page_size"):
         with pytest.raises(QueryError) as info:
             catalog.datasets(**{argument: "x"})
         assert argument in str(info.value)
 
 
-def test_a_search_carries_its_own_breakdown(catalog):
+def test_query_is_a_phrase_not_a_bag_of_words(catalog):
+    """The rename did not change the matching.
+
+    "traffic Road" is not in the title "Road traffic network", so it matches
+    nothing -- splitting a query into terms that must all appear would make
+    `air quality` 481 datasets instead of 15 on the real catalogue.
+    """
+    assert uris(catalog.datasets(query="Road traffic")) == ["roads"]
+    assert uris(catalog.datasets(query="traffic Road")) == []
+    assert uris(catalog.datasets(query="ROAD TRAFFIC")) == ["roads"]
+
+
+def test_query_none_is_no_query(catalog):
+    assert catalog.datasets(query=None).total == catalog.datasets().total
+
+
+def test_text_is_refused_and_the_error_names_query(catalog):
+    for search in (catalog.datasets, catalog.data_services):
+        with pytest.raises(QueryError) as info:
+            search(text="cykel")
+        assert "query" in str(info.value)
+
+
+def test_query_is_keyword_only(catalog):
+    """Like every other argument: one way to say it."""
+    with pytest.raises(TypeError):
+        catalog.datasets("cykel")
+
+
+def test_a_search_carries_its_own_facets(catalog):
     page = catalog.datasets()
-    assert page.breakdown["theme"] == [("economy_and_finance", 1), ("transport", 1)]
-    assert page.breakdown["language"][0] == ("swedish", 2)
-    assert page.breakdown["format"] == [("csv", 1), ("json", 1), ("xlsx", 1)]
-    assert page.breakdown["publisher"][0].dataset_count == 1
+    assert page.facets["theme"] == [("economy_and_finance", 1), ("transport", 1)]
+    assert page.facets["language"][0] == ("sv", 2)
+    assert page.facets["language"][0].label == {"en": "Swedish", "sv": "svenska"}
+    assert page.facets["format"] == [("csv", 1), ("json", 1), ("xlsx", 1)]
+    assert page.facets["publisher"][0].count == 1
     # Unlike the registry's index, a file can count keywords.
-    assert ("Geodata", 1) in page.breakdown["keyword"]
+    assert ("Geodata", 1) in page.facets["keyword"]
 
 
-def test_the_breakdown_describes_the_match_not_the_page(catalog):
+def test_the_facets_describe_the_match_not_the_page(catalog):
     page = catalog.datasets(theme="transport")
     assert page.total == 1
-    assert page.breakdown["publisher"] == [("trafikverket", 1)]
-    assert page.breakdown["theme"] == [("transport", 1)]
+    assert page.facets["publisher"] == [("trafikverket", 1)]
+    assert page.facets["theme"] == [("transport", 1)]
+
+
+def test_a_facet_value_is_still_a_pair(catalog):
+    """`count` shadows tuple.count on purpose; the pair must still be a pair."""
+    row = catalog.facets()["theme"][0]
+    value, count = row
+    assert row == (value, count)
+    assert (row.value, row.count) == (value, count)
+    assert isinstance(row.label, dict)
+
+
+def test_the_old_names_are_gone(catalog):
+    page = catalog.datasets()
+    assert not hasattr(page, "breakdown")
+    assert not hasattr(page, "facet"), "the pre-0.7 server-facet lookup"
+    assert not hasattr(catalog, "filters")
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(breakdown_limit=3)
+    assert "unknown filter" in str(info.value)
+
+
+def test_asking_for_a_facet_that_is_not_there_names_the_ones_that_are(catalog):
+    with pytest.raises(QueryError) as info:
+        catalog.datasets().facets["service_type"]
+    assert "theme" in str(info.value)
 
 
 def test_a_dataset_counts_once_per_value(catalog):
     """Two CSV distributions on one dataset is one dataset under `csv`."""
     page = catalog.datasets(publisher="trafikverket")
     assert page.total == 1
-    assert page.breakdown["format"] == [("csv", 1), ("json", 1)]
+    assert page.facets["format"] == [("csv", 1), ("json", 1)]
 
 
-def test_breakdown_limit_reports_what_it_cut(catalog):
-    page = catalog.datasets(breakdown_limit=1)
-    assert len(page.breakdown["theme"]) == 1
-    assert page.breakdown["theme"].omitted == 1
+def test_facet_limit_reports_what_it_cut(catalog):
+    page = catalog.datasets(facet_limit=1)
+    assert len(page.facets["theme"]) == 1
+    assert page.facets["theme"].omitted == 1
 
 
 def test_the_records_are_the_shape_the_download_writes(catalog):
