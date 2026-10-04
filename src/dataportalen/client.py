@@ -858,6 +858,12 @@ CREATE TABLE IF NOT EXISTS record (
 CREATE INDEX IF NOT EXISTS record_uri ON record(uri);
 CREATE INDEX IF NOT EXISTS record_type ON record(type);
 -- No index on `harvested`: the registry filters by it, we never do.
+CREATE TABLE IF NOT EXISTS source (
+    context_id TEXT PRIMARY KEY,
+    status     TEXT,
+    harvested  TEXT,
+    title      TEXT
+);
 """
 
 #: Bumped when the layout changes in a way an older file cannot satisfy --
@@ -1060,6 +1066,81 @@ def _link_checks(client, counter):
     logger.info("link checks: %s URLs over %s catalogues",
                 f"{len(checks):,}", f"{len(newest):,}")
     return checks
+
+
+#: The latest harvest of every source catalogue. The registry is built by
+#: harvesting some 660 catalogues, one context each, and every run leaves a
+#: result entry saying whether it worked. 427 of 666 failed on 2026-10-04 --
+#: almost all of them registrations that never yielded a dataset -- but 8 of
+#: the failures are sources with datasets in the registry, and those datasets
+#: are whatever the last good harvest left behind.
+HARVEST_QUERY = "graphType:PipelineResult AND tag.literal:latest"
+_HARVEST_STATUS = "http://entrystore.org/terms/status"
+
+
+def _harvest_status(client, counter) -> Optional[Dict[str, Dict[str, Any]]]:
+    """``{context_id: {status, harvested, title}}``, or ``None`` if unreadable.
+
+    ``status`` is the registry's own word, lower-cased: ``success`` or
+    ``failed``. Seven pages. Never fatal: a catalogue without this is still a
+    catalogue, so a failure is logged and the stored table is left alone.
+    """
+    query = Q.raw(HARVEST_QUERY)
+    found: Dict[str, Dict[str, Any]] = {}
+    offset = 0
+    try:
+        while True:
+            raw = client._search_raw(query, limit=PAGE_SIZE, offset=offset,
+                                     sort=STABLE_SORT)
+            counter.add()
+            children = (raw.get("resource") or {}).get("children") or []
+            for child in children:
+                context = child.get("contextId")
+                if not context:
+                    continue
+                info: Dict[str, Any] = {}
+                for graph in (child.get("info") or {}).values():
+                    info.update(graph)
+                status = (info.get(_HARVEST_STATUS) or [{}])[0].get("value", "")
+                stamp = (info.get(DCTERMS.modified) or [{}])[0].get("value", "")
+                title = ""
+                for graph in (child.get("metadata") or {}).values():
+                    title = title or (graph.get(DCTERMS.title) or [{}])[0].get(
+                        "value", "")
+                row = {"status": status.rsplit("/", 1)[-1].lower() or None,
+                       "harvested": stamp[:19] or None,
+                       "title": title or None}
+                seen = found.get(str(context))
+                if seen is None or (row["harvested"] or "") >= (
+                        seen["harvested"] or ""):
+                    found[str(context)] = row
+            offset += len(children)
+            if not children or offset >= int(raw.get("results") or 0):
+                break
+    except (DataportalError, ValueError, TypeError) as error:
+        logger.warning("harvest status is unreadable (%s); left as it was", error)
+        return None
+    logger.info("harvest status: %s sources, %s failed", f"{len(found):,}",
+                f"{sum(1 for row in found.values() if row['status'] == 'failed'):,}")
+    return found
+
+
+def _write_sources(db: Any, sources: Dict[str, Dict[str, Any]]) -> None:
+    """Replace the source table. It is a snapshot, not something to merge."""
+    db.execute("DELETE FROM source")
+    db.executemany(
+        "INSERT INTO source (context_id, status, harvested, title) "
+        "VALUES (?, ?, ?, ?)",
+        [(context, row.get("status"), row.get("harvested"), row.get("title"))
+         for context, row in sources.items()])
+
+
+def _read_sources(db: Any) -> Dict[str, Dict[str, Any]]:
+    return {row["context_id"]: {"status": row["status"],
+                                "harvested": row["harvested"],
+                                "title": row["title"]}
+            for row in db.execute(
+                "SELECT context_id, status, harvested, title FROM source")}
 
 
 def _urls_of(dist: Dict[str, Any]) -> List[str]:
@@ -1298,6 +1379,18 @@ def download_catalog(
             # non-public context, say. Reported, never silently dropped.
             _report_missing(missing)
 
+        if limit is None:
+            # Last, and in its own transaction: the records are already safe,
+            # and this is seven pages that may fail without costing them.
+            sources = _harvest_status(client, counter)
+            if sources is not None:
+                db = _connect(path)
+                try:
+                    with db:
+                        _write_sources(db, sources)
+                finally:
+                    db.close()
+
     finally:
         if owned:
             client.close()
@@ -1514,6 +1607,7 @@ class Catalog:
         self._first_retrieved: Optional[str] = None
         self._last_refreshed: Optional[str] = None
         self._excluded: Dict[str, int] = {}
+        self._sources: Dict[str, Dict[str, Any]] = {}
         self._load(rebuild)
 
     # -- the file ----------------------------------------------------------
@@ -1560,7 +1654,8 @@ class Catalog:
                     % (self.database, version, SCHEMA_VERSION))
             self._first_retrieved = _meta_get(db, "first_retrieved")
             self._last_refreshed = _meta_get(db, "last_refreshed")
-            every = [_present(json.loads(row["doc"]))
+            self._sources = _read_sources(db)
+            every = [_present(json.loads(row["doc"]), self._sources)
                      for row in db.execute("SELECT doc FROM record")]
         finally:
             db.close()
@@ -1679,13 +1774,14 @@ class Catalog:
              "datasets": 23582, "data_services": 599, "publishers": 356,
              "excluded": {"access_rights": 0, "dead_distributions": 0,
                           "dead_datasets": 0},
-             "unverified_distributions": 10858}
+             "stale_datasets": 81, "unverified_distributions": 10858}
 
         ``excluded`` is what ``access_rights`` and ``exclude_broken`` left out
         when this object was built: records outside the access scope, dead
         distributions, and the datasets that had nothing but dead ones.
         ``unverified_distributions`` counts what is held but that the
-        registry's checker could not reach.
+        registry's checker could not reach, and ``stale_datasets`` what is
+        held from a source whose latest harvest failed.
         """
         when = self.downloaded
         try:
@@ -1707,11 +1803,46 @@ class Catalog:
             # 356.
             "publishers": len(self._rows()),
             "excluded": dict(self._excluded),
+            "stale_datasets": sum(1 for record in self._records
+                                  if "stale" in record),
             "unverified_distributions": sum(
                 1 for record in self._records
                 for dist in record.get("distributions") or ()
                 if "unverified" in dist),
         }
+
+    def sources(self) -> List[Dict[str, Any]]:
+        """The source catalogues the registry harvests, and how the last
+        harvest of each went::
+
+            [{"context_id": "818", "status": "success",
+              "harvested": "2026-10-04T02:23:44",
+              "title": "...", "dataset_count": 4306, "data_service_count": 0},
+             ...]
+
+        One row per source, most datasets first. ``status`` is ``success`` or
+        ``failed``; the counts are what this Catalog holds from it, so most
+        failed sources show zero -- they are registrations that never yielded
+        anything. A dataset from a failed source carries ``stale``. Empty for
+        a database written before the registry's harvest status was read.
+        """
+        datasets: Dict[str, int] = {}
+        services: Dict[str, int] = {}
+        for record in self._records:
+            key = str(record.get("context_id"))
+            datasets[key] = datasets.get(key, 0) + 1
+        for record in self._services:
+            key = str(record.get("context_id"))
+            services[key] = services.get(key, 0) + 1
+        rows = [{"context_id": context, "status": row.get("status"),
+                 "harvested": row.get("harvested"), "title": row.get("title"),
+                 "dataset_count": datasets.get(context, 0),
+                 "data_service_count": services.get(context, 0)}
+                for context, row in self._sources.items()]
+        rows.sort(key=lambda row: (-row["dataset_count"],
+                                   -row["data_service_count"],
+                                   row["context_id"]))
+        return rows
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -2066,7 +2197,9 @@ def _is_dead(reason: Any) -> bool:
     return text in _DEAD_REASONS or _DEAD_HOST in text
 
 
-def _present(record: Dict[str, Any]) -> Dict[str, Any]:
+def _present(record: Dict[str, Any],
+             sources: Optional[Mapping[str, Dict[str, Any]]] = None
+             ) -> Dict[str, Any]:
     """A stored record as the package hands it out.
 
     The database keeps what the registry said; this turns it into what a
@@ -2087,6 +2220,14 @@ def _present(record: Dict[str, Any]) -> Dict[str, Any]:
         # of its metadata. Added here for the same reason as the split above:
         # the rules can change without anybody downloading anything.
         dist["kind"] = classify(dist)
+
+    # A record whose source catalogue failed its latest harvest is what the
+    # last good harvest left behind. That is not dead -- the data may be
+    # fine -- so it is said, and nothing is removed.
+    source = (sources or {}).get(str(record.get("context_id")))
+    if source and source.get("status") == "failed":
+        record["stale"] = {"reason": "harvest failed",
+                           "checked": source.get("harvested")}
 
     # `id` is what publisher= takes and what the publisher facet reports;
     # without it a record had no public route to its own filter value, and an
@@ -2236,7 +2377,8 @@ def read_catalog(path: str) -> List[Union[DatasetRecord, DataServiceRecord]]:
         raise FileNotFoundError("%s does not exist" % path)
     db = _connect(path)
     try:
-        return [_present(json.loads(row["doc"]))
+        sources = _read_sources(db)
+        return [_present(json.loads(row["doc"]), sources)
                 for row in db.execute("SELECT doc FROM record")]
     finally:
         db.close()

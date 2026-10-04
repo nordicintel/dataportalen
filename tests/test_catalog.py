@@ -249,6 +249,30 @@ def test_a_full_export_writes_both_types(full_export, tmp_path):
     assert "data services" in repr(summary)
 
 
+def test_a_full_export_ends_by_reading_the_harvest_status(full_export, tmp_path):
+    """Last, after the records are written, so a failure costs nothing."""
+    full_export.push({"results": 1, "resource": {"children": [{
+        "contextId": "1", "entryId": "77", "metadata": {},
+        "info": {"e": {
+            "http://entrystore.org/terms/status": [
+                {"type": "uri", "value": "http://entrystore.org/terms/Failed"}],
+            DCT + "modified": [
+                {"type": "literal", "value": "2026-10-04T02:46:11.2+02:00"}]}},
+    }]}})
+    out = tmp_path / "c.sqlite"
+    download_catalog(str(out), client=_Registry(transport=full_export))
+    assert "PipelineResult" in full_export.last_param("query")
+    dataset = read_catalog(str(out))[0]
+    assert dataset["stale"] == {"reason": "harvest failed",
+                                "checked": "2026-10-04T02:46:11"}
+
+
+def test_a_full_export_survives_an_unreadable_harvest_status(full_export, tmp_path):
+    out = tmp_path / "c.sqlite"
+    download_catalog(str(out), client=_Registry(transport=full_export, max_retries=0))
+    assert all("stale" not in r for r in read_catalog(str(out)))
+
+
 def test_a_data_service_record_carries_what_it_has(full_export, tmp_path):
     out = tmp_path / "c.jsonl"
     download_catalog(str(out), client=_Registry(transport=full_export))

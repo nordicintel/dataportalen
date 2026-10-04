@@ -32,6 +32,8 @@ class FakeTransport(BaseTransport):
         #: FIFO of responses that win over `routes`, for multi-step flows
         self.queue: List[Any] = []
         self.requests: List[str] = []
+        #: (method, url, headers) for every request, for tests that care how
+        self.calls: List[Tuple[str, str, Dict[str, str]]] = []
         self.closed = False
 
     def push(self, payload: Any, status: int = 200, content_type: str = "application/json") -> None:
@@ -46,6 +48,7 @@ class FakeTransport(BaseTransport):
         timeout: Optional[float] = None,
     ) -> Response:
         self.requests.append(url)
+        self.calls.append((method, url, dict(headers or {})))
         if self.queue:
             payload, status, content_type = self.queue.pop(0)
         else:
@@ -241,7 +244,8 @@ LINK_CHECKS = [
 ]
 
 
-def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None):
+def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None,
+                  sources=None):
     """A catalogue database on disk, for a Catalog that must not download.
 
     `stamp` defaults to now, so the copy is fresh whenever the suite runs. It
@@ -249,7 +253,13 @@ def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None):
     `age_days == 0` assertion pass for one day and fail forever after. Pass a
     stamp explicitly to test what age and staleness do.
     """
-    from dataportalen.client import SCHEMA_VERSION, _connect, _meta_set, _write_records
+    from dataportalen.client import (
+        SCHEMA_VERSION,
+        _connect,
+        _meta_set,
+        _write_records,
+        _write_sources,
+    )
 
     rows = CATALOG_RECORDS + SERVICE_RECORDS if records is None else records
     stamp = stamp or _dt.datetime.now().replace(microsecond=0).isoformat()
@@ -260,6 +270,8 @@ def write_catalog(tmp_path, records=None, name="catalog.sqlite", stamp=None):
             (r.get("type", "dataset"), r.get("modified"), r) for r in rows])
         _meta_set(db, schema=SCHEMA_VERSION,
                   first_retrieved=stamp, last_refreshed=stamp)
+        if sources is not None:
+            _write_sources(db, sources)
     db.close()
     return str(path)
 

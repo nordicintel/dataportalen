@@ -12,7 +12,8 @@ package to it -- keys and the shapes underneath them.
 A key is always present. Where the publisher said nothing the value is
 ``None``, ``[]`` or ``{}``, never a missing key -- with three exceptions on a
 distribution, which are there only when they have something to say:
-``broken``, ``unverified`` and ``byte_size``.
+``broken``, ``unverified`` and ``byte_size`` -- and one on a dataset or data
+service, ``stale``, there only when its source's latest harvest failed.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ __all__ = [
     "DistributionRecord",
     "DatasetRecord",
     "DataServiceRecord",
+    "SourceRecord",
 ]
 
 
@@ -63,7 +65,8 @@ class LicenseRecord(TypedDict):
 
 
 class LinkMark(TypedDict):
-    """What the registry's nightly link check said about one file."""
+    """What the registry said about one distribution, or one source: why, and
+    when it looked."""
 
     reason: Optional[str]
     checked: Optional[str]
@@ -144,9 +147,7 @@ class DistributionRecord(_DistributionAlways, total=False):
     byte_size: int
 
 
-class DatasetRecord(TypedDict):
-    """A dataset, as :meth:`Catalog.datasets` and :meth:`Catalog.get` return it."""
-
+class _DatasetAlways(TypedDict):
     uri: Optional[str]
     context_id: str
     entry_id: str
@@ -170,10 +171,17 @@ class DatasetRecord(TypedDict):
     distributions: List[DistributionRecord]
 
 
-class DataServiceRecord(TypedDict):
-    """A data service -- an API rather than a file -- as
-    :meth:`Catalog.data_services` returns it."""
+class DatasetRecord(_DatasetAlways, total=False):
+    """A dataset, as :meth:`Catalog.datasets` and :meth:`Catalog.get` return it.
 
+    ``stale`` is there only when the source catalogue it was harvested from
+    failed its latest harvest: the record is what the last good one left.
+    """
+
+    stale: LinkMark
+
+
+class _DataServiceAlways(TypedDict):
     uri: Optional[str]
     context_id: str
     entry_id: str
@@ -192,3 +200,21 @@ class DataServiceRecord(TypedDict):
     access_rights: Optional[str]
     landing_page: Optional[str]
     contact_points: List[ContactRecord]
+
+
+class DataServiceRecord(_DataServiceAlways, total=False):
+    """A data service -- an API rather than a file -- as
+    :meth:`Catalog.data_services` returns it. ``stale`` as on a dataset."""
+
+    stale: LinkMark
+
+
+class SourceRecord(TypedDict):
+    """A row of :meth:`Catalog.sources`: one harvested source catalogue."""
+
+    context_id: str
+    status: Optional[str]
+    harvested: Optional[str]
+    title: Optional[str]
+    dataset_count: int
+    data_service_count: int

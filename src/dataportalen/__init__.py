@@ -52,6 +52,7 @@ from .records import (
     Publisher,
     PublisherDetail,
     PublisherRecord,
+    SourceRecord,
     TemporalRecord,
 )
 
@@ -78,6 +79,7 @@ __all__ = [
     "PublisherRecord",
     "Publisher",
     "PublisherDetail",
+    "SourceRecord",
     "LicenseRecord",
     "ContactRecord",
     "TemporalRecord",
