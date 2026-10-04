@@ -1467,9 +1467,11 @@ class Catalog:
         registry has since withdrawn.
     :param exclude_broken: drop every dead file, and any dataset whose every
         file is dead. Dead means the registry's nightly link check got an HTTP
-        error for it -- Not Found, Forbidden, Too Many Requests: 3,342 of
-        35,148 files, 81 public datasets. The 8,419 files its checker could
-        not reach at all (no answer, connection reset, timeout) are not dead;
+        error for it -- Not Found, Forbidden, Internal Server Error -- or
+        found its host is not in DNS: 903 of 35,148 files, 127 public
+        datasets. The 10,858 files its checker could
+        not get through to (no answer, connection reset, timeout, Too Many
+        Requests) are not dead;
         they stay and carry ``unverified: {"reason", "checked"}``. A dataset
         that never had files (1,647: APIs, registers) stays too. ``False``
         keeps everything and marks each dead file with ``broken``, same two
@@ -1986,39 +1988,56 @@ class Catalog:
 #: standard HTTP reason phrase from 400 up, the bare status numbers, and the
 #: three non-standard phrasings the registry's checker has been seen to use.
 #: Matched case-insensitively against the whole message.
+#:
+#: Except 429. Too Many Requests is a server telling the registry's checker
+#: to slow down, which says the file is there, not that it is gone.
+_DEAD_STATUSES = [status for status in HTTPStatus
+                  if status >= 400 and status != HTTPStatus.TOO_MANY_REQUESTS]
 _DEAD_REASONS = frozenset(
-    [status.phrase.casefold() for status in HTTPStatus if status >= 400]
-    + [str(int(status)) for status in HTTPStatus if status >= 400]
+    [status.phrase.casefold() for status in _DEAD_STATUSES]
+    + [str(int(status)) for status in _DEAD_STATUSES]
     + ["file not found", "access denied", "site not found"]
 )
 
+#: The one failed request that is an answer: the host is not in DNS. The
+#: message embeds the URL, so it is matched by its ending, not as a whole.
+#: A reset, refused or unreachable connection is a host that is there.
+_DEAD_HOST = "reason: getaddrinfo enotfound "
+
 
 def _is_dead(reason: Any) -> bool:
-    """Whether the registry's reason for `broken` is an HTTP error.
+    """Whether the registry's reason for `broken` says the file is gone.
 
     The registry records no status code for a broken link (it is null on all
     11,900), only a message, and the messages are two different things:
 
-    ========================================================  =====
-    an HTTP error: Too Many Requests 2,624, Not Found 395,
-    Forbidden 212, Internal Server Error 40, Bad Request 33,
-    Unauthorized 14, Access Denied 8, ...                     3,342
+    ========================================================  ======
+    an HTTP error: Not Found 395, Forbidden 212, Internal
+    Server Error 40, Bad Request 33, Unauthorized 14,
+    Access Denied 8, ...                                        718
+    a host that is not in DNS: `request to ... failed,
+    reason: getaddrinfo ENOTFOUND ...`                           185
     no usable answer: no message 5,263, `request to ...
-    failed` 2,883, `timeout` 255, `maximum redirect` 11,
-    an ftp:// URL with credentials in it 7                    8,419
-    ========================================================  =====
+    failed` for any other reason 2,698, Too Many Requests
+    2,624, `timeout` 255, `maximum redirect` 11, an ftp://
+    URL with credentials 7                                    10,858
+    ========================================================  ======
 
-    Only the first is a server saying no. The second is the registry's
-    checker failing to get through: 7,091 of SCB's 14,228 links are in it,
-    because api.scb.se resets the checker's connections, and each of those
-    files answers 200 to an ordinary GET. Treating both as dead removed 4,270
-    of SCB's 4,306 datasets from the default catalogue.
+    The first two are dead: a server saying no, or no server to ask. The
+    third is the registry's checker failing to get through: 7,091 of SCB's
+    14,228 links are in it, because api.scb.se resets the checker's
+    connections, and each of those files answers 200 to an ordinary GET.
+    Treating all of it as dead removed 4,270 of SCB's 4,306 datasets from the
+    default catalogue.
 
     An allow-list, not a deny-list: a message the checker invents next year
     is unverified until someone adds it here, so the default keeps files
     rather than dropping them.
     """
-    return bool(reason) and str(reason).strip().casefold() in _DEAD_REASONS
+    if not reason:
+        return False
+    text = str(reason).strip().casefold()
+    return text in _DEAD_REASONS or _DEAD_HOST in text
 
 
 def _present(record: Dict[str, Any]) -> Dict[str, Any]:

@@ -38,10 +38,10 @@ Every argument is keyword-only except `value` and `uri`.
 
 | | |
 | --- | --- |
-| `datasets()` | Search the datasets the catalogue holds — 17,601 by default, 23,582 unscoped. `limit=None` for every match, `limit=0` for the count and facets with no rows. |
+| `datasets()` | Search the datasets the catalogue holds — 17,555 by default, 23,582 unscoped. `limit=None` for every match, `limit=0` for the count and facets with no rows. |
 | `data_services()` | Search the data services — 578 by default, 599 unscoped. Same signature; refuses `format`, `updated`, `language` and the date filters. |
 | `facets()` | Every dataset facet: each filter's values, count-descending, with labels. ~0.3 s over the default catalogue. |
-| `publishers()` | Every publisher this catalogue holds something from — 294 by default, 356 unscoped — most datasets first. |
+| `publishers()` | Every publisher this catalogue holds something from — 287 by default, 356 unscoped — most datasets first. |
 | `publisher()` | One publisher by id, alias, name, organisation number or URI, with the facets of its datasets. `None` if it has nothing here. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |
 | `info()` | The database: `database`, `first_retrieved`, `last_refreshed`, age, size, and what this `Catalog` holds. |
@@ -99,15 +99,17 @@ message, and the message is one of two things:
 
 | The registry's message | Files | Here |
 | --- | --- | --- |
-| an HTTP error: Too Many Requests 2,624, Not Found 395, Forbidden 212, Internal Server Error 40, Bad Request 33, Unauthorized 14, Access Denied 8, … | 3,342 | **dead** — `broken`; dropped by `exclude_broken` |
-| no usable answer: no message 5,263, `request to … failed` 2,883, `timeout` 255, `maximum redirect` 11, an `ftp://` URL with credentials 7 | 8,419 | **`unverified`** — kept, always |
+| an HTTP error: Not Found 395, Forbidden 212, Internal Server Error 40, Bad Request 33, Unauthorized 14, Access Denied 8, … | 718 | **dead** — `broken`; dropped by `exclude_broken` |
+| a host that is not in DNS: `request to … failed, reason: getaddrinfo ENOTFOUND …` | 185 | **dead** — `broken`; dropped by `exclude_broken` |
+| no usable answer: no message 5,263, `request to … failed` for any other reason 2,698, Too Many Requests 2,624, `timeout` 255, `maximum redirect` 11, an `ftp://` URL with credentials 7 | 10,858 | **`unverified`** — kept, always |
 
 Only the first is a server saying no. The second is the registry's checker
 failing to get through — 7,091 of Statistics Sweden's 14,228 links, whose
 server resets the checker's connection while answering 200 to anyone else.
-The list of HTTP errors is explicit; a message outside it is unverified.
+The list of HTTP errors is explicit, and so is the one DNS message; any other
+message is unverified.
 
-Under the default, 81 public datasets go because every file they have is dead.
+Under the default, 127 public datasets go because every file they have is dead.
 A dataset that never had files (1,647: APIs, registers) is not dead and stays.
 
 ## Dataset filters
@@ -144,8 +146,8 @@ default catalogue, and what the commonest is:
 
 | Filter | Values (all) | Values (default) | Commonest |
 | --- | --- | --- | --- |
-| `keyword` | 21,359 | 16,135 | `Rådet för främjande av kommunala analyser - Kolada` |
-| `publisher` | 356 | 294 | `radet_for_framjande_av_kommunala_analyser_kolada` |
+| `keyword` | 21,359 | 16,053 | `Rådet för främjande av kommunala analyser - Kolada` |
+| `publisher` | 356 | 287 | `radet_for_framjande_av_kommunala_analyser_kolada` |
 | `language` | 65 | 55 | `sv` |
 | `format` | 47 | 36 | `json` |
 | `theme` | 31 | 31 | `government_and_public_sector` |

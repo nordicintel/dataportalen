@@ -131,8 +131,8 @@ class _DistributionAlways(TypedDict):
 class DistributionRecord(_DistributionAlways, total=False):
     """One file or access point of a dataset.
 
-    ``broken`` is on a file the registry got an HTTP error for, ``unverified``
-    on one its checker could not reach at all, and ``byte_size`` on the 1.4%
+    ``broken`` is on a file the registry got an HTTP error for or found no host
+    for, ``unverified`` on one its checker could not get through to, and ``byte_size`` on the 1.4%
     whose publisher states a size. Each is absent otherwise.
     """
 

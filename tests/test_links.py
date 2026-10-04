@@ -43,7 +43,7 @@ def path(tmp_path):
         with_files(CATALOG_RECORDS[0],
                    ("https://example.org/a.csv", "Not Found"),
                    ("https://example.org/b.csv", ALIVE)),
-        with_files(PUBLIC, ("https://example.org/c.csv", "Too Many Requests")),
+        with_files(PUBLIC, ("https://example.org/c.csv", "Forbidden")),
     ])
 
 
@@ -51,7 +51,7 @@ def path(tmp_path):
 
 
 @pytest.mark.parametrize("reason", [
-    "Not Found", "Too Many Requests", "Forbidden", "Internal Server Error",
+    "Not Found", "Forbidden", "Internal Server Error",
     "Bad Request", "Unauthorized", "Access Denied", "Gone", "404",
     "File not found", "Service Unavailable", "Method Not Allowed", "400",
     "Bad Gateway", "not found", " Not Found ",
@@ -72,6 +72,45 @@ def test_an_http_error_is_dead(reason):
 def test_no_usable_answer_is_not_dead(reason):
     """An allow-list: what is not a known HTTP error keeps the file."""
     assert not _is_dead(reason)
+
+
+@pytest.mark.parametrize("reason", [
+    "request to https://katalog.datahotell.se/store/99/resource/17 failed, "
+    "reason: getaddrinfo ENOTFOUND katalog.datahotell.se",
+    "request to http://undefined/ failed, reason: getaddrinfo ENOTFOUND undefined",
+])
+def test_a_host_that_is_not_in_dns_is_dead(reason):
+    """No server to ask is as gone as a server saying no."""
+    assert _is_dead(reason)
+
+
+@pytest.mark.parametrize("reason", [
+    "request to http://maps.lantmateriet.se/wms failed, "
+    "reason: connect ECONNREFUSED 192.0.2.1:80",
+    "request to https://ext-geodata.lansstyrelsen.se/wms failed, "
+    "reason: connect EHOSTUNREACH 192.0.2.1:443",
+    "request to https://leverantorsfakturor.svedala.se/ failed, reason: ",
+    "request to https://example.org/x failed, reason: getaddrinfo EAI_AGAIN example.org",
+])
+def test_a_host_that_is_there_but_did_not_answer_is_not_dead(reason):
+    assert not _is_dead(reason)
+
+
+@pytest.mark.parametrize("reason", ["Too Many Requests", "too many requests", "429"])
+def test_a_rate_limit_is_not_dead(reason):
+    """The server asked the checker to slow down. The file is still there."""
+    assert not _is_dead(reason)
+
+
+def test_a_rate_limited_file_says_unverified_and_is_kept(tmp_path, transport):
+    record = with_files(CATALOG_RECORDS[0],
+                        ("https://example.org/a.csv", "Too Many Requests"))
+    for exclude in (True, False):
+        cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
+                      _transport=transport, exclude_broken=exclude)
+        (a,) = cat.datasets()[0]["distributions"]
+        assert a["unverified"] == {"reason": "Too Many Requests", "checked": CHECKED}
+        assert "broken" not in a
 
 
 # -- what a record carries ----------------------------------------------------
@@ -118,7 +157,7 @@ def test_dead_files_are_left_out_by_default(path, transport):
 
 
 def test_a_dataset_whose_every_file_is_dead_is_left_out(path, transport):
-    """81 public datasets. Metadata with nothing to fetch is what dead means."""
+    """127 public datasets. Metadata with nothing to fetch is what dead means."""
     cat = Catalog(path, max_age=None, _transport=transport)
     assert cat.get(PUBLIC["uri"]) is None
     assert cat.get(CATALOG_RECORDS[0]["uri"]) is not None

@@ -45,11 +45,12 @@ catalog = Catalog(
                                 #   schema change asks for, and the only thing
                                 #   that drops a dataset the registry withdrew.
     exclude_broken=True,        # drop every dead file -- one the registry's
-                                #   nightly check got an HTTP error for (3,342
-                                #   of 35,148) -- and every dataset left with
-                                #   none (81). A file its checker could not
-                                #   reach at all (8,419) is not dead: it stays,
-                                #   marked `unverified`.
+                                #   nightly check got an HTTP error for, or
+                                #   whose host is not in DNS (903 of 35,148)
+                                #   -- and every dataset left with none
+                                #   (127). A file its checker could not
+                                #   reach, or was rate-limited on (10,858), is
+                                #   not dead: it stays, marked `unverified`.
                                 #   False: keep all, mark the dead `broken`.
     access_rights=("public",),  # which access_rights values to hold:
                                 #   "public" | "non_public" | "restricted"
@@ -73,7 +74,7 @@ page = catalog.datasets(
     facet_limit=None,             # int | None; what it cuts lands in .facets.omitted
 
     publisher="scb",              # id | alias | name | organisation number | URI
-    keyword="Kommun",             # exact, case-insensitive; 16,135 values
+    keyword="Kommun",             # exact, case-insensitive; 16,053 values
     publisher_type="national_authority",
         # national_authority | non_governmental_organisation | local_authority
         # | academia_scientific_organisation | company | regional_authority
@@ -212,7 +213,8 @@ A distribution has three keys that are there only when they say something:
 }
 ```
 
-`broken` is a dead file — the registry got an HTTP error for it — and shows
+`broken` is a dead file — the registry got an HTTP error for it, or found
+no such host — and shows
 only in a `Catalog(exclude_broken=False)`; under the default that file, and
 this dataset with it (its only file), are not there. `unverified` is a file the
 registry's checker could not reach at all, which says nothing about the file;
@@ -339,7 +341,7 @@ list(facets); "format" in facets
 
 ```json
 {
-    "publisher": 294,
+    "publisher": 287,
     "publisher_type": 8,
     "theme": 31,
     "keyword": 16135,
@@ -387,7 +389,7 @@ publishers = catalog.publishers()
 }
 ```
 
-294 of them by default, 356 unscoped. The counts are this catalogue's:
+287 of them by default, 356 unscoped. The counts are this catalogue's:
 `dataset_count == catalog.datasets(publisher=id, limit=0).total`, for every
 row.
 
@@ -466,9 +468,9 @@ catalog.info()
     "downloaded": "2026-10-01T13:04:54",
     "age_days": 0,
     "bytes": 98951168,
-    "datasets": 17601,
+    "datasets": 17555,
     "data_services": 578,
-    "publishers": 294
+    "publishers": 287
 }
 ```
 
@@ -537,7 +539,7 @@ live.close()                    # with LiveCatalog() as live: ... too
 
 No `len()`, no iteration, no `database`/`max_age`/`exclude_broken`: each would
 be a download. Nothing is excluded, so the default holds 17,682 datasets where
-`Catalog()` holds 17,601.
+`Catalog()` holds 17,555.
 
 How its answers compare with `Catalog(access_rights=None,
 exclude_broken=False)`, measured over every facet value of every filter on

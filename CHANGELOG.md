@@ -20,11 +20,13 @@ published, so this is the upgrade from 0.7.1. A catalogue file written by
   property are removed.
 - What the catalogue holds is decided when it is built. By default it is the
   datasets that say `public` (`access_rights=("public",)`), minus dead files
-  (`exclude_broken=True`): 17,601 datasets of 23,582.
+  (`exclude_broken=True`): 17,555 datasets of 23,582.
   `Catalog(access_rights=None, exclude_broken=False)` holds everything.
-- Dead means the registry's nightly link check got an HTTP error for the file.
+- Dead means the registry's nightly link check got an HTTP error for the file,
+  or found its host is not in DNS.
   Those files are dropped, and so is a dataset left with none. A file the
-  check could not reach stays and carries `unverified`; with
+  check could not reach, or was rate-limited on (429), stays and carries
+  `unverified`; with
   `exclude_broken=False` a dead file carries `broken`. Both are
   `{"reason", "checked"}`.
 - `LiveCatalog` has the same methods and arguments as `Catalog` and asks the

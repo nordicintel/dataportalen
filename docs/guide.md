@@ -44,8 +44,8 @@ catalog.info()
 #  'first_retrieved': '2026-09-30T17:57:14',
 #  'last_refreshed': '2026-10-01T13:04:54',
 #  'downloaded': '2026-10-01T13:04:54', 'age_days': 0,
-#  'bytes': 98951168, 'datasets': 17601, 'data_services': 578,
-#  'publishers': 294}
+#  'bytes': 98951168, 'datasets': 17555, 'data_services': 578,
+#  'publishers': 287}
 ```
 
 **It keeps itself current, cheaply.** The registry re-harvests nightly. When
@@ -83,10 +83,11 @@ calls 11,761 of 35,148 broken — but its message says two different things:
 
 | The registry's message | Files | |
 | --- | --- | --- |
-| an HTTP error: Not Found, Forbidden, Too Many Requests, … | 3,342 | a server said no: **dead** |
-| nothing usable: no message, a failed connection, a timeout | 8,419 | the checker did not get through: **unverified** |
+| an HTTP error: Not Found, Forbidden, Internal Server Error, … | 718 | a server said no: **dead** |
+| a host that is not in DNS | 185 | no server to ask: **dead** |
+| nothing usable: no message, a failed connection, a timeout, Too Many Requests | 10,858 | the checker did not get through: **unverified** |
 
-By default the dead files are gone from the records, and so are the 81 public
+By default the dead files are gone from the records, and so are the 127 public
 datasets whose every file is dead. An unverified file stays, and says so:
 
 ```python
@@ -115,7 +116,7 @@ Catalog(access_rights=["public", "none"])   # public, plus the ones that set not
 Catalog(access_rights=None)                  # everything
 ```
 
-`info()["datasets"]` is what the `Catalog` holds after both — 17,601 by
+`info()["datasets"]` is what the `Catalog` holds after both — 17,555 by
 default; the database underneath always holds all 23,582, so changing either is
 a new `Catalog`, not a new download.
 
@@ -184,7 +185,7 @@ catalog.datasets(theme="transport", limit=0)      # the count and facets, no row
 is how you count things:
 
 ```python
-catalog.datasets(publisher="trafikverket", limit=0).total     # 294
+catalog.datasets(publisher="trafikverket", limit=0).total     # 293
 ```
 
 ## Facets: finding out what you can filter by
@@ -217,7 +218,7 @@ list(catalog.facets())
 exactly the count the row claimed, for every filter and every value. Checked
 on the real catalogue for all 22,401 values, keywords included: no exceptions.
 
-Some facets are long — 16,135 distinct keywords. Cap them, and what was cut is
+Some facets are long — 16,053 distinct keywords. Cap them, and what was cut is
 counted rather than dropped quietly:
 
 ```python
@@ -335,7 +336,7 @@ for publisher in catalog.publishers()[:3]:
     print(publisher["dataset_count"], publisher["id"], text(publisher["name"]))
 ```
 
-`publishers()` is a plain list, most datasets first — 294 by default. Each row
+`publishers()` is a plain list, most datasets first — 287 by default. Each row
 is who they are and how much of theirs is here:
 
 ```python

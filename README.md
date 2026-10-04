@@ -32,7 +32,7 @@ Distribution and import name are both `dataportalen`. The unrelated
 from dataportalen import Catalog, text
 
 catalog = Catalog()      # downloads the catalogue the first time: ~7 min, ~95 MB
-print(catalog.info())    # {'datasets': 17601, 'data_services': 578, ...}
+print(catalog.info())    # {'datasets': 17555, 'data_services': 578, ...}
 
 page = catalog.datasets(theme="transport", format="csv")
 print(page.total)                    # 44
@@ -50,7 +50,8 @@ When the copy is over a week old, the next `Catalog()` catches up in under a
 minute.
 
 By default the catalogue holds the datasets that say `public`, minus the
-files the registry's nightly link check got an HTTP error for.
+files the registry's nightly link check got an HTTP error for or found no
+host for.
 `Catalog(access_rights=None, exclude_broken=False)` holds everything.
 
 Publishers are there too: `catalog.publishers()` lists them, and

@@ -240,14 +240,18 @@ services alone rather than pretending.
 
 **`broken` is two different things, and only one of them is dead.** The
 registry records no status code for a broken link -- `statusCode` is null on
-all 11,900 -- only a message. On 3,342 files the message is an HTTP error
-(Too Many Requests 2,624, Not Found 395, Forbidden 212, Internal Server Error
+all 11,900 -- only a message. On 718 files the message is an HTTP error
+(Not Found 395, Forbidden 212, Internal Server Error
 40, Bad Request 33, Unauthorized 14, Access Denied 8, Gone 4, `404` 4, File
 not found 3, Service Unavailable 2, Method Not Allowed 2, `400` 1): a server
-answered and said no. On 8,419 it is no usable answer (no message 5,263,
-`request to ... failed` 2,883, `timeout` 255, `maximum redirect` 11, an
-`ftp://` URL with credentials in it 7): the registry's checker did not get
-through, which says nothing about the file.
+answered and said no. On 185 it is `request to ... failed, reason:
+getaddrinfo ENOTFOUND ...`: the host is not in DNS, so there is no server to
+ask, and that is dead too. On 10,858 it is no usable answer (no message 5,263,
+`request to ... failed` for any other reason 2,698, Too Many Requests 2,624,
+`timeout` 255, `maximum redirect` 11, an `ftp://` URL with credentials in it
+7): the registry's checker did not get through, which says nothing about the file.
+Too Many Requests is an HTTP status, but it is a server telling the checker
+to slow down, so it counts as not getting through.
 
 0.10.0 treated both as dead, and Statistics Sweden went from 4,306 datasets
 to 33: api.scb.se resets the checker's connection, so 7,091 of its 14,228
@@ -256,11 +260,11 @@ stored `broken` is split when a record is read (`client._present`, which both
 `Catalog` and `read_catalog` go through): a reason on the HTTP-error list
 stays `broken`, anything else becomes `unverified` with the same two keys.
 `Catalog(exclude_broken=True)` drops `broken` files and a dataset left with
-none -- 81 public datasets -- and never an unverified one. A dataset that
+none -- 127 public datasets -- and never an unverified one. A dataset that
 never had files (1,647) is not dead and stays.
 
 `_DEAD_REASONS` is an allow-list on purpose: every standard HTTP reason phrase
-from 400 up, the bare numbers, and three phrasings the checker has been seen
+from 400 up except 429, the bare numbers, and three phrasings the checker has been seen
 to use. A message it invents next year is unverified until someone adds it,
 so the default keeps files rather than dropping them. Written the other way
 round -- a list of non-answers, everything else dead -- it would have dropped
@@ -466,12 +470,12 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | Fact | Value |
 | --- | --- |
 | Datasets / data services / distributions | 23,582 / 599 / 35,148 in the file (2026-10-01) |
-| The default `Catalog`: public, minus the dead | 17,601 datasets, 578 data services, 294 publishers |
+| The default `Catalog`: public, minus the dead | 17,555 datasets, 578 data services, 287 publishers |
 | Unscoped | 23,582 / 599 / 356 |
 | `access_rights`: public / non_public / restricted / unset | 17,682 / 1,489 / 244 / 4,167 |
 | Link verdicts on files: success / broken / excluded | 18,360 / 11,761 / 5,021 |
-| ...of the broken: an HTTP error (dead) / no usable answer (unverified) | 3,342 / 8,419 |
-| Datasets with every file broken / every file dead / with no files at all | 5,330 / 81 public / 1,647 |
+| ...of the broken: an HTTP error or a host not in DNS (dead) / no usable answer (unverified) | 903 / 10,858 |
+| Datasets with every file broken / every file dead / with no files at all | 5,330 / 127 public / 1,647 |
 | SCB under 0.10.0's rule / under this one | 33 / 4,303 of 4,306 |
 | Files stating `dcat:byteSize` / readable as a size | 485 / 484, from 13 catalogues |
 | Records whose `keywords` was `[]` rather than `{}` before schema 4 | 1,324 (5.5%) |
