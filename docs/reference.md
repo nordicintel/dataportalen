@@ -1,7 +1,7 @@
 # Reference
 
 Everything the package exposes, as tables. [guide.md](guide.md) is the part
-you read; this is the part you look up. [SPEEDRUN.md](../SPEEDRUN.md) is the
+you read; this is the part you look up. [cheatsheet.md](cheatsheet.md) is the
 same surface as code: every argument once, the output underneath.
 
 Percentages are measured over the whole corpus — every dataset and every data
@@ -54,7 +54,7 @@ from `data_services()`.
 arguments, asked of the registry instead of a file: `limit` is 0 to 100,
 `publisher_type` is refused, facets have no `keyword` or `publisher_type`,
 nothing carries `broken`/`unverified`, `info()` is the three counts, and there
-is no `len()` or iteration. [SPEEDRUN.md](../SPEEDRUN.md#livecatalog) compares
+is no `len()` or iteration. [cheatsheet.md](cheatsheet.md#livecatalog) compares
 its answers with `Catalog`'s, value by value.
 
 `get(uri, format=)` accepts `turtle`, `ttl`, `rdf/xml`, `rdfxml`, `xml`,

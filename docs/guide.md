@@ -1,8 +1,9 @@
 # Guide
 
 How to use it, in the order you run into things. Every method, filter and
-record key is listed in [reference.md](reference.md); this page is the part
-worth reading once.
+record key is listed in [reference.md](reference.md), and
+[cheatsheet.md](cheatsheet.md) shows every call with its arguments and output;
+this page is the part worth reading once.
 
 1. [The first run](#the-first-run)
 2. [What the catalogue holds](#what-the-catalogue-holds)
@@ -589,7 +590,7 @@ refused, and the facets have no `keyword`. A count takes about a tenth of a
 second, a page of full records a few seconds. The counts match the local
 ones for publishers and every data service filter; for a few dataset values
 the registry's index finds a few more, and the date filters can differ either
-way. [SPEEDRUN.md](../SPEEDRUN.md#livecatalog) has the whole comparison.
+way. [cheatsheet.md](cheatsheet.md#livecatalog) has the whole comparison.
 
 ## When something goes wrong
 

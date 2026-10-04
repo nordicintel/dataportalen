@@ -61,8 +61,8 @@ methods and asks the registry directly, a page at a time.
 
 ## Documentation
 
-- **[SPEEDRUN.md](SPEEDRUN.md)** — every public name once, every argument
-  spelled out, the output shape underneath. The cheat sheet.
+- **[docs/cheatsheet.md](docs/cheatsheet.md)** — every public name once, every argument
+  spelled out, the output shape underneath.
 - **[docs/guide.md](docs/guide.md)** — how to use it, in the order you hit it:
   searching, discovering filters, reading a result, recipes.
 - **[docs/reference.md](docs/reference.md)** — every method, filter, record key

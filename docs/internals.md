@@ -1,7 +1,9 @@
 # Internals
 
 For working on the package. Using it is [guide.md](guide.md), and every method,
-filter and record key is in [reference.md](reference.md).
+filter and record key is in [reference.md](reference.md). Every call with its
+arguments and output is in [cheatsheet.md](cheatsheet.md), which changes
+whenever the public interface does.
 
 1. [Where the short values come from](#where-the-short-values-come-from)
 2. [Label coverage](#label-coverage)

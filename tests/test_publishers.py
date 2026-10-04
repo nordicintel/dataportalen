@@ -162,7 +162,7 @@ def scb(tmp_path, transport):
     "Statistics Sweden",                                    # its English name
 ])
 def test_everything_a_publisher_shows_resolves_to_it(scb, value):
-    """SPEEDRUN promised "alias | slug | name | org.nr | URI". Before this a
+    """The cheat sheet promises "alias | slug | name | org.nr | URI". Before this a
     URI raised, a bare organisation number raised and 24 names raised."""
     assert scb.publisher(value)["id"] == \
         "statistikmyndigheten_scb_statistiska_centralbyran"

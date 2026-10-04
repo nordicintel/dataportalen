@@ -1,12 +1,16 @@
-# Speedrun
+# Cheat sheet
 
 Every public name in `dataportalen`, once, with every argument spelled out and
 every output shape printed underneath. One Python snippet per function; a JSON
 snippet under it when the shape has not been shown yet.
 
-Written against 0.12.0 and the corpus as of 2026-10-01 (23,582 datasets, 599
-data services, 35,148 distributions). When the public interface changes, this
-file changes with it.
+This is the page to keep open while you write code. For how to use the package
+in the order you meet it, read [guide.md](guide.md); for every filter, record
+key and error as tables, with fill rates, see [reference.md](reference.md).
+
+Written against 0.12.0 and the registry as of 2026-10-01 (23,582 datasets, 599
+data services, 35,148 distributions). The counts in the examples move as the
+registry does.
 
 ```python
 from dataportalen import (
@@ -456,7 +460,7 @@ catalog.info()
 
 ```json
 {
-    "database": "C:\\Users\\ruben\\AppData\\Local\\dataportalen\\catalog.sqlite",
+    "database": "/home/you/.cache/dataportalen/catalog.sqlite",
     "first_retrieved": "2026-09-30T17:57:14",
     "last_refreshed": "2026-10-01T13:04:54",
     "downloaded": "2026-10-01T13:04:54",
@@ -649,7 +653,7 @@ logger.setLevel(logging.WARNING)  # the same logger, for apps that configure the
 
 ## Publisher aliases
 
-`src/dataportalen/aliases.json`, kept by hand and shipped in the wheel. An alias
+Short names for publishers with long ids, shipped with the package. An alias
 is accepted wherever a publisher is, and shows in the publisher's `aliases`.
 
 ```json
@@ -680,9 +684,3 @@ DataportalError                   # base; catch this one
 
 FileNotFoundError                 # read_catalog() on a path that is not there
 ```
-
-## IMPORTANT NOTES
-
-- Resolved in 0.11.0: a list used to be OR for every filter except keyword, which was AND. keyword is an ordinary filter now — a list is OR, matching is exact and case-insensitive, and an unknown keyword raises. keyword=["Kommun","Region"] gives the union.
-- datasets() takes 9 vocabulary filters plus query and 4 dates; data_services() takes 7 plus query. The refusal message is good, but the asymmetry is now plain to read, which is what you'll want when LiveCatalog has to decide which of those it can honour server-side.
-  - Answered in 0.12.0: LiveCatalog honours all of them server-side except publisher_type, which the registry does not index (naming every national authority instead would be a 12,703-character request). Data services: all 7 equal to the local answer. Datasets: see the comparison under `LiveCatalog(...)`.
