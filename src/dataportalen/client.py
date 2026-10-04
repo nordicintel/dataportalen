@@ -49,6 +49,7 @@ from .core import (
     ParseError,
     QueryError,
     RateLimitError,
+    RequestsTransport,
     Response,
     ServerError,
     TransportError,
@@ -98,6 +99,7 @@ from .records import (
     PublisherDetail,
 )
 from .retrieval import KINDS, classify
+from .verify import check_links
 
 # ==========================================================================
 # client_base: The synchronous client for the Sveriges dataportal registry API.
@@ -858,6 +860,13 @@ CREATE TABLE IF NOT EXISTS record (
 CREATE INDEX IF NOT EXISTS record_uri ON record(uri);
 CREATE INDEX IF NOT EXISTS record_type ON record(type);
 -- No index on `harvested`: the registry filters by it, we never do.
+CREATE TABLE IF NOT EXISTS verified (
+    url          TEXT PRIMARY KEY,
+    status       TEXT NOT NULL,
+    reason       TEXT,
+    checked      TEXT,
+    invalid_cert INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS source (
     context_id TEXT PRIMARY KEY,
     status     TEXT,
@@ -1135,6 +1144,26 @@ def _write_sources(db: Any, sources: Dict[str, Dict[str, Any]]) -> None:
          for context, row in sources.items()])
 
 
+def _write_verdicts(db: Any, verdicts: Mapping[str, Dict[str, Any]]) -> None:
+    """Keep what :meth:`Catalog.verify` found. A URL asked again replaces its row."""
+    db.executemany(
+        "INSERT INTO verified (url, status, reason, checked, invalid_cert) "
+        "VALUES (?, ?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET "
+        "status = excluded.status, reason = excluded.reason, "
+        "checked = excluded.checked, invalid_cert = excluded.invalid_cert",
+        [(url, row["status"], row.get("reason"), row.get("checked"),
+          1 if row.get("invalid_cert") else 0)
+         for url, row in verdicts.items()])
+
+
+def _read_verdicts(db: Any) -> Dict[str, Dict[str, Any]]:
+    return {row["url"]: {"status": row["status"], "reason": row["reason"],
+                         "checked": row["checked"],
+                         "invalid_cert": bool(row["invalid_cert"])}
+            for row in db.execute(
+                "SELECT url, status, reason, checked, invalid_cert FROM verified")}
+
+
 def _read_sources(db: Any) -> Dict[str, Dict[str, Any]]:
     return {row["context_id"]: {"status": row["status"],
                                 "harvested": row["harvested"],
@@ -1365,6 +1394,9 @@ def download_catalog(
                     # the same transaction as the write, so a download that
                     # dies leaves the old catalogue untouched.
                     db.execute("DELETE FROM record")
+                    # What verify() found belongs to the build it was asked
+                    # of: the registry's verdicts are all new now.
+                    db.execute("DELETE FROM verified")
                 _write_records(db, rows())
                 now = _dt.datetime.now().replace(microsecond=0).isoformat()
                 _meta_set(db, schema=SCHEMA_VERSION, package=__version__,
@@ -1655,7 +1687,8 @@ class Catalog:
             self._first_retrieved = _meta_get(db, "first_retrieved")
             self._last_refreshed = _meta_get(db, "last_refreshed")
             self._sources = _read_sources(db)
-            every = [_present(json.loads(row["doc"]), self._sources)
+            verdicts = _read_verdicts(db)
+            every = [_present(json.loads(row["doc"]), self._sources, verdicts)
                      for row in db.execute("SELECT doc FROM record")]
         finally:
             db.close()
@@ -1810,6 +1843,88 @@ class Catalog:
                 for dist in record.get("distributions") or ()
                 if "unverified" in dist),
         }
+
+    def verify(self, which: str = "unverified", *,
+               limit: Optional[int] = None,
+               _insecure: Optional[BaseTransport] = None) -> Dict[str, Any]:
+        """Ask the servers themselves, and keep what they say::
+
+            catalog.verify()            # the distributions marked unverified
+            catalog.verify(limit=200)   # a sample, spread over the hosts
+            # {"checked": 200, "alive": 171, "dead": 6, "unverified": 23,
+            #  "invalid_cert": 2, "requests": 244, "elapsed": 61.3}
+
+        The only thing in this package that makes a request to a publisher,
+        and it never happens unless this is called. Each distribution's
+        address is asked for with ``HEAD`` -- see :mod:`dataportalen.verify`
+        for how an answer becomes a verdict -- one request at a time per
+        host, with a pause between. All 10,858 unverified distributions is
+        about 11,000 requests and, because 7,091 of them are one host, most
+        of an hour.
+
+        A verdict replaces the registry's mark when the record is read:
+        alive removes it, dead sets ``broken`` with ``by: "local"``, and one
+        that is still unverified changes nothing. The verdicts are stored in
+        the database, survive a refresh and are dropped by ``rebuild=True``.
+
+        :param which: ``"unverified"`` (the default), ``"broken"`` or
+            ``"all"`` -- which of this catalogue's distributions to ask
+            about, within its ``access_rights``.
+        :param limit: at most this many addresses, taken one per host in turn.
+        """
+        if which not in ("unverified", "broken", "all"):
+            raise QueryError('which is "unverified", "broken" or "all"; got %r'
+                             % (which,))
+        if limit is not None and (isinstance(limit, bool) or limit < 0):
+            raise QueryError("limit must be a number or None; got %r" % (limit,))
+
+        urls: List[str] = []
+        for record in read_catalog(self.database):
+            if self.access_rights is not None and (
+                    record.get("access_rights") or "none") not in self.access_rights:
+                continue
+            for dist in record.get("distributions") or ():
+                if which != "all" and which not in dist:
+                    continue
+                addresses = _urls_of(dist)
+                if addresses:
+                    urls.append(addresses[0])
+
+        transport = self._registry._transport
+        insecure = _insecure
+        owned = None
+        if insecure is None and isinstance(transport, RequestsTransport):
+            insecure = owned = RequestsTransport(verify=False)
+        started = time.time()
+        try:
+            verdicts, requests = check_links(
+                urls, transport, insecure=insecure, limit=limit,
+                headers={"User-Agent": self._registry.user_agent},
+                progress=progress_reporter("links", log_every=500))
+        finally:
+            if owned is not None:
+                owned.close()
+
+        db = _connect(self.database)
+        try:
+            with db:
+                _write_verdicts(db, verdicts)
+        finally:
+            db.close()
+        self._read()
+
+        counts = {"alive": 0, "dead": 0, "unverified": 0}
+        for verdict in verdicts.values():
+            counts[verdict["status"]] += 1
+        summary = {"checked": len(verdicts), **counts,
+                   "invalid_cert": sum(1 for v in verdicts.values()
+                                       if v.get("invalid_cert")),
+                   "requests": requests,
+                   "elapsed": round(time.time() - started, 1)}
+        logger.info("verified %s addresses: %s alive, %s dead, %s unverified",
+                    f"{summary['checked']:,}", f"{counts['alive']:,}",
+                    f"{counts['dead']:,}", f"{counts['unverified']:,}")
+        return summary
 
     def sources(self) -> List[Dict[str, Any]]:
         """The source catalogues the registry harvests, and how the last
@@ -2197,8 +2312,33 @@ def _is_dead(reason: Any) -> bool:
     return text in _DEAD_REASONS or _DEAD_HOST in text
 
 
+def _apply_verdict(dist: Dict[str, Any],
+                   verdicts: Mapping[str, Dict[str, Any]]) -> None:
+    """Let what :meth:`Catalog.verify` found stand in for the registry's mark.
+
+    Against ``unverified`` a local answer always wins: the registry's checker
+    got none, so there is nothing to weigh it against. Against ``broken`` the
+    later look wins. A local answer that is itself unverified changes nothing.
+    """
+    found = [verdicts[url] for url in _urls_of(dist) if url in verdicts]
+    found = [v for v in found if v["status"] in ("alive", "dead")]
+    if not found:
+        return
+    verdict = max(found, key=lambda v: (v["status"] == "dead", v.get("checked") or ""))
+    registry = dist.get("broken")
+    if registry is not None and (registry.get("checked") or "") > (
+            verdict.get("checked") or ""):
+        return
+    dist.pop("unverified", None)
+    dist.pop("broken", None)
+    if verdict["status"] == "dead":
+        dist["broken"] = {"reason": verdict.get("reason"),
+                          "checked": verdict.get("checked"), "by": "local"}
+
+
 def _present(record: Dict[str, Any],
-             sources: Optional[Mapping[str, Dict[str, Any]]] = None
+             sources: Optional[Mapping[str, Dict[str, Any]]] = None,
+             verdicts: Optional[Mapping[str, Dict[str, Any]]] = None,
              ) -> Dict[str, Any]:
     """A stored record as the package hands it out.
 
@@ -2216,6 +2356,8 @@ def _present(record: Dict[str, Any],
         mark = dist.get("broken")
         if mark is not None and not _is_dead(mark.get("reason")):
             dist["unverified"] = dist.pop("broken")
+        if verdicts:
+            _apply_verdict(dist, verdicts)
         # What the distribution is -- a file, an API, a web page -- read out
         # of its metadata. Added here for the same reason as the split above:
         # the rules can change without anybody downloading anything.
@@ -2378,7 +2520,8 @@ def read_catalog(path: str) -> List[Union[DatasetRecord, DataServiceRecord]]:
     db = _connect(path)
     try:
         sources = _read_sources(db)
-        return [_present(json.loads(row["doc"]), sources)
+        verdicts = _read_verdicts(db)
+        return [_present(json.loads(row["doc"]), sources, verdicts)
                 for row in db.execute("SELECT doc FROM record")]
     finally:
         db.close()

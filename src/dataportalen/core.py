@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import warnings
 from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 
 # ==========================================================================
@@ -324,10 +325,13 @@ class RequestsTransport(BaseTransport):
     one everywhere, which is what the caller asked for.
     """
 
-    def __init__(self, session: Any = None) -> None:
+    def __init__(self, session: Any = None, verify: bool = True) -> None:
         import requests  # a declared dependency; always present
 
         self._requests = requests
+        #: ``False`` skips certificate verification. Only the link check's
+        #: second look at a host with a bad certificate does that.
+        self._verify = bool(verify)
         self._given = session
         self._owns_session = session is None
         self._local = threading.local()
@@ -341,6 +345,14 @@ class RequestsTransport(BaseTransport):
         session = getattr(self._local, "session", None)
         if session is None:
             session = self._requests.Session()
+            if not self._verify:
+                session.verify = False
+                # Asked for on purpose, once per host with a bad certificate;
+                # a warning per request would say nothing new.
+                import urllib3
+
+                warnings.filterwarnings(
+                    "ignore", category=urllib3.exceptions.InsecureRequestWarning)
             self._local.session = session
             with self._made_lock:
                 self._made.append(session)

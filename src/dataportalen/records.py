@@ -64,12 +64,19 @@ class LicenseRecord(TypedDict):
     uri: str
 
 
-class LinkMark(TypedDict):
-    """What the registry said about one distribution, or one source: why, and
-    when it looked."""
-
+class _LinkMarkAlways(TypedDict):
     reason: Optional[str]
     checked: Optional[str]
+
+
+class LinkMark(_LinkMarkAlways, total=False):
+    """What was said about one distribution, or one source: why, and when.
+
+    The registry said it, unless ``by`` is there: ``"local"`` is a verdict
+    from :meth:`Catalog.verify`, asked from this machine.
+    """
+
+    by: Literal["local"]
 
 
 class ContactRecord(TypedDict):
