@@ -125,7 +125,7 @@ subjects.
 
 ## Module layout
 
-Seven modules; callers import from the package root.
+Ten modules; callers import from the package root.
 
 | Module | Holds |
 | --- | --- |
@@ -135,7 +135,9 @@ Seven modules; callers import from the package root.
 | `query.py` | the `Q` Solr query builder |
 | `client.py` | `Catalog`, `_Registry` (HTTP and Solr), the store, the download, the publisher resolver |
 | `live.py` | `LiveCatalog`: filters compiled to Solr, facet responses folded back into the package's values |
-| `__init__.py` | 33 exports, and nothing else |
+| `retrieval.py` | `classify` and `KINDS`: what a distribution is, read from its metadata; no request |
+| `verify.py` | `check_links`: asking a distribution's server whether it is there. Reached only through `Catalog.verify` |
+| `__init__.py` | 34 exports, and nothing else |
 | `records.py` | `TypedDict`s for every dict handed out; no behaviour |
 
 ### Public and internal
@@ -146,11 +148,14 @@ where 0.6.0 had 32 on `Dataportal` plus 7 on `LocalCatalog`. Plus `text()`,
 `default_catalog_path()`, the result types and the record `TypedDict`s -- see
 [reference.md](reference.md#everything-exported). `LiveCatalog` has the same
 seven methods with the same arguments; a test holds the signatures equal.
+`sources()` and `verify()` are `Catalog`'s alone: both keep what they find in
+the database, and `LiveCatalog` has none.
 
 **`LiveCatalog` is built from the download's own parts.** A search hit is
 assembled by `_targeted_indexes` and `_assemble`, the code a limited export
 uses, and read through `_present` -- which is why its records equal the
-database's (50 of 50 compared; only link health differs). Publishers go
+database's (50 of 50 compared; only link health differs) and why they carry
+`kind`, though the registry cannot be asked for it and `kind=` is refused. Publishers go
 through the same `_Publishers`, fed `(agent, count)` pairs from the registry's
 publisher facet instead of records, so an id means the same organisation in
 both classes (356 of 356 rows identical). What is new is translation in both
@@ -223,13 +228,14 @@ the URL, the entry it belongs to, `status`, `statusMessage`, `checkedAt` and
 is easy to miss if you only read the metadata graph.
 
 159 catalogues, one latest report each, ~29 MiB, about ten seconds -- 165
-requests on top of 691. The download reads them and stores, on every file the
-check called broken, the registry's message and when it looked:
-`{"reason", "checked"}` under `broken`. Nothing goes on a file that passed or
-that the check never reached. Until 0.10.0 every file carried a `link` dict --
-18,360 successes and 5,021 the check skipped, for the 11,761 that mattered --
-and every record carried a landing-page verdict that was `None` on 10,331
-datasets and `broken` on 277 whose files were all fine.
+requests on top of 691. The download reads them and stores, on every
+distribution the check called broken, the registry's message and when it
+looked: `{"reason", "checked"}` under `broken`. Nothing goes on a distribution
+that passed or that the check never reached. Until 0.10.0 every distribution
+carried a `link` dict -- 18,360 successes and 5,021 the check skipped, for the
+11,761 that mattered -- and every record carried a landing-page verdict that
+was `None` on 10,331 datasets and `broken` on 277 whose distributions were all
+fine.
 
 What the check covers, counted over 40 reports: `dcat:downloadURL` 3,072,
 `dcat:accessURL` 1,426, `dcat:landingPage` 130, `foaf:page` 78,
@@ -240,7 +246,7 @@ services alone rather than pretending.
 
 **`broken` is two different things, and only one of them is dead.** The
 registry records no status code for a broken link -- `statusCode` is null on
-all 11,900 -- only a message. On 718 files the message is an HTTP error
+all 11,900 -- only a message. On 718 distributions the message is an HTTP error
 (Not Found 395, Forbidden 212, Internal Server Error
 40, Bad Request 33, Unauthorized 14, Access Denied 8, Gone 4, `404` 4, File
 not found 3, Service Unavailable 2, Method Not Allowed 2, `400` 1): a server
@@ -249,7 +255,8 @@ getaddrinfo ENOTFOUND ...`: the host is not in DNS, so there is no server to
 ask, and that is dead too. On 10,858 it is no usable answer (no message 5,263,
 `request to ... failed` for any other reason 2,698, Too Many Requests 2,624,
 `timeout` 255, `maximum redirect` 11, an `ftp://` URL with credentials in it
-7): the registry's checker did not get through, which says nothing about the file.
+7): the registry's checker did not get through, which says nothing about the
+distribution.
 Too Many Requests is an HTTP status, but it is a server telling the checker
 to slow down, so it counts as not getting through.
 
@@ -259,26 +266,127 @@ links are "broken", and each answers 200 to an ordinary GET. Since 0.11.0 the
 stored `broken` is split when a record is read (`client._present`, which both
 `Catalog` and `read_catalog` go through): a reason on the HTTP-error list
 stays `broken`, anything else becomes `unverified` with the same two keys.
-`Catalog(exclude_broken=True)` drops `broken` files and a dataset left with
-none -- 127 public datasets -- and never an unverified one. A dataset that
-never had files (1,647) is not dead and stays.
+`Catalog(exclude_broken=True)` drops `broken` distributions and a dataset left
+with none -- 127 public datasets -- and never an unverified one. A dataset that
+never had distributions (1,647) is not dead and stays.
 
 `_DEAD_REASONS` is an allow-list on purpose: every standard HTTP reason phrase
 from 400 up except 429, the bare numbers, and three phrasings the checker has been seen
 to use. A message it invents next year is unverified until someone adds it,
-so the default keeps files rather than dropping them. Written the other way
-round -- a list of non-answers, everything else dead -- it would have dropped
-the seven `ftp://` files.
+so the default keeps distributions rather than dropping them. Written the
+other way round -- a list of non-answers, everything else dead -- it would have
+dropped the seven `ftp://` ones.
 
 A catalogue keeps about three days of reports; only the newest is read. Verdicts
 are current: of 12,718 broken records, 12,711 were checked this year.
 
+### Asking the servers: `verify()`
+
+The 10,858 unverified are the registry's checker failing, not the publishers'
+servers, so the only way to know is to ask again from here.
+`Catalog.verify(which="unverified", *, limit=None)` does, through
+`verify.check_links`, and it is the only thing in the package that sends a
+request to a publisher's server. Nothing calls it implicitly.
+
+It reads the database through `read_catalog`, so `exclude_broken` does not
+narrow it and `access_rights` does, takes the distributions carrying `which`
+(`unverified`, `broken`, or `all` of them), and asks about the first address
+of each -- `download_url` before `access_url`. How an answer becomes a verdict:
+
+| | |
+| --- | --- |
+| `HEAD` first | a server that answers it with an error (other than 429) is asked again with a one-byte ranged `GET`, because plenty refuse `HEAD` and serve the address. Only what the `GET` says counts |
+| A lost connection or a timeout | tried once more; one lost packet must not become a claim about a publisher |
+| A certificate error | retried without verification. The verdict stands and carries `invalid_cert`, which the summary counts |
+| No answer at all | DNS decides: a host that does not exist is dead (`host not found`), a host that exists and did not answer is unverified |
+| `429` | unverified, and nothing more is asked of that host in this run. Nor after two addresses in a row that got no answer |
+| A redirect | compared with where the site sends a path that cannot exist (one extra `HEAD` per site, for a random path). The same place is a soft 404 |
+| Pace | one request at a time per host with a 0.4 s pause, 8 hosts at once, a 15 s timeout. api.scb.se allows 30 requests in 10 seconds; this stays under it |
+| `limit=` | applied after the addresses are interleaved by host, so the first N are N hosts and not one |
+
+**Local dead is narrower than the registry's dead.** `404`, `410`, no such
+host, a soft 404 -- and nothing else. For the registry's verdicts every HTTP
+error is dead, because its message is all there is to go on. Here the status
+is known, and any other error status is a server that is there and would not
+serve this request as asked: a WMS endpoint answers `400` to an address with
+no parameters, a login wall `401`, an overloaded server `503`. Measured on 200
+addresses, half of what the wider rule called dead was exactly that. Those
+stay unverified, with the status phrase as the reason.
+
+Verdicts go into the `verified` table, keyed by URL, and are applied when a
+record is read (`client._apply_verdict`, called from `_present`), for the same
+reason the `broken`/`unverified` split is: the stored record stays what the
+registry said. Alive removes the registry's mark. Dead sets `broken` with
+`by: "local"`, so `exclude_broken` drops it like any other. Against
+`unverified` a local answer always wins -- the registry's checker got none, so
+there is nothing to weigh it against. Against `broken` the later look wins. A
+local answer that is itself unverified changes nothing. `verify()` re-reads
+the database before it returns, so the catalogue it was called on already
+agrees with what it found.
+
+The summary is `{checked, alive, dead, unverified, invalid_cert, requests,
+elapsed}`. A sample of 200 addresses over all access levels (2026-10-04): 91
+alive, 19 dead (all Not Found), 90 still unverified, 290 requests, 157 s. All
+10,858 is about 11,000 requests and most of an hour, because 7,091 of them
+are api.scb.se and one host is asked one thing at a time.
+
+### Harvest status
+
+A record can also be out of date without any link being dead. The registry
+harvests each source catalogue nightly and keeps the result as a
+`PipelineResult` entry. `client._harvest_status` reads the latest of each --
+`graphType:PipelineResult AND tag.literal:latest`, 7 requests -- at the end of
+every download and refresh, in its own transaction after the records are
+safe. It is never fatal: an unreadable answer is logged and the stored table
+is left as it was. A download under a `limit` skips it.
+
+`_write_sources` replaces the `source` table: it is a snapshot, not something
+to merge. Measured 2026-10-04: 666 sources, 239 success, 427 failed. Only 8 of
+the failed ones have datasets in the registry -- 81 datasets unscoped (STUNS
+35, Sandvikens kommun 15, Trafiklab 13, Hack4heritage 6, Falu kommun 5,
+National Museums of World Culture 4, Rymdstyrelsen 2, Kommun Kartan 1), 1 in
+the default catalogue. The other 419 are registrations that never yielded a
+dataset.
+
+`_present` puts `stale: {"reason": "harvest failed", "checked": <harvested>}`
+on a dataset or data service whose source failed its latest harvest.
+`Catalog.sources()` is the table joined with this catalogue's counts per
+`context_id`, most datasets first; it is empty for a database written before
+the table existed.
+
+**Stale is a mark, not an exclusion.** A failed harvest says the registry
+could not read the publisher's catalogue last night. It says nothing about
+the data: the record is what the last good harvest left, and the distributions
+it points at may all answer. Dropping it would remove 81 datasets for a
+failure that is the source catalogue's. So nothing is removed, and
+`info()["stale_datasets"]` counts them.
+
+### What a distribution is
+
+DCAT-AP-SE says only that `accessURL` is a web address, and one distribution
+in fourteen has a `downloadURL`, so "a file" is the wrong word for most of
+them. `retrieval.classify` reads `kind` out of what a distribution carries,
+strongest signal first: a geodata format; the shape of the address (rowstore,
+CKAN, Huwise, PxWeb, Kolada, DOI); `downloadURL`, which the profile says is a
+file -- unless the format says `html` and the address has no file extension,
+because publishers do point it at web pages; the format, for an `accessURL`;
+an access service with nothing else to go on. No request is made, so it is a
+statement about what the publisher described, not about what the server
+returns.
+
+`_present` adds it on reading, like the split above, so the rules can change
+without anybody downloading anything. `kind=` is a dataset filter and facet
+whose values are exactly `retrieval.KINDS`; a facet row has no label, because
+`file` and `api` are the package's words and must not borrow a vocabulary
+term's.
+
 ### Where each call goes
 
-Everything but one reads the file. `datasets()`, `data_services()`, `facets()`,
-`publishers()`, `publisher()`, `get()` and `info()` never touch the network; `get(uri, format=...)` is the
-single exception, and you have to name a format to get it. The download is the
-only other thing that makes requests. `LiveCatalog` is the other way round:
+Everything but two reads the file. `datasets()`, `data_services()`, `facets()`,
+`publishers()`, `publisher()`, `get()`, `info()` and `sources()` never touch the network; `get(uri, format=...)` is
+one exception, and you have to name a format to get it. `verify()` is the
+other, and the only call that goes to a publisher's server rather than the
+registry. The download is the only other thing that makes requests. `LiveCatalog` is the other way round:
 every method is a request, and it is a different class rather than a mode, so
 which one you hold says which you get.
 
@@ -395,7 +503,26 @@ CREATE TABLE record (
     doc        TEXT NOT NULL,      -- the record, as JSON
     PRIMARY KEY (context_id, entry_id)
 );
+CREATE TABLE verified (            -- what Catalog.verify() found
+    url          TEXT PRIMARY KEY,
+    status       TEXT NOT NULL,    -- alive | dead | unverified
+    reason       TEXT,
+    checked      TEXT,
+    invalid_cert INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE source (              -- the latest harvest of each source catalogue
+    context_id TEXT PRIMARY KEY,
+    status     TEXT,               -- success | failed
+    harvested  TEXT,
+    title      TEXT
+);
 ```
+
+`verified` and `source` came after schema 4 and did not bump `SCHEMA_VERSION`:
+both are created if missing when the database is opened, and neither changes
+the shape of `doc`. An older database reads as it did, with no verdicts and no
+sources, until the next refresh fills `source`. `verified` is upserted by URL
+and kept across refreshes; `source` is replaced whole.
 
 `harvested` is the registry's own `modified` from the entry envelope, not the
 publisher's `dcterms:modified`. The publisher's is 89% filled, and 63 datasets
@@ -417,7 +544,8 @@ away. The database costs 24 MiB more than the JSONL and no measurable time.
 What a refresh cannot see is a deletion. A withdrawn dataset keeps its row until
 `rebuild=True` rebuilds, and there is no cheap way to notice: the search
 returns full graphs, so listing the registry's URIs costs the same 236 pages as
-copying it. A full build clears `record` inside the same transaction as the
+copying it. A full build clears `record` -- and `verified`, whose verdicts
+belong to the build they were asked of -- inside the same transaction as the
 write, so it is a real rebuild -- it was an upsert until 0.9.0, and a
 "rebuild" left 27 rows carrying a field the schema had dropped -- and a
 download that dies still leaves the old catalogue untouched.
@@ -473,17 +601,28 @@ datasets a day, so the absolute figures drift and the ratios do not.
 | The default `Catalog`: public, minus the dead | 17,555 datasets, 578 data services, 287 publishers |
 | Unscoped | 23,582 / 599 / 356 |
 | `access_rights`: public / non_public / restricted / unset | 17,682 / 1,489 / 244 / 4,167 |
-| Link verdicts on files: success / broken / excluded | 18,360 / 11,761 / 5,021 |
+| Link verdicts on distributions: success / broken / excluded | 18,360 / 11,761 / 5,021 |
 | ...of the broken: an HTTP error or a host not in DNS (dead) / no usable answer (unverified) | 903 / 10,858 |
-| Datasets with every file broken / every file dead / with no files at all | 5,330 / 127 public / 1,647 |
+| Datasets with every distribution broken / every distribution dead / with no distributions at all | 5,330 / 127 public / 1,647 |
+| The default scope left out: records by `access_rights` / dead distributions / datasets with nothing else | 5,921 / 784 / 127 |
+| Unverified distributions held by the default `Catalog` | 8,220 |
+| `verify()` on 200 addresses, all access levels (2026-10-04): alive / dead / still unverified | 91 / 19 (all Not Found) / 90 |
+| ...requests / time | 290 / 157 s |
+| `verify()` over all 10,858 unverified | ~11,000 requests, most of an hour; 7,091 are api.scb.se |
+| Source catalogues: all / latest harvest failed / success (2026-10-04) | 666 / 427 / 239 |
+| ...failed sources with datasets in the registry / that never yielded one | 8 / 419 |
+| Stale datasets: unscoped / in the default `Catalog` | 81 / 1 |
+| Harvest status: requests | 7 |
+| Distributions by `kind` (all 35,148) | pxweb 10,468, kolada 5,963, doi 5,021, file 4,647, huwise 3,520, geodata 2,794, web_page 1,405, rowstore 552, unknown 324, ckan 310, api 144 |
+| Datasets by `kind`, the default `Catalog` | pxweb 6,704, kolada 5,952, file 2,103, doi 1,734, geodata 945, web_page 850, rowstore 421, unknown 225, ckan 78, api 2 |
 | SCB under 0.10.0's rule / under this one | 33 / 4,303 of 4,306 |
-| Files stating `dcat:byteSize` / readable as a size | 485 / 484, from 13 catalogues |
+| Distributions stating `dcat:byteSize` / readable as a size | 485 / 484, from 13 catalogues |
 | Records whose `keywords` was `[]` rather than `{}` before schema 4 | 1,324 (5.5%) |
 | Keyword spellings / keywords once folded / groups with >1 spelling | 23,373 / 21,359 / 1,765 |
 | Publishers with two URIs / two names / two types | 8 / 4 / 6 of 356 |
 | Records naming no publisher | 27 |
 | Landing-page verdicts: none / success / excluded / broken | 10,331 / 7,791 / 5,021 / 439 |
-| ...of the broken landing pages, with every file fine | 277 |
+| ...of the broken landing pages, with every distribution fine | 277 |
 | What the link check covers (40 reports) | downloadURL 3,072, accessURL 1,426, landingPage 130, foaf:page 78, conformsTo 42, endpointDescription 9, endpointURL 0 |
 | Link-check reports: requests / time | 165 / ~10 s |
 | Registry throughput by threads: 1 / 2 / 4 / 8 | 0.84 / 2.26 / 2.46 / 2.31 req/s |

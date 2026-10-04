@@ -31,10 +31,12 @@ catalog.publishers()                                                            
 catalog.publisher(value)                                                           -> dict | None
 catalog.get(uri, format="dict")                                                    -> dict | str | None
 catalog.info()                                                                     -> dict
+catalog.sources()                                                                  -> list[dict]
+catalog.verify(which="unverified", *, limit=None)                                  -> dict
 catalog.close()                                                                    -> None
 ```
 
-Every argument is keyword-only except `value` and `uri`.
+Every argument is keyword-only except `value`, `uri` and `which`.
 
 | | |
 | --- | --- |
@@ -44,7 +46,9 @@ Every argument is keyword-only except `value` and `uri`.
 | `publishers()` | Every publisher this catalogue holds something from — 287 by default, 356 unscoped — most datasets first. |
 | `publisher()` | One publisher by id, alias, name, organisation number or URI, with the facets of its datasets. `None` if it has nothing here. |
 | `get()` | One record by its URI, from the file. `format="dict"` is local; any other format is one live request for the entry's RDF as text. `None` if nothing matches. |
-| `info()` | The database: `database`, `first_retrieved`, `last_refreshed`, age, size, and what this `Catalog` holds. |
+| `info()` | The database: `database`, `first_retrieved`, `last_refreshed`, age, size, what this `Catalog` holds, and what its scope left out: `excluded` (`access_rights`, `dead_distributions`, `dead_datasets`), `stale_datasets`, `unverified_distributions`. |
+| `sources()` | The source catalogues the registry harvests, one row each, with how the latest harvest went. Most datasets first. See [below](#building-a-catalog). |
+| `verify()` | Ask the publishers' servers about the distributions the registry's checker could not reach, and keep the answers. Opt-in: the only call that sends a request to a publisher, and nothing calls it for you. See [below](#building-a-catalog). |
 | `close()` | Release the HTTP connection. Never required; nothing leaks without it. |
 
 `len(catalog)` and iterating a `Catalog` give the datasets. Data services come
@@ -52,9 +56,10 @@ from `data_services()`.
 
 `LiveCatalog(access_rights=("public",))` has the same methods with the same
 arguments, asked of the registry instead of a file: `limit` is 0 to 100,
-`publisher_type` is refused, facets have no `keyword` or `publisher_type`,
-nothing carries `broken`/`unverified`, `info()` is the three counts, and there
-is no `len()` or iteration. [cheatsheet.md](cheatsheet.md#livecatalog) compares
+`publisher_type` and `kind` are refused, facets have no `keyword`,
+`publisher_type` or `kind`, nothing carries `broken`/`unverified`/`stale`,
+`info()` is the three counts, and there is no `sources()`, `verify()`, `len()`
+or iteration. Its distributions do carry `kind`. [cheatsheet.md](cheatsheet.md#livecatalog) compares
 its answers with `Catalog`'s, value by value.
 
 `get(uri, format=)` accepts `turtle`, `ttl`, `rdf/xml`, `rdfxml`, `xml`,
@@ -73,10 +78,11 @@ Catalog(database=None, *, max_age=7, rebuild=False,
 | `database` | the cache directory | The SQLite file. |
 | `max_age` | `7` | Days. A copy older than this — or missing — is brought up to date when the object is built: a download if there is nothing, otherwise an incremental refresh of what the registry has touched since, under a minute. `None`: use what is there, download only if there is nothing. |
 | `rebuild` | `False` | Fetch everything again now. What a schema change asks for, and the only thing that drops a dataset the registry has withdrawn. |
-| `exclude_broken` | `True` | Drop every dead file, and every dataset left with none. See below. `False` keeps everything and marks each dead file `broken`. |
+| `exclude_broken` | `True` | Drop every dead distribution, and every dataset left with none. See below. `False` keeps everything and marks each dead distribution `broken`. |
 | `access_rights` | `("public",)` | Which `access_rights` values the catalogue holds: `public`, `non_public`, `restricted`, and `none` for the 4,167 that set nothing. A list, one string, or `None` for all. |
 
-Everything that writes the file is here. No method rewrites it.
+Everything that writes the records is here. No method rewrites them;
+`verify()` stores its verdicts beside them.
 
 | What is there | `max_age=7` | `max_age=None` | `rebuild=True` |
 | --- | --- | --- | --- |
@@ -93,11 +99,11 @@ The database always holds the whole registry; `exclude_broken` and
 `access_rights` decide what this `Catalog` holds of it, so changing either is
 a new `Catalog`, not a new download. `info()["datasets"]` is the scoped count.
 
-**What dead means.** The registry checks every file URL nightly and calls
-11,761 of 35,148 `broken`. It records no status code for those, only a
+**What dead means.** The registry checks every distribution's URL nightly and
+calls 11,761 of 35,148 `broken`. It records no status code for those, only a
 message, and the message is one of two things:
 
-| The registry's message | Files | Here |
+| The registry's message | Distributions | Here |
 | --- | --- | --- |
 | an HTTP error: Not Found 395, Forbidden 212, Internal Server Error 40, Bad Request 33, Unauthorized 14, Access Denied 8, … | 718 | **dead** — `broken`; dropped by `exclude_broken` |
 | a host that is not in DNS: `request to … failed, reason: getaddrinfo ENOTFOUND …` | 185 | **dead** — `broken`; dropped by `exclude_broken` |
@@ -109,12 +115,77 @@ server resets the checker's connection while answering 200 to anyone else.
 The list of HTTP errors is explicit, and so is the one DNS message; any other
 message is unverified.
 
-Under the default, 127 public datasets go because every file they have is dead.
-A dataset that never had files (1,647: APIs, registers) is not dead and stays.
+Under the default, 127 public datasets go because every distribution they have
+is dead. A dataset that never had distributions (1,647: APIs, registers) is not
+dead and stays.
+
+**Asking again: `verify()`.** The 10,858 are the registry's checker failing to
+get through, so `catalog.verify()` asks the servers from here. It is opt-in
+and never called implicitly.
+
+```python
+catalog.verify(which="unverified", *, limit=None)
+# {"checked", "alive", "dead", "unverified", "invalid_cert", "requests", "elapsed"}
+```
+
+| Argument | Default | |
+| --- | --- | --- |
+| `which` | `"unverified"` | Which distributions to ask about, within the catalogue's `access_rights`: `"unverified"`, `"broken"` or `"all"`. Anything else is a `QueryError`. |
+| `limit` | `None` | At most this many addresses, taken one per host in turn, so a sample is spread over the publishers. |
+
+| What the server does | Verdict |
+| --- | --- |
+| answers `HEAD` below 400 | **alive** |
+| answers `HEAD` with an error | asked again with a one-byte ranged `GET`; only what the `GET` says counts |
+| `404`, `410` | **dead** — reason `Not Found`, `Gone` |
+| redirects to the page the site sends every unknown path to | **dead** — reason `soft 404` |
+| no answer after one retry, and the host is not in DNS | **dead** — reason `host not found` |
+| no answer after one retry, and the host is in DNS | **unverified** |
+| `429` | **unverified**, and nothing more is asked of that host in this run; nor after two addresses in a row that got no answer |
+| any other error status: `400`, `401`, `403`, `503`, … | **unverified**, with the status phrase as the reason |
+| a certificate error | asked again without verification; the verdict stands and is counted under `invalid_cert` |
+
+Dead is narrower here than for the registry's verdicts: a WMS endpoint answers
+`400` to a bare address, and that is a server that is there. One request at a
+time per host with a 0.4 s pause, 8 hosts at once.
+
+A verdict is applied when a record is read. Alive removes the registry's mark.
+Dead sets `broken` with `by: "local"`, and `exclude_broken` drops it like any
+other. Against the registry's `unverified` a local answer always wins; against
+its `broken` the later look wins. A local answer that is itself unverified
+changes nothing. Verdicts are kept across refreshes and dropped by
+`rebuild=True`.
+
+Measured on a sample of 200 addresses over all access levels, 2026-10-04: 91
+alive, 19 dead (all Not Found), 90 still unverified, 290 requests, 157 s. All
+10,858 is about 11,000 requests and most of an hour, because 7,091 of them are
+one host (api.scb.se).
+
+**Stale is not dead.** At the end of every download or refresh the registry's
+latest harvest result for each source catalogue is read. A dataset or data
+service from a source whose latest harvest failed carries
+`stale: {"reason": "harvest failed", "checked": …}`. It is marked, never
+removed: the data may be fine; the record is what the last good harvest left.
+Of 666 sources, 427 failed their latest harvest (2026-10-04), but only 8 of
+those have datasets in the registry — 81 datasets unscoped, 1 in the default
+catalogue.
+
+`sources()` returns one row per source, most datasets first:
+
+| Key | |
+| --- | --- |
+| `context_id` | the source — what `record["context_id"]` holds |
+| `status` | `"success"` or `"failed"` |
+| `harvested` | when the registry last harvested it, or tried to |
+| `title` | the source catalogue's name, or `null` |
+| `dataset_count`, `data_service_count` | what this `Catalog` holds from it; zero for most failed sources, which never yielded a dataset |
+
+Empty for a database written before the harvest status was read; the next
+refresh fills it.
 
 ## Dataset filters
 
-Nine, plus `query` and four dates. All combine; all must match. A list value
+Ten, plus `query` and four dates. All combine; all must match. A list value
 means any of them will do.
 
 | Filter | Matches | On |
@@ -122,6 +193,7 @@ means any of them will do.
 | `publisher=` | the organisation that put it on the portal — id, alias, name, organisation number or URI | 100% |
 | `license=` | the licence's `id` | 100% |
 | `keyword=` | one of the publisher's own tags, exactly, ignoring case | 94.8% |
+| `kind=` | what one of its distributions is: a file, an API, a web page | 93.0% |
 | `publisher_type=` | what kind of organisation published it | 92.6% |
 | `language=` | the language of the data, as an ISO code: `sv`, `en`, … | 89.3% |
 | `access_rights=` | `public`, `non_public` or `restricted` | 82.3% |
@@ -150,6 +222,7 @@ default catalogue, and what the commonest is:
 | `publisher` | 356 | 287 | `radet_for_framjande_av_kommunala_analyser_kolada` |
 | `language` | 65 | 55 | `sv` |
 | `format` | 47 | 36 | `json` |
+| `kind` | 11 | 10 | `pxweb` |
 | `theme` | 31 | 31 | `government_and_public_sector` |
 | `updated` | 18 | 18 | `annual` |
 | `license` | 9 | 9 | `cc0_1_0` |
@@ -164,6 +237,31 @@ keywords). A facet shows each as the publisher spelt it — the commonest
 spelling, the first alphabetically on a tie. An unknown keyword raises; use
 `query=` for a substring.
 
+**`kind`** is what a distribution is, read from its metadata with no request.
+Any distribution matches, as with `format=`. Always one of eleven values;
+anything else raises.
+
+| Value | Is | Distributions (all) | Datasets (default) |
+| --- | --- | --- | --- |
+| `pxweb` | a PxWeb statistical table | 10,468 | 6,704 |
+| `kolada` | a Kolada key figure | 5,963 | 5,952 |
+| `doi` | a DOI, resolving to a research-data landing page | 5,021 | 1,734 |
+| `file` | a file to download: CSV, Excel, JSON, PDF, a ZIP | 4,647 | 2,103 |
+| `huwise` | a Huwise (Opendatasoft) dataset: records and exports | 3,520 | — |
+| `geodata` | a map service or a geo file | 2,794 | 945 |
+| `web_page` | a web page; the data is behind it, not at it | 1,405 | 850 |
+| `rowstore` | EntryScape's rowstore: a table behind an API | 552 | 421 |
+| `unknown` | the metadata does not say | 324 | 225 |
+| `ckan` | a CKAN resource or its API | 310 | 78 |
+| `api` | an API described by a data service | 144 | 2 |
+
+Read strongest signal first: a geodata format; the shape of the address
+(rowstore, CKAN, Huwise, PxWeb, Kolada, DOI); a `download_url`, which is a
+`file` unless its format is `html` and the address has no file extension, when
+it is a `web_page`; the format, for an `access_url`; an access service with
+nothing else to go on. It says what the publisher described, not what the
+server returns.
+
 **`publisher`** takes whatever a publisher object shows: its `id`, an alias
 (`scb`, `fohm`, `slu`, `smhi`, `uhr`, `kolada`, `energimyndigheten` — kept in
 [aliases.json](../src/dataportalen/aliases.json)), a name in either language,
@@ -176,7 +274,7 @@ Folkhälsomyndigheten's datasets states no type — so it is not always
 
 ## Data service filters
 
-Seven, plus `query`. **Three dataset filters and the dates are refused**, with
+Seven, plus `query`. **Four dataset filters and the dates are refused**, with
 an error naming the ones that work.
 
 | Filter | Matches | On |
@@ -192,7 +290,7 @@ an error naming the ones that work.
 
 | Refused | Why |
 | --- | --- |
-| `format=` | a data service has no distributions |
+| `format=`, `kind=` | a data service has no distributions |
 | `updated=` | nor an accrual periodicity |
 | `language=` | one single value across all 599 |
 | the four date filters | `modified` on 7.5%, `issued` on 0.8% |
@@ -213,7 +311,8 @@ matches nothing.
 ## A dataset record
 
 21 keys, always present. An empty value is `null`, `[]` or `{}` — never a
-missing key, so you never need `.get()`.
+missing key, so you never need `.get()`. One more, `stale`, is there only when
+it says something.
 
 | Key | Type | Filled |
 | --- | --- | --- |
@@ -237,6 +336,7 @@ missing key, so you never need `.get()`.
 | `issued` | ISO date | 41.6% |
 | `temporal` | `{"start": …, "end": …}` or `null` | 19.0% |
 | `spatial` | `[short name]` — not a filter | 19.0% |
+| `stale` | `{"reason": "harvest failed", "checked"}` — only when its source catalogue failed its latest harvest | 81 datasets |
 
 **`license`**
 
@@ -261,13 +361,14 @@ missing key, so you never need `.get()`.
 `id` and `aliases` are added when a record is read, not stored, so a new alias
 shows up without a rebuild. The rest is that record's own agent.
 
-**Each entry in `distributions`** — 13 keys, plus up to two of three more:
+**Each entry in `distributions`** — 14 keys, plus up to two of three more:
 
 | Key | | Filled |
 | --- | --- | --- |
 | `uri` | | 100% |
 | `title`, `description` | `{"sv": str, "en": str}` | 97.8%, 30.0% |
 | `format` | short name: `csv`, `json`, `geopackage`, … | 82.9% |
+| `kind` | what it is: `file`, `pxweb`, `web_page`, … — one of the eleven under [Dataset filters](#dataset-filters) | 100% |
 | `access_url` | url or `null` — a page or service to get it through. **Read this one.** | 100% |
 | `download_url` | url or `null` — a direct file link | 7.4% |
 | `license` | `{"id", "label", "uri"}` or `null` | 67.8% |
@@ -275,22 +376,22 @@ shows up without a rebuild. The rest is that record's own agent.
 | `languages` | `[ISO code]` | 44.2% |
 | `issued`, `modified` | ISO dates | 16.6%, 17.7% |
 | `access_service_uris` | `[uri]` — the data service that serves it, where declared | 21.6% |
-| `broken` | `{"reason", "checked"}` — a dead file; only in a `Catalog(exclude_broken=False)` or from `read_catalog` | 9.5% |
-| `unverified` | `{"reason", "checked"}` — a file the registry's checker could not reach | 24.0% |
+| `broken` | `{"reason", "checked"}` — a dead distribution; only in a `Catalog(exclude_broken=False)` or from `read_catalog`. Also `"by": "local"` when the verdict is `verify()`'s and not the registry's | 9.5% |
+| `unverified` | `{"reason", "checked"}` — a distribution the registry's checker could not reach | 24.0% |
 | `byte_size` | int — only where the publisher states one | 1.4% |
 
 Of 35,148 distributions: 32,548 carry only `access_url`, 2,595 carry both, 5
 carry neither, and none carries `download_url` alone. 147 name more than one
 access URL and 130 more than one download URL; the first is what you get.
 
-`byte_size` is on 484 files. The registry holds a size for 485; one of them is
+`byte_size` is on 484 distributions. The registry holds a size for 485; one of them is
 a date. Sizes written `5 420 000` are read.
 
 ## A data service record
 
-18 keys. The same keys mean the same things as on a dataset; `distributions`,
-`accrual_periodicity`, `spatial`, `temporal`, `modified` and `issued` are
-absent.
+18 keys. The same keys mean the same things as on a dataset, the optional
+`stale` included; `distributions`, `accrual_periodicity`, `spatial`,
+`temporal`, `modified` and `issued` are absent.
 
 | Key | Type | Filled |
 | --- | --- | --- |
@@ -314,7 +415,8 @@ Four of the 599 name more than one endpoint URL and one more than one
 description; the first is what you get.
 
 The registry's link check never tests `endpointURL`, so a data service carries
-no `broken` or `unverified` and `exclude_broken` leaves them alone.
+no `broken` or `unverified`, `exclude_broken` leaves them alone, and `verify()`
+does not ask about them.
 
 ## A publisher
 
@@ -329,7 +431,7 @@ no `broken` or `unverified` and `exclude_broken` leaves them alone.
 
 | Key | |
 | --- | --- |
-| `facets` | `{filter: {value: count}}` over `theme`, `format`, `license`, `access_rights`, `updated`, `language` — exactly `datasets(publisher=id, limit=0).facets.to_dict()` for those six |
+| `facets` | `{filter: {value: count}}` over `theme`, `format`, `kind`, `license`, `access_rights`, `updated`, `language` — exactly `datasets(publisher=id, limit=0).facets.to_dict()` for those seven |
 
 | | |
 | --- | --- |
@@ -364,10 +466,10 @@ no `broken` or `unverified` and `exclude_broken` leaves them alone.
 `FacetValue` is a `(value, count)` pair — it unpacks and compares equal to a
 plain tuple — with `.label` alongside as `{"sv": …, "en": …}`: the vocabulary's
 name for a controlled value, the publisher's name for a publisher, `{}` for a
-keyword, which is its own label. The label is not part of the tuple, so
+keyword or a `kind`, which is its own label. The label is not part of the tuple, so
 `_replace` and pickling drop it.
 
-Counts are per record: a dataset with three CSV files counts once under
+Counts are per record: a dataset with three CSV distributions counts once under
 `format` → `csv`. On a data-service search they count data services.
 
 ## text()
@@ -395,12 +497,13 @@ nothing at run time; an editor and a type checker read them.
 
 | Type | Is |
 | --- | --- |
-| `DatasetRecord` | what `datasets()` and `get()` return |
-| `DataServiceRecord` | what `data_services()` returns |
+| `DatasetRecord` | what `datasets()` and `get()` return; `stale` optional |
+| `DataServiceRecord` | what `data_services()` returns; `stale` optional |
 | `DistributionRecord` | one of `dataset["distributions"]`; `broken`, `unverified` and `byte_size` optional |
+| `SourceRecord` | a `sources()` row |
 | `PublisherRecord` | `record["publisher"]` |
 | `Publisher`, `PublisherDetail` | a `publishers()` row; what `publisher()` returns |
-| `LicenseRecord`, `ContactRecord`, `TemporalRecord`, `LinkMark` | the small ones |
+| `LicenseRecord`, `ContactRecord`, `TemporalRecord`, `LinkMark` | the small ones; `LinkMark` is `{reason, checked}`, with `by` only on a local verdict |
 | `LanguageMap`, `KeywordMap` | `{sv, en}` text and `{sv: [...], en: [...]}` keywords, either key or both |
 
 `Results` is generic: `datasets()` is `Results[DatasetRecord]`. The shapes are
@@ -427,7 +530,7 @@ that is not there.
 
 ## Everything exported
 
-33 names.
+34 names.
 
 | | |
 | --- | --- |
@@ -437,7 +540,7 @@ that is not there.
 | `read_catalog` | every record in a database, unscoped, without building a `Catalog` |
 | `text` | read a language map |
 | `Results`, `Facets`, `Facet`, `FacetValue` | what a search gives you |
-| the 12 record types above | shapes, for editors and type checkers |
+| the 13 record types above | shapes, for editors and type checkers |
 | `DataportalError` + the 8 subclasses above | errors |
 | `logger`, `enable_logging` | logging |
 | `__version__` | |

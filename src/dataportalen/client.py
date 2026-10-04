@@ -1804,10 +1804,10 @@ class Catalog:
              "last_refreshed": "2026-10-01T06:38:13",
              "downloaded": "2026-10-01T06:38:13",
              "age_days": 0, "bytes": 98725888,
-             "datasets": 23582, "data_services": 599, "publishers": 356,
-             "excluded": {"access_rights": 0, "dead_distributions": 0,
-                          "dead_datasets": 0},
-             "stale_datasets": 81, "unverified_distributions": 10858}
+             "datasets": 17555, "data_services": 578, "publishers": 287,
+             "excluded": {"access_rights": 5921, "dead_distributions": 784,
+                          "dead_datasets": 127},
+             "stale_datasets": 1, "unverified_distributions": 8220}
 
         ``excluded`` is what ``access_rights`` and ``exclude_broken`` left out
         when this object was built: records outside the access scope, dead
@@ -1851,8 +1851,8 @@ class Catalog:
 
             catalog.verify()            # the distributions marked unverified
             catalog.verify(limit=200)   # a sample, spread over the hosts
-            # {"checked": 200, "alive": 171, "dead": 6, "unverified": 23,
-            #  "invalid_cert": 2, "requests": 244, "elapsed": 61.3}
+            # {"checked": 200, "alive": 91, "dead": 19, "unverified": 90,
+            #  "invalid_cert": 0, "requests": 290, "elapsed": 156.5}
 
         The only thing in this package that makes a request to a publisher,
         and it never happens unless this is called. Each distribution's
@@ -1932,7 +1932,8 @@ class Catalog:
 
             [{"context_id": "818", "status": "success",
               "harvested": "2026-10-04T02:23:44",
-              "title": "...", "dataset_count": 4306, "data_service_count": 0},
+              "title": "Svensk nationell datatjänst  - SND",
+              "dataset_count": 6608, "data_service_count": 0},
              ...]
 
         One row per source, most datasets first. ``status`` is ``success`` or

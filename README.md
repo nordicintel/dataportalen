@@ -50,8 +50,8 @@ When the copy is over a week old, the next `Catalog()` catches up in under a
 minute.
 
 By default the catalogue holds the datasets that say `public`, minus the
-files the registry's nightly link check got an HTTP error for or found no
-host for.
+distributions the registry's nightly link check got an HTTP error for or found
+no host for.
 `Catalog(access_rights=None, exclude_broken=False)` holds everything.
 
 Publishers are there too: `catalog.publishers()` lists them, and

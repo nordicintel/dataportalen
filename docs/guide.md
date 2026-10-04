@@ -45,8 +45,15 @@ catalog.info()
 #  'last_refreshed': '2026-10-01T13:04:54',
 #  'downloaded': '2026-10-01T13:04:54', 'age_days': 0,
 #  'bytes': 98951168, 'datasets': 17555, 'data_services': 578,
-#  'publishers': 287}
+#  'publishers': 287,
+#  'excluded': {'access_rights': 5921, 'dead_distributions': 784,
+#               'dead_datasets': 127},
+#  'stale_datasets': 1, 'unverified_distributions': 8220}
 ```
+
+`excluded` is what the default scope left out, and the two counts after it are
+what is held but marked. [What the catalogue holds](#what-the-catalogue-holds)
+explains each.
 
 **It keeps itself current, cheaply.** The registry re-harvests nightly. When
 your copy is older than `max_age` days — seven by default — building the
@@ -78,17 +85,19 @@ first.
 Two decisions are made when you build the `Catalog`, because otherwise they
 would get in the way of every search.
 
-**Dead files are left out.** The registry checks every file URL nightly and
-calls 11,761 of 35,148 broken — but its message says two different things:
+**Dead distributions are left out.** The registry checks every distribution's
+URL nightly and calls 11,761 of 35,148 broken — but its message says two
+different things:
 
-| The registry's message | Files | |
+| The registry's message | Distributions | |
 | --- | --- | --- |
 | an HTTP error: Not Found, Forbidden, Internal Server Error, … | 718 | a server said no: **dead** |
 | a host that is not in DNS | 185 | no server to ask: **dead** |
 | nothing usable: no message, a failed connection, a timeout, Too Many Requests | 10,858 | the checker did not get through: **unverified** |
 
-By default the dead files are gone from the records, and so are the 127 public
-datasets whose every file is dead. An unverified file stays, and says so:
+By default the dead distributions are gone from the records, and so are the
+127 public datasets whose every distribution is dead. An unverified
+distribution stays, and says so:
 
 ```python
 dist["unverified"]    # {'reason': 'timeout', 'checked': '2026-10-01T02:52:59'}
@@ -99,12 +108,53 @@ checker, so 7,091 of its links are "broken" while every one of them answers an
 ordinary request. Treating those as dead removed 4,270 of SCB's 4,306 datasets.
 
 ```python
-Catalog(exclude_broken=False)   # keep every file; the dead ones say `broken`
+Catalog(exclude_broken=False)   # keep every distribution; the dead ones say `broken`
 ```
 
-A dataset that never had files (1,647 of them: APIs, registers) is not dead
-and stays either way. Both verdicts are the registry's own data; this package
-tests no link itself.
+A dataset that never had distributions (1,647 of them: APIs, registers) is not
+dead and stays either way. Both verdicts are the registry's own data; this
+package tests no link itself until you call `verify()`.
+
+**`verify()` asks the servers themselves.** It is the only thing here that
+sends a request to a publisher's server, and nothing calls it for you:
+
+```python
+catalog.verify(limit=200)       # a sample, one address per host in turn
+# {'checked': ..., 'alive': ..., 'dead': ..., 'unverified': ...,
+#  'invalid_cert': ..., 'requests': ..., 'elapsed': ...}
+catalog.verify()                # every distribution marked unverified
+catalog.verify("broken")        # or the ones the registry called dead
+catalog.verify("all")
+```
+
+Each address gets a `HEAD`, and a one-byte ranged `GET` when the server
+refuses that. A distribution that answers loses the registry's mark. Dead here means
+less than it does for the registry's verdicts: `404`, `410`, a host that is
+not in DNS, or a redirect to the page the site sends every unknown path to.
+Any other error status leaves the distribution unverified — a WMS endpoint
+answers `400` to a bare address and is perfectly alive. A dead one gets
+`broken` with `'by': 'local'`, and is dropped under the default like any
+other.
+
+On a sample of 200 addresses (2026-10-04): 91 alive, 19 dead, 90 still
+unverified, 290 requests, 157 seconds. Asking about all 10,858 is about 11,000
+requests and most of an hour, because 7,091 of them are one host, asked one at
+a time. The answers are stored in the database, survive a refresh, and are
+dropped by `rebuild=True`.
+
+**A stale record is marked, not removed.** The registry harvests each source
+catalogue nightly, and the download reads how the latest harvest of each went.
+Of 666 sources, 427 failed — but 419 of those never yielded a dataset. The
+other 8 hold 81 datasets (1 of them in the default catalogue), and each says
+so:
+
+```python
+dataset["stale"]      # {'reason': 'harvest failed', 'checked': '2026-10-04T02:46:11'}
+catalog.sources()     # one row per source: status, harvested, title, counts
+```
+
+The data may be fine. What is stale is the record: it is what the last good
+harvest left behind.
 
 **Only public datasets are held.** 17,682 say `access_rights="public"`. 1,489
 say `non_public`, 244 `restricted`, and 4,167 — 17.7%, mostly universities —
@@ -146,7 +196,7 @@ not the hundreds that have both somewhere.
 catalog.datasets(theme="transport", format="csv", publisher="trafikverket")
 ```
 
-Values are short and lowercase; you never type a web address. There are nine,
+Values are short and lowercase; you never type a web address. There are ten,
 plus `query` and four dates, and [reference.md](reference.md#dataset-filters)
 lists each with how much of the corpus it covers. The ones you will reach for:
 
@@ -155,6 +205,7 @@ catalog.datasets(query="cykel")                    # a phrase, anywhere in the t
 catalog.datasets(publisher="scb")                  # who put it on the portal
 catalog.datasets(theme="transport")                # the subject
 catalog.datasets(format="csv")                     # a format you can download
+catalog.datasets(kind="file")                      # what a distribution is
 catalog.datasets(keyword="geodata")                # the publisher's own tags
 catalog.datasets(language="en")                    # the language of the data
 catalog.datasets(modified_after="2024-01-01")      # changed since
@@ -210,7 +261,7 @@ so it unpacks in a loop.
 
 ```python
 list(catalog.facets())
-# ['publisher', 'publisher_type', 'theme', 'keyword', 'format',
+# ['publisher', 'publisher_type', 'theme', 'keyword', 'format', 'kind',
 #  'license', 'access_rights', 'updated', 'language']
 ```
 
@@ -307,10 +358,11 @@ and read `dataset["themes"]`. Three differ this way — `theme`/`themes`,
 would guess, and a facet is keyed by the _filter_ name, because that is what you
 feed back in.
 
-**The files are under `distributions`, and `access_url` is the one to read.**
+**The data is under `distributions`, and `access_url` is the one to read.**
 
 ```python
 for dist in dataset["distributions"]:
+    dist["kind"]          # 'file' — what it is
     dist["format"]        # 'csv'
     dist["access_url"]    # a page or service to get it through — nearly all
     dist["download_url"]  # a direct file link — only 7.4% have one
@@ -318,13 +370,27 @@ for dist in dataset["distributions"]:
 
 Each is one URL or `None`. Of 35,148 distributions, 32,548 carry **only**
 `access_url` and 2,595 carry both; none carries `download_url` alone. Reading
-only `download_url` would miss nine files in ten.
+only `download_url` would miss nine distributions in ten.
+
+**A distribution is usually not a file.** `kind` says what it is, read from
+the metadata with no request: `file`, `rowstore`, `ckan`, `huwise`, `pxweb`,
+`kolada`, `doi`, `geodata`, `api`, `web_page` or `unknown`. Only 4,647 of the
+35,148 are a `file`; 10,468 are PxWeb tables and 5,963 Kolada key figures,
+which you call rather than download. A `download_url` whose format is `html`
+and whose address has no file extension is a `web_page`. It is always there,
+and `kind=` filters on it:
+
+```python
+catalog.datasets(kind="file")       # datasets with a file to download
+catalog.facets()["kind"]            # [('pxweb', 6704), ('kolada', 5952), ...]
+```
 
 Anything the publisher left out is `null`, `[]` or `{}`, never missing — a key
-is always there, so you never need `.get()`. Three keys on a file are the
-exception, present only when they have something to say: `unverified`,
-`broken`, and `byte_size`, which is on the 1.4% of files whose publisher states
-a size.
+is always there, so you never need `.get()`. Three keys on a distribution are
+the exception, present only when they have something to say: `unverified`,
+`broken`, and `byte_size`, which is on the 1.4% of distributions whose
+publisher states a size. `stale`, on a dataset or a data service, is the
+fourth.
 
 ## Publishers
 
@@ -351,6 +417,7 @@ catalog.publisher("skolverket")
 #  'dataset_count': 6, 'data_service_count': 5,
 #  'facets': {'theme': {'education_culture_and_sport': 5, ...},
 #             'format': {'json': 5, 'html': 1, ...},
+#             'kind': {'file': 5, 'pxweb': 1, 'web_page': 1},
 #             'license': {'cc0_1_0': 5, 'nolicense': 1}, ...}}
 ```
 
@@ -374,7 +441,7 @@ are kept by hand in [aliases.json](../src/dataportalen/aliases.json) and show in
 the publisher's `aliases`. Add your own there.
 
 `publisher()` adds `facets`: what that publisher's datasets are made of. It is
-exactly `catalog.datasets(publisher=id, limit=0).facets` for six filters, so
+exactly `catalog.datasets(publisher=id, limit=0).facets` for seven filters, so
 any value in it narrows a search:
 
 ```python
@@ -427,9 +494,10 @@ no `updated`; `language` has one single value across all 599; and `modified` is
 on 7.5% of them, so no date filters. Coming back with zero rows instead would
 read as "no CSV APIs" when the truth is "wrong question".
 
-The registry's link check never tests an `endpointURL` — only files, landing
-pages and documentation links — so whether an API answers is not something this
-package can tell you, and `exclude_broken` leaves data services alone.
+The registry's link check never tests an `endpointURL` — only distributions,
+landing pages and documentation links — and `verify()` asks only about
+distributions, so whether an API answers is not something this package can
+tell you, and `exclude_broken` leaves data services alone.
 
 ## Recipes
 
@@ -459,7 +527,7 @@ for row in catalog.datasets(theme="environment", limit=0).facets["publisher"][:3
     print(row.count, text(row.label))
 ```
 
-**Only files the registry actually reached**
+**Only distributions the registry actually reached**
 
 ```python
 sure = [dist for dataset in catalog.datasets(theme="transport", limit=None)
@@ -473,12 +541,13 @@ import pandas
 frame = pandas.DataFrame(catalog.datasets(theme="transport", limit=None))
 ```
 
-Nested columns stay nested. One row per file is usually more useful:
+Nested columns stay nested. One row per distribution is usually more useful:
 
 ```python
 rows = [
     {"dataset": text(d["title"]),
      "publisher": d["publisher"]["id"],
+     "kind": dist["kind"],
      "format": dist["format"],
      "url": dist["access_url"]}
     for d in catalog.datasets(theme="transport", limit=None)
@@ -503,8 +572,8 @@ for record in read_catalog(catalog.database):
     record["type"]            # 'dataset' or 'data_service'
 ```
 
-That is every record, unscoped — every access_rights value and every file, the
-dead ones carrying `broken`. Or open it with anything that speaks SQLite — the
+That is every record, unscoped — every access_rights value and every
+distribution, the dead ones carrying `broken`. Or open it with anything that speaks SQLite — the
 records are JSON text in a `doc` column, keyed by the registry's own
 `context_id` and `entry_id`:
 
@@ -512,11 +581,14 @@ records are JSON text in a `doc` column, keyed by the registry's own
 SELECT type, count(*) FROM record GROUP BY type;
 SELECT doc FROM record WHERE uri = 'https://example.org/data/roads';
 SELECT key, value FROM meta;     -- first_retrieved, last_refreshed, schema
+SELECT status, count(*) FROM source GROUP BY status;   -- the latest harvests
+SELECT status, count(*) FROM verified GROUP BY status; -- what verify() found
 ```
 
-The stored JSON is what the registry said. `publisher["id"]`, `aliases` and the
-split of `broken` into `broken` and `unverified` are added when a record is
-read, so raw SQL shows a slightly plainer record than `read_catalog` does.
+The stored JSON is what the registry said. `publisher["id"]`, `aliases`,
+`kind`, `stale`, the split of `broken` into `broken` and `unverified` and what
+`verify()` found are added when a record is read, so raw SQL shows a slightly
+plainer record than `read_catalog` does.
 
 ## What it does not do
 
@@ -528,7 +600,8 @@ reason, because they are the likeliest things to go looking for:
 - **Catalogues.** 656 are registered and only 157 hold a dataset; of the 152
   live ones, 127 have exactly one publisher, so a catalogue listing mostly
   duplicates `publisher`. Where a dataset came in through an aggregator,
-  `record["context_id"]` identifies it.
+  `record["context_id"]` identifies it, and `catalog.sources()` says how the
+  latest harvest of each source went — a list to read, not a filter.
 - **Agents.** 7,609 exist and 365 publish anything; 4,916 are individual
   researchers who reach no dataset. `catalog.publishers()` is the ones that
   matter.
@@ -539,13 +612,15 @@ reason, because they are the likeliest things to go looking for:
   "Sweden"; the rest are mostly municipalities tagging themselves, which
   `publisher=` already finds. `dataset["spatial"]` is still on the record; it
   is not a filter.
-- **A link verdict on every file.** Only a problem is marked; a file the
-  registry reached carries nothing.
+- **A link verdict on every distribution.** Only a problem is marked; a
+  distribution the registry reached, or `verify()` found alive, carries
+  nothing.
 - **The registry's own reports** — nightly dataset counts, link checks, DCAT-AP
   quality scores. They describe the registry, not the data.
 
 For raw RDF, `catalog.get(uri, format="turtle")` hands you an entry's graph as
-text. That is the only call that reaches the network after the download.
+text. That and `verify()` are the only calls that reach the network after the
+download, and `verify()` is the only one that reaches a publisher.
 
 ## Why it works this way
 
@@ -586,8 +661,10 @@ page.facets["publisher"]       # one request for both
 ```
 
 What you give up: `limit` is at most 100 (a page is all the registry serves),
-there is no link health so nothing dead is excluded, `publisher_type` is
-refused, and the facets have no `keyword`. A count takes about a tenth of a
+there is no link health so nothing dead is excluded and nothing says `stale`,
+there is no `sources()` or `verify()`, `publisher_type` and `kind` are refused
+as filters, and the facets have no `keyword` or `kind`. A distribution still
+carries its `kind`. A count takes about a tenth of a
 second, a page of full records a few seconds. The counts match the local
 ones for publishers and every data service filter; for a few dataset values
 the registry's index finds a few more, and the date filters can differ either
@@ -614,8 +691,8 @@ really errors:
 that off.
 
 **"My counts differ from dataportal.se."** Three reasons, in order of
-likelihood: the default holds only `public` datasets with a file that is not
-dead; your copy is a snapshot (`catalog.info()["age_days"]`); and the
+likelihood: the default holds only `public` datasets with a distribution that
+is not dead; your copy is a snapshot (`catalog.info()["age_days"]`); and the
 registry's own counts are estimates. `Catalog(access_rights=None,
 exclude_broken=False, rebuild=True)` is the whole registry as of now.
 

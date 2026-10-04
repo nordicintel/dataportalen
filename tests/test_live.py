@@ -419,3 +419,34 @@ def test_publisher_type_would_not_fit_in_a_request(whole):
     uris = {row["uri"] for row in whole.publishers()
             if row["type"] == "national_authority"}
     assert len(" OR ".join(uris)) * 1.3 > MAX_URL      # escaped, encoded
+
+
+# -- harvest status and link verification --------------------------------------
+
+
+def test_the_harvest_results_are_readable_and_say_success_or_failed(registry):
+    """What `stale` and `Catalog.sources()` rest on: one latest result per
+    source, public, with a status the code knows."""
+    from dataportalen.client import _Counter, _harvest_status
+
+    found = _harvest_status(registry, _Counter())
+    assert found is not None and len(found) > 500
+    assert {row["status"] for row in found.values()} <= {"success", "failed"}
+    assert all(row["harvested"] for row in found.values())
+
+
+def test_verify_gets_answers_from_real_servers(tmp_path):
+    """Twenty-five addresses, one per host in turn. Not a claim about any of them:
+    only that asking works and something answers."""
+    import shutil
+
+    source = default_catalog_path()
+    if not os.path.exists(source):
+        pytest.skip("no catalogue downloaded; run Catalog() once first")
+    copy = str(tmp_path / "catalog.sqlite")
+    shutil.copyfile(source, copy)
+    with Catalog(copy, max_age=None) as catalog:
+        summary = catalog.verify(limit=25)
+    assert summary["checked"] == 25
+    assert summary["alive"] + summary["dead"] + summary["unverified"] == 25
+    assert summary["alive"] + summary["dead"] >= 1

@@ -19,16 +19,38 @@ published, so this is the upgrade from 0.7.1. A catalogue file written by
   fetch. `progress`, `workers`, `base_url`, `transport` and the `stale`
   property are removed.
 - What the catalogue holds is decided when it is built. By default it is the
-  datasets that say `public` (`access_rights=("public",)`), minus dead files
-  (`exclude_broken=True`): 17,555 datasets of 23,582.
+  datasets that say `public` (`access_rights=("public",)`), minus dead
+  distributions (`exclude_broken=True`): 17,555 datasets of 23,582.
   `Catalog(access_rights=None, exclude_broken=False)` holds everything.
-- Dead means the registry's nightly link check got an HTTP error for the file,
-  or found its host is not in DNS.
-  Those files are dropped, and so is a dataset left with none. A file the
-  check could not reach, or was rate-limited on (429), stays and carries
-  `unverified`; with
-  `exclude_broken=False` a dead file carries `broken`. Both are
+- Dead means the registry's nightly link check got an HTTP error for the
+  distribution, or found its host is not in DNS.
+  Those distributions are dropped, and so is a dataset left with none. A
+  distribution the check could not reach, or was rate-limited on (429), stays
+  and carries `unverified`; with
+  `exclude_broken=False` a dead distribution carries `broken`. Both are
   `{"reason", "checked"}`.
+- Every distribution carries `kind`: `file`, `rowstore`, `ckan`, `huwise`,
+  `pxweb`, `kolada`, `doi`, `geodata`, `api`, `web_page` or `unknown` — what it
+  is, read from its metadata with no request. Only 4,647 of 35,148 are a
+  `file`. `kind=` is a tenth dataset filter and facet in `Catalog`, and one of
+  the publisher detail facets; `LiveCatalog` records carry it, but it is
+  refused there as a filter.
+- `Catalog.verify(which="unverified", *, limit=None)` asks the publishers'
+  servers about the distributions the registry's check could not reach, and
+  stores what they say. Opt-in, and the only request the package sends to a
+  publisher. Alive removes the registry's mark; dead — `404`, `410`, no such
+  host, a soft 404 — sets `broken` with `by: "local"`; any other error status
+  stays `unverified`. Verdicts are kept across refreshes and dropped by
+  `rebuild=True`.
+- The registry's latest harvest result per source catalogue is read at the end
+  of every download and refresh. A dataset or data service from a source whose
+  latest harvest failed carries `stale: {"reason", "checked"}`; it is marked,
+  never removed. `Catalog.sources()` lists the sources: `context_id`,
+  `status`, `harvested`, `title`, `dataset_count`, `data_service_count`.
+  `SourceRecord` is its type.
+- `Catalog.info()` gains `excluded` — `access_rights`, `dead_distributions`
+  and `dead_datasets`, what the scope left out — and `stale_datasets` and
+  `unverified_distributions`.
 - `LiveCatalog` has the same methods and arguments as `Catalog` and asks the
   registry directly, with no download and no link health.
 - `publishers()` and `publisher()` list and look up publishers. A publisher is
@@ -45,8 +67,9 @@ published, so this is the upgrade from 0.7.1. A catalogue file written by
   `spatial` stays on the record.
 - Record shape: a licence is `{"id", "label", "uri"}`; a language is its ISO
   code (`sv`, not `swedish`); a distribution has one `access_url` and one
-  `download_url` rather than lists; `byte_size` is present where a file states
-  one; `info()` gains `first_retrieved` and `last_refreshed`.
+  `download_url` rather than lists; `byte_size` is present where a
+  distribution states one; `info()` gains `first_retrieved` and
+  `last_refreshed`.
 - Fixed: a licence URL ending in `deed.sv` was filed under a licence that does
   not exist; two datasets sharing a URI across catalogues were merged into
   one; `read_catalog` on a missing path returned `[]` instead of raising.
