@@ -90,11 +90,11 @@ would get in the way of every search.
 URL nightly and calls 11,761 of 35,148 broken — but its message says two
 different things:
 
-| The registry's message | Distributions | |
-| --- | --- | --- |
-| an HTTP error: Not Found, Forbidden, Internal Server Error, … | 718 | a server said no: **dead** |
-| a host that is not in DNS | 185 | no server to ask: **dead** |
-| nothing usable: no message, a failed connection, a timeout, Too Many Requests | 10,858 | the checker did not get through: **unverified** |
+| The registry's message                                                        | Distributions |                                                |
+| ----------------------------------------------------------------------------- | ------------- | ---------------------------------------------- |
+| an HTTP error: Not Found, Forbidden, Internal Server Error, …                 | 718           | a server said no:**dead**                      |
+| a host that is not in DNS                                                     | 185           | no server to ask:**dead**                      |
+| nothing usable: no message, a failed connection, a timeout, Too Many Requests | 10,858        | the checker did not get through:**unverified** |
 
 By default the dead distributions are gone from the records, and so are the
 127 public datasets whose every distribution is dead. An unverified
@@ -696,8 +696,7 @@ that off.
 **"My counts differ from dataportal.se."** Three reasons, in order of
 likelihood: the default holds only `public` datasets with a distribution that
 is not dead; your copy is a snapshot (`catalog.info()["age_days"]`); and the
-registry's own counts are estimates. `Catalog(access_rights=None,
-exclude_broken=False, rebuild=True)` is the whole registry as of now.
+registry's own counts are estimates. `Catalog(access_rights=None, exclude_broken=False, rebuild=True)` is the whole registry as of now.
 
 **"`KeyError: 'sv'`."** 10% of datasets have no Swedish text. Use `text()`.
 
