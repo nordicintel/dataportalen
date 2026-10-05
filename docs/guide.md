@@ -15,7 +15,8 @@ this page is the part worth reading once.
 8. [Recipes](#recipes)
 9. [What it does not do](#what-it-does-not-do)
 10. [Why it works this way](#why-it-works-this-way)
-11. [When something goes wrong](#when-something-goes-wrong)
+11. [Without a download: `LiveCatalog`](#without-a-download-livecatalog)
+12. [When something goes wrong](#when-something-goes-wrong)
 
 ## The first run
 
@@ -150,7 +151,8 @@ so:
 
 ```python
 dataset["stale"]      # {'reason': 'harvest failed', 'checked': '2026-10-04T02:46:11'}
-catalog.sources()     # one row per source: status, harvested, title, counts
+catalog.sources()     # one row per source, most datasets first: context_id,
+                      #   status ('success' | 'failed'), harvested, title, counts
 ```
 
 The data may be fine. What is stale is the record: it is what the last good
@@ -376,8 +378,9 @@ only `download_url` would miss nine distributions in ten.
 the metadata with no request: `file`, `rowstore`, `ckan`, `huwise`, `pxweb`,
 `kolada`, `doi`, `geodata`, `api`, `web_page` or `unknown`. Only 4,647 of the
 35,148 are a `file`; 10,468 are PxWeb tables and 5,963 Kolada key figures,
-which you call rather than download. A `download_url` whose format is `html`
-and whose address has no file extension is a `web_page`. It is always there,
+which you call rather than download. Format `html` makes it a `web_page`
+unless the address says otherwise — a file extension on a `download_url`, or
+an address shaped like one of the APIs above. It is always there,
 and `kind=` filters on it:
 
 ```python

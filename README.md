@@ -51,14 +51,22 @@ minute.
 
 By default the catalogue holds the datasets that say `public`, minus the
 distributions the registry's nightly link check got an HTTP error for or found
-no host for.
+no host for, and the datasets left with none. A distribution the check could
+not get through to stays, marked `unverified`; `catalog.verify()` asks its
+server directly, and is the only call that ever contacts a publisher.
 `Catalog(access_rights=None, exclude_broken=False)` holds everything.
+
+Every distribution says what it is — `kind` is `file`, `pxweb`, `api`,
+`web_page` and so on — and `kind="file"` filters on it.
 
 Publishers are there too: `catalog.publishers()` lists them, and
 `catalog.publisher("scb")` is one of them with what it publishes.
+`catalog.sources()` lists the source catalogues the registry harvests, and a
+record from one whose latest harvest failed carries `stale`.
 
 No room for a download, or one question to ask? `LiveCatalog()` has the same
-methods and asks the registry directly, a page at a time.
+searches and asks the registry directly, a page at a time — without link
+health, `kind=` filtering, `sources()` or `verify()`.
 
 ## Documentation
 

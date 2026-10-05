@@ -461,7 +461,13 @@ publisher = catalog.publisher(
             "education_culture_and_sport": 5,
             "utility_and_governmental_services": 1
         },
-        "format": { "json": 5, "html": 1, "iso_19139_xml": 1, "xml": 1, "zip": 1 },
+        "format": {
+            "json": 5,
+            "html": 1,
+            "iso_19139_xml": 1,
+            "xml": 1,
+            "zip": 1
+        },
         "kind": { "file": 5, "pxweb": 1, "web_page": 1 },
         "license": { "cc0_1_0": 5, "nolicense": 1 },
         "access_rights": { "public": 6 },
@@ -672,8 +678,7 @@ be a download. No `sources()` and no `verify()` either: both keep what they
 find in the database. Nothing is excluded, so the default holds 17,682 datasets where
 `Catalog()` holds 17,555.
 
-How its answers compare with `Catalog(access_rights=None,
-exclude_broken=False)`, measured over every facet value of every filter on
+How its answers compare with `Catalog(access_rights=None, exclude_broken=False)`, measured over every facet value of every filter on
 2026-10-01:
 
 ```text

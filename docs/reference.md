@@ -131,7 +131,7 @@ catalog.verify(which="unverified", *, limit=None)
 | Argument | Default | |
 | --- | --- | --- |
 | `which` | `"unverified"` | Which distributions to ask about, within the catalogue's `access_rights`: `"unverified"`, `"broken"` or `"all"`. Anything else is a `QueryError`. |
-| `limit` | `None` | At most this many addresses, taken one per host in turn, so a sample is spread over the publishers. |
+| `limit` | `None` | At most this many addresses, taken one per host in turn, so a sample is spread over the publishers. A negative number or a bool is a `QueryError`. |
 
 | What the server does | Verdict |
 | --- | --- |
