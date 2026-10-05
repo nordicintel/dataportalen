@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dataportalen"
 dynamic = ["version"]
-description = "dataportal.se as plain Python dicts: DCAT-AP-SE metadata with vocabulary URIs resolved to labels"
+description = "dataportal.se as Python objects: DCAT-AP-SE metadata with vocabulary URIs resolved to labels"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

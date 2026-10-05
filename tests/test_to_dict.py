@@ -12,7 +12,7 @@ import json
 import pytest
 
 from conftest import load_fixture
-from dataportalen.models import Dataset, Distribution, wrap_entry
+from dataportalen.entries import DatasetEntry, DistributionEntry, wrap_entry
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def dataset():
             "entryId": "28672",
             "rights": ["readmetadata", "readresource"],
         },
-        default=Dataset,
+        default=DatasetEntry,
     )
 
 
@@ -109,7 +109,7 @@ def test_publisher_is_resolved_from_the_graph_when_present(dataset):
 
 
 def test_publisher_on_a_search_hit_is_uri_only(search_hit):
-    publisher = search_hit.as_(Dataset).to_dict()["publisher"]
+    publisher = search_hit.as_(DatasetEntry).to_dict()["publisher"]
     assert publisher is None or publisher["uri"].startswith("http")
     if publisher is not None and publisher.get("name") is None:
         assert set(publisher) == {"uri", "name"}
@@ -136,9 +136,9 @@ def test_distributions_can_be_left_out(dataset):
 
 
 def test_search_hit_has_no_nested_distributions_only_uris(search_hit):
-    out = search_hit.as_(Dataset).to_dict()
+    out = search_hit.as_(DatasetEntry).to_dict()
     assert out["distributions"] == []
-    assert isinstance(search_hit.as_(Dataset).distribution_uris, list)
+    assert isinstance(search_hit.as_(DatasetEntry).distribution_uris, list)
 
 
 def test_contact_points_are_flat_dicts(dataset):
@@ -150,7 +150,7 @@ def test_contact_points_are_flat_dicts(dataset):
 
 def test_distribution_dict_shape(dataset):
     distribution = dataset.distributions()[0]
-    assert isinstance(distribution, Distribution)
+    assert isinstance(distribution, DistributionEntry)
     out = distribution.to_dict()
     json.dumps(out)
     for key in ("uri", "title", "access_url", "download_url", "format"):
@@ -197,7 +197,7 @@ def test_entry_base_dict_works_for_untyped_entries():
     }}})
     out = entry.to_dict()
     json.dumps(out)
-    # An untagged literal folds into Swedish -- see models._fold.
+    # An untagged literal folds into Swedish -- see entries._fold.
     assert out["title"] == {"sv": "T"}
     assert out["uri"] == "http://x/1"
 
@@ -294,34 +294,56 @@ def test_a_regional_tag_folds_to_its_base_language():
 
 
 def test_text_prefers_swedish_and_falls_back():
-    from dataportalen import text
+    from dataportalen import MultilingualText as Text
 
-    assert text({"sv": "Vägtrafiknät", "en": "Road"}) == "Vägtrafiknät"
-    assert text({"en": "Road"}) == "Road"
-    assert text({"sv": "Vägtrafiknät", "en": "Road"}, "en") == "Road"
-    assert text({"sv": "Vägtrafiknät"}, "en") == "Vägtrafiknät"
+    assert Text({"sv": "Vägtrafiknät", "en": "Road"}).text() == "Vägtrafiknät"
+    assert Text({"en": "Road"}).text() == "Road"
+    assert Text({"sv": "Vägtrafiknät", "en": "Road"}).text("en") == "Road"
+    assert Text({"sv": "Vägtrafiknät"}).text("en") == "Vägtrafiknät"
+
+
+def test_text_follows_the_catalogue_language():
+    from dataportalen import MultilingualText as Text
+
+    assert Text({"sv": "Vägtrafiknät", "en": "Road"}, "en").text() == "Road"
+    assert Text({"sv": "Vägtrafiknät"}, "en").text() == "Vägtrafiknät"
+    assert Text({"sv": "Vägtrafiknät", "en": "Road"}, "en").text("sv") == "Vägtrafiknät"
 
 
 def test_text_is_safe_on_anything_a_record_holds():
     """Ten percent of datasets have no Swedish title; this must not raise."""
-    from dataportalen import text
+    from dataportalen import MultilingualText as Text
+    from dataportalen.models import _dataset
 
-    assert text({}) is None
-    assert text(None) is None
-    assert text("already a string") == "already a string"
+    assert Text({}).text() is None
+    assert Text(None).text() is None
+    assert Text({"sv": "", "en": "Road"}).text() == "Road"
+    # A record whose title is missing or not a map still reads as no text.
+    assert _dataset({}, "sv").title.text() is None
+    assert _dataset({"title": "already a string"}, "sv").title.text() is None
+
+
+def test_text_is_still_the_plain_dict(dataset):
+    from dataportalen import MultilingualText as Text
+
+    title = Text(dataset.to_dict()["title"])
+    assert title == dataset.to_dict()["title"]
+    assert title.to_dict() == dataset.to_dict()["title"]
 
 
 def test_text_on_a_real_record(dataset):
-    from dataportalen import text
+    from dataportalen.client import _present
+    from dataportalen.models import _dataset
 
-    assert text(dataset.to_dict()["title"]) == dataset.titles["sv"]
+    model = _dataset(_present(dataset.to_dict()), "sv")
+    assert model.title.text() == dataset.titles["sv"]
 
 
 # -- a file's size, where the publisher states one ----------------------------
 
 
 def _distribution(*sizes, datatype=None):
-    from dataportalen.models import Distribution
+    from dataportalen.entries import DistributionEntry
 
     literals = [dict({"type": "literal", "value": s},
                      **({"datatype": datatype} if datatype else {})) for s in sizes]
@@ -333,7 +355,7 @@ def _distribution(*sizes, datatype=None):
     }
     if literals:
         metadata["http://www.w3.org/ns/dcat#byteSize"] = literals
-    return Distribution.from_json({
+    return DistributionEntry.from_json({
         "contextId": "1", "entryId": "2",
         "info": {"https://admin.dataportal.se/store/1/entry/2": {
             "http://entrystore.org/terms/resource": [
@@ -374,9 +396,9 @@ def test_the_first_readable_size_wins():
 def test_a_record_with_no_keywords_has_an_empty_dict_not_a_list():
     """`keywords` was [] on 1,324 records and a {sv, en} map on the rest, so
     record["keywords"].get("sv") raised on 5.5% of the registry."""
-    from dataportalen.models import DataService
+    from dataportalen.entries import DataServiceEntry
 
-    for model, rdf_type in ((Dataset, "Dataset"), (DataService, "DataService")):
+    for model, rdf_type in ((DatasetEntry, "Dataset"), (DataServiceEntry, "DataService")):
         record = model.from_json({
             "contextId": "1", "entryId": "1",
             "info": {"https://admin.dataportal.se/store/1/entry/1": {

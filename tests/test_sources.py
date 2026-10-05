@@ -95,23 +95,24 @@ def records():
 @pytest.fixture
 def catalog(tmp_path, transport, records):
     return Catalog(write_catalog(tmp_path, records, sources=SOURCES),
-                   max_age=None, _transport=transport, access_rights=None)
+                   max_age=None, _transport=transport)
 
 
 def test_a_dataset_from_a_failed_source_says_stale(catalog):
-    by_context = {r["context_id"]: r for r in catalog.datasets()}
-    assert by_context["51"]["stale"] == {"reason": "harvest failed",
-                                         "checked": "2026-10-04T02:46:11"}
-    assert "stale" not in by_context["52"]
+    by_context = {r.context_id: r for r in catalog.datasets()}
+    stale = by_context["51"].stale
+    assert (stale.reason, stale.checked) == ("harvest failed",
+                                             "2026-10-04T02:46:11")
+    assert by_context["52"].stale is None
 
 
 def test_it_is_marked_and_never_removed(catalog):
-    assert catalog.datasets(limit=0).total == 2
+    assert catalog.search(limit=0).total == 2
     assert catalog.info()["stale_datasets"] == 1
 
 
 def test_a_data_service_is_marked_too(catalog):
-    assert "stale" in catalog.data_services()[0]
+    assert catalog.data_services()[0].stale is not None
 
 
 def test_read_catalog_agrees(tmp_path, records):
@@ -120,21 +121,32 @@ def test_read_catalog_agrees(tmp_path, records):
 
 
 def test_a_database_without_harvest_status_marks_nothing(tmp_path, transport):
-    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport,
-                  access_rights=None)
-    assert cat.sources() == []
+    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport)
+    assert cat._source_rows() == []
+    assert cat.info()["sources"] is None
     assert cat.info()["stale_datasets"] == 0
-    assert all("stale" not in r for r in cat.datasets(limit=None))
+    assert all(r.stale is None for r in cat.datasets())
 
 
-# -- sources() ---------------------------------------------------------------
+# -- info()["sources"] -------------------------------------------------------
 
 
-def test_sources_lists_every_source_most_datasets_first(catalog):
-    rows = catalog.sources()
+def test_sources_is_gone_from_the_public_api(catalog):
+    assert not hasattr(catalog, "sources")
+
+
+def test_source_rows_list_every_source_most_datasets_first(catalog):
+    rows = catalog._source_rows()
     assert [row["context_id"] for row in rows] == ["51", "52", "999"]
     assert rows[0] == {"context_id": "51", "status": "failed",
                        "harvested": "2026-10-04T02:46:11", "title": "A",
                        "dataset_count": 1, "data_service_count": 1}
     # A registration that never yielded anything: listed, and empty.
     assert rows[2]["dataset_count"] == 0 and rows[2]["status"] == "failed"
+
+
+def test_info_summarises_the_sources(catalog):
+    """Counts, and only the failed sources that still hold records."""
+    sources = catalog.info()["sources"]
+    assert (sources["total"], sources["succeeded"], sources["failed"]) == (3, 1, 2)
+    assert sources["failed_holding_records"] == [catalog._source_rows()[0]]

@@ -7,7 +7,14 @@ import datetime as dt
 import pytest
 
 from conftest import load_fixture
-from dataportalen.models import Agent, ContactPoint, Dataset, Distribution, Entry, wrap_entry
+from dataportalen.entries import (
+    AgentEntry,
+    ContactPointEntry,
+    DatasetEntry,
+    DistributionEntry,
+    Entry,
+    wrap_entry,
+)
 from dataportalen.rdf import DCAT, DCTERMS
 
 
@@ -26,13 +33,13 @@ def recursive_dataset():
             "entryId": "28672",
             "rights": ["readmetadata", "readresource"],
         },
-        default=Dataset,
+        default=DatasetEntry,
     )
 
 
 def test_wrap_entry_types_a_hit_from_its_rdf_type(dataset_hit):
     entry = wrap_entry(dataset_hit)
-    assert isinstance(entry, Dataset)
+    assert isinstance(entry, DatasetEntry)
 
 
 def test_envelope_fields_come_from_the_info_graph(dataset_hit):
@@ -66,7 +73,7 @@ def test_recursive_graph_resolves_to_the_dataset_not_a_distribution(recursive_da
 def test_distributions_come_from_the_graph_without_extra_requests(recursive_dataset):
     distributions = recursive_dataset.distributions()
     assert distributions
-    assert all(isinstance(d, Distribution) for d in distributions)
+    assert all(isinstance(d, DistributionEntry) for d in distributions)
     assert len(distributions) == len(recursive_dataset.distribution_uris)
     first = distributions[0]
     assert first.download_url or first.access_url
@@ -77,7 +84,7 @@ def test_contact_points_are_typed_and_normalise_mailto(recursive_dataset):
     contacts = recursive_dataset.contact_points
     assert contacts
     contact = contacts[0]
-    assert isinstance(contact, ContactPoint)
+    assert isinstance(contact, ContactPointEntry)
     assert contact.name
     assert contact.email and not contact.email.startswith("mailto:")
 
@@ -104,7 +111,7 @@ def test_keywords_are_keyed_by_language():
                 }
             }
         },
-        default=Dataset,
+        default=DatasetEntry,
     )
     assert entry.keywords == {"sv": ["cykel"], "en": ["bike"]}
     assert entry.keywords_by_language == {"sv": ["cykel"], "en": ["bike"]}
@@ -132,7 +139,7 @@ def test_period_of_time_keeps_bare_years():
                 },
             }
         },
-        default=Dataset,
+        default=DatasetEntry,
     )
     period = entry.temporal
     assert period.start == "2019"
@@ -142,7 +149,7 @@ def test_period_of_time_keeps_bare_years():
 
 def test_agent_reads_name_identifiers_and_homepage(recursive_dataset):
     publisher_uri = recursive_dataset.publisher_uri
-    agent = Agent.from_resource(recursive_dataset.metadata.resource(publisher_uri))
+    agent = AgentEntry.from_resource(recursive_dataset.metadata.resource(publisher_uri))
     assert agent.name
     assert agent.identifiers
     assert agent.homepage
@@ -160,7 +167,7 @@ def test_as_preserves_the_envelope(dataset_hit):
 def test_following_references_without_a_client_is_a_clear_error(dataset_hit):
     entry = wrap_entry(dataset_hit)
     with pytest.raises(RuntimeError, match="without a client"):
-        entry.as_(Dataset).publisher()
+        entry.as_(DatasetEntry).publisher()
 
 
 def test_raw_json_round_trips_a_search_hit(dataset_hit):

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import CATALOG_RECORDS, write_catalog
-from dataportalen import Catalog, LiveCatalog, QueryError, read_catalog
+from dataportalen import Catalog, DataportalWarning, QueryError, read_catalog
 from dataportalen.retrieval import KINDS, classify
 
 
@@ -86,11 +86,11 @@ def catalog(tmp_path, transport):
         with_dists(CATALOG_RECORDS[1], dist("html", "https://example.org/budget")),
     ]
     return Catalog(write_catalog(tmp_path, records), max_age=None,
-                   _transport=transport, access_rights=None)
+                   _transport=transport)
 
 
 def test_every_distribution_carries_its_kind(catalog):
-    kinds = [[d["kind"] for d in r["distributions"]] for r in catalog.datasets()]
+    kinds = [[d.kind for d in r.distributions] for r in catalog.datasets()]
     assert sorted(kinds) == [["file", "pxweb"], ["web_page"]]
 
 
@@ -101,10 +101,10 @@ def test_read_catalog_carries_it_too(tmp_path):
 
 
 def test_kind_is_a_filter_on_any_distribution(catalog):
-    assert catalog.datasets(kind="pxweb", limit=0).total == 1
-    assert catalog.datasets(kind="web_page", limit=0).total == 1
-    assert catalog.datasets(kind=["pxweb", "web_page"], limit=0).total == 2
-    assert catalog.datasets(kind="geodata", limit=0).total == 0
+    assert catalog.search(kind="pxweb", limit=0).total == 1
+    assert len(catalog.datasets(kind="web_page")) == 1
+    assert catalog.search(kind=["pxweb", "web_page"], limit=0).total == 2
+    assert catalog.datasets(kind="geodata") == []
 
 
 def test_kind_is_a_facet_and_its_values_feed_back_in(catalog):
@@ -112,7 +112,7 @@ def test_kind_is_a_facet_and_its_values_feed_back_in(catalog):
     assert sorted((row.value, row.count) for row in rows) == [
         ("file", 1), ("pxweb", 1), ("web_page", 1)]
     for row in rows:
-        assert catalog.datasets(kind=row.value, limit=0).total == row.count
+        assert catalog.search(kind=row.value, limit=0).total == row.count
 
 
 def test_an_unknown_kind_is_an_error(catalog):
@@ -122,7 +122,15 @@ def test_an_unknown_kind_is_an_error(catalog):
 
 
 def test_the_live_catalogue_says_why_it_cannot_filter_on_kind(transport):
-    with LiveCatalog(_transport=transport) as live:
-        with pytest.raises(QueryError) as info:
-            live.datasets(kind="file")
-    assert "use Catalog" in str(info.value)
+    with pytest.warns(DataportalWarning):
+        live = Catalog(live=True, _transport=transport)
+    with pytest.raises(QueryError) as info:
+        live.datasets(kind="file")
+    assert "local Catalog" in str(info.value)
+    assert transport.requests == []
+
+
+def test_a_live_search_says_it_too(catalog):
+    with pytest.raises(QueryError) as info:
+        catalog.search(kind="file", live=True)
+    assert "local Catalog" in str(info.value)

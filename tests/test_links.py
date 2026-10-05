@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import CATALOG_RECORDS, write_catalog
-from dataportalen import Catalog, QueryError, read_catalog
+from dataportalen import Catalog, LinkMark, QueryError, read_catalog
 from dataportalen.client import _is_dead
 
 CHECKED = "2026-09-28T02:44:17"
@@ -108,9 +108,9 @@ def test_a_rate_limited_file_says_unverified_and_is_kept(tmp_path, transport):
     for exclude in (True, False):
         cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                       _transport=transport, exclude_broken=exclude)
-        (a,) = cat.datasets()[0]["distributions"]
-        assert a["unverified"] == {"reason": "Too Many Requests", "checked": CHECKED}
-        assert "broken" not in a
+        (a,) = cat.datasets()[0].distributions
+        assert a.unverified == LinkMark("Too Many Requests", CHECKED)
+        assert a.broken is None
 
 
 # -- what a record carries ----------------------------------------------------
@@ -118,10 +118,12 @@ def test_a_rate_limited_file_says_unverified_and_is_kept(tmp_path, transport):
 
 def test_a_dead_file_says_broken_and_a_working_one_says_nothing(path, transport):
     cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
-    a, b = cat.datasets()[0]["distributions"]
-    assert a["broken"] == {"reason": "Not Found", "checked": CHECKED}
-    assert "broken" not in b and "unverified" not in b
-    assert "link" not in a and "link" not in b
+    a, b = cat.datasets()[0].distributions
+    assert a.broken == LinkMark("Not Found", CHECKED)
+    assert a.to_dict()["broken"] == {"reason": "Not Found", "checked": CHECKED,
+                                     "by": None}
+    assert b.broken is None and b.unverified is None
+    assert "link" not in a.to_dict() and "link" not in b.to_dict()
 
 
 def test_a_file_the_checker_could_not_reach_says_unverified(tmp_path, transport):
@@ -133,17 +135,17 @@ def test_a_file_the_checker_could_not_reach_says_unverified(tmp_path, transport)
     for exclude in (True, False):
         cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                       _transport=transport, exclude_broken=exclude)
-        x, y = cat.datasets()[0]["distributions"]
-        assert x["unverified"] == {"reason": reset, "checked": CHECKED}
-        assert y["unverified"] == {"reason": None, "checked": CHECKED}
-        assert "broken" not in x and "broken" not in y
+        x, y = cat.datasets()[0].distributions
+        assert x.unverified == LinkMark(reset, CHECKED)
+        assert y.unverified == LinkMark(None, CHECKED)
+        assert x.broken is None and y.broken is None
 
 
 def test_the_record_itself_carries_no_verdict(path, transport):
     """277 datasets had a broken landing page and perfectly good files."""
     cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
-    for record in cat.datasets(limit=None):
-        assert not {"link", "broken", "unverified"} & set(record)
+    for record in cat.datasets():
+        assert not {"link", "broken", "unverified"} & set(record.to_dict())
 
 
 # -- the default leaves dead files, and dead datasets, out --------------------
@@ -151,9 +153,9 @@ def test_the_record_itself_carries_no_verdict(path, transport):
 
 def test_dead_files_are_left_out_by_default(path, transport):
     cat = Catalog(path, max_age=None, _transport=transport)
-    assert cat.datasets(limit=0).total == 1
-    dists = cat.datasets()[0]["distributions"]
-    assert [d["access_url"] for d in dists] == ["https://example.org/b.csv"]
+    assert cat.search(limit=0).total == 1
+    dists = cat.datasets()[0].distributions
+    assert [d.access_url for d in dists] == ["https://example.org/b.csv"]
 
 
 def test_a_dataset_whose_every_file_is_dead_is_left_out(path, transport):
@@ -171,8 +173,8 @@ def test_a_dataset_the_checker_could_not_reach_is_kept(tmp_path, transport):
                         ("https://api.scb.se/y", "timeout"))
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport)
-    assert cat.datasets(limit=0).total == 1
-    assert len(cat.datasets()[0]["distributions"]) == 2
+    assert cat.search(limit=0).total == 1
+    assert len(cat.datasets()[0].distributions) == 2
 
 
 def test_a_dataset_with_a_dead_file_and_an_unverified_one_keeps_the_second(
@@ -182,9 +184,9 @@ def test_a_dataset_with_a_dead_file_and_an_unverified_one_keeps_the_second(
                         ("https://example.org/maybe.csv", "timeout"))
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport)
-    dists = cat.datasets()[0]["distributions"]
-    assert [d["access_url"] for d in dists] == ["https://example.org/maybe.csv"]
-    assert dists[0]["unverified"]["reason"] == "timeout"
+    dists = cat.datasets()[0].distributions
+    assert [d.access_url for d in dists] == ["https://example.org/maybe.csv"]
+    assert dists[0].unverified.reason == "timeout"
 
 
 def test_a_dataset_that_never_had_files_stays(tmp_path, transport):
@@ -192,13 +194,13 @@ def test_a_dataset_that_never_had_files_stays(tmp_path, transport):
     record = dict(CATALOG_RECORDS[0], distributions=[])
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
                   _transport=transport)
-    assert cat.datasets(limit=0).total == 1
+    assert cat.search(limit=0).total == 1
 
 
 def test_exclude_broken_false_keeps_everything(path, transport):
     cat = Catalog(path, max_age=None, _transport=transport, exclude_broken=False)
-    assert cat.datasets(limit=0).total == 2
-    assert len(cat.datasets()[0]["distributions"]) == 2
+    assert cat.search(limit=0).total == 2
+    assert len(cat.datasets()[0].distributions) == 2
 
 
 # -- one reading of a record --------------------------------------------------
@@ -215,9 +217,11 @@ def test_read_catalog_and_catalog_agree_on_every_file(tmp_path, transport):
     ]
     path = write_catalog(tmp_path, records)
     raw = read_catalog(path)[0]["distributions"]
-    held = Catalog(path, max_age=None, _transport=transport, exclude_broken=False,
-                   access_rights=None).datasets()[0]["distributions"]
-    assert raw == held
+    held = Catalog(path, max_age=None, _transport=transport,
+                   exclude_broken=False).datasets()[0].distributions
+    for key in ("broken", "unverified"):
+        assert [LinkMark(**d[key]) if key in d else None for d in raw] == [
+            getattr(d, key) for d in held]
     assert [sorted(set(d) & {"broken", "unverified"}) for d in raw] == [
         ["broken"], ["unverified"], []]
 
@@ -228,7 +232,9 @@ def test_link_is_not_a_filter(path, transport):
         cat.datasets(link="broken")
     assert "unknown filter" in str(info.value)
     assert "link" not in cat.facets()
-    assert "link" not in cat.data_services(limit=0).facets
+    with pytest.raises(QueryError) as info:
+        cat.data_services(link="broken")
+    assert "unknown filter" in str(info.value)
 
 
 # -- a file the check never saw -----------------------------------------------
@@ -236,12 +242,11 @@ def test_link_is_not_a_filter(path, transport):
 
 def test_a_file_the_check_never_saw_is_simply_unmarked(tmp_path, transport):
     """An older file, or one written with links=False, is not 'broken'."""
-    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport,
-                  access_rights=None)
-    for record in cat.datasets(limit=None):
-        for dist in record["distributions"]:
-            assert "broken" not in dist and "unverified" not in dist
-    assert cat.datasets(limit=0).total == 2
+    cat = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport)
+    for record in cat.datasets():
+        for dist in record.distributions:
+            assert dist.broken is None and dist.unverified is None
+    assert cat.search(limit=0).total == 2
 
 
 # -- what was left out is reported --------------------------------------------
@@ -250,17 +255,20 @@ def test_a_file_the_check_never_saw_is_simply_unmarked(tmp_path, transport):
 def test_info_counts_what_the_scope_left_out(path, transport):
     """A shortcoming is reported with the answer, not only in a log line."""
     info = Catalog(path, max_age=None, _transport=transport).info()
-    assert info["excluded"] == {"access_rights": 0, "dead_distributions": 2,
-                                "dead_datasets": 1}
+    assert info["excluded"] == {"dead_distributions": 2, "dead_datasets": 1}
     everything = Catalog(path, max_age=None, _transport=transport,
-                         exclude_broken=False, access_rights=None).info()
-    assert everything["excluded"] == {"access_rights": 0, "dead_distributions": 0,
-                                      "dead_datasets": 0}
+                         exclude_broken=False).info()
+    assert everything["excluded"] == {"dead_distributions": 0, "dead_datasets": 0}
 
 
-def test_info_counts_records_outside_the_access_scope(tmp_path, transport):
-    info = Catalog(write_catalog(tmp_path), max_age=None, _transport=transport).info()
-    assert info["excluded"]["access_rights"] >= 1
+def test_no_access_rights_are_left_out(tmp_path, transport):
+    """The catalogue holds every access_rights value; it is a filter."""
+    path = write_catalog(tmp_path)
+    cat = Catalog(path, max_age=None, _transport=transport)
+    assert "access_rights" not in cat.info()["excluded"]
+    assert cat.search(access_rights="non_public", limit=0).total == 1
+    with pytest.raises(TypeError):
+        Catalog(path, max_age=None, _transport=transport, access_rights="public")
 
 
 def test_info_counts_the_unverified_it_still_holds(tmp_path, transport):

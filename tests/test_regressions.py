@@ -11,28 +11,28 @@ import threading
 import pytest
 
 from conftest import CATALOG_RECORDS, write_catalog
-from dataportalen import Catalog, QueryError, text
+from dataportalen import Catalog, QueryError
 
 
 @pytest.fixture
 def catalog(tmp_path, transport):
     return Catalog(write_catalog(tmp_path), max_age=None,
-                   _transport=transport, access_rights=None)
+                   _transport=transport)
 
 
 # -- an organisation number is a publisher, not a dead end -------------------
 
 
 def test_an_organisation_number_finds_the_same_datasets_as_the_name(catalog):
-    """organisations.json indexes both, so both have to match the same thing.
+    """publishers.json indexes both, so both have to match the same thing.
 
     The number validated and was then matched, as itself, against records
     filed under the name slug, so it matched nothing and said nothing.
     """
-    by_name = catalog.datasets(publisher="trafikverket", limit=0).total
-    by_number = catalog.datasets(publisher="SE2021006297", limit=0).total
+    by_name = catalog.search(publisher="trafikverket", limit=0).total
+    by_number = catalog.search(publisher="SE2021006297", limit=0).total
     assert by_name == by_number == 1
-    assert catalog.datasets(publisher="se2021006297", limit=0).total == by_name
+    assert catalog.search(publisher="se2021006297", limit=0).total == by_name
 
 
 # -- publisher is always a dict ---------------------------------------------
@@ -41,19 +41,23 @@ def test_an_organisation_number_finds_the_same_datasets_as_the_name(catalog):
 def test_a_record_without_a_publisher_still_has_a_publisher_dict():
     """10 datasets and 16 data services name none, and every documented way
     of reading one subscripts it."""
-    from dataportalen.models import Dataset, wrap_entry
+    from dataportalen.client import _present
+    from dataportalen.entries import DatasetEntry, wrap_entry
+    from dataportalen.models import _dataset
 
     entry = wrap_entry({"metadata": {"http://x/1": {
         "http://purl.org/dc/terms/title": [{"type": "literal", "value": "T"}],
         "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
             {"type": "uri", "value": "http://www.w3.org/ns/dcat#Dataset"}],
-    }}}, default=Dataset)
+    }}}, default=DatasetEntry)
     record = entry.to_dict()
     assert record["publisher"] is not None
     assert record["publisher"]["name"] == {}
-    assert text(record["publisher"]["name"]) is None      # the documented read
     assert record["publisher"]["uri"] is None
     assert record["publisher"]["identifiers"] == []
+    publisher = _dataset(_present(record), "sv").publisher
+    assert publisher.name.text() is None                  # the documented read
+    assert (publisher.id, publisher.uri, publisher.identifiers) == (None, None, [])
 
 
 # -- a facet value filters to exactly its own count ----------------------
@@ -69,11 +73,11 @@ def test_a_keyword_matches_exactly_when_the_file_holds_it(tmp_path, transport):
              keywords={"sv": ["BARNOMSORG"]}),
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     counts = dict((v, c) for v, c in cat.facets()["keyword"])
     assert counts == {"BARN": 1, "BARNOMSORG": 1}
     for value, count in counts.items():
-        assert cat.datasets(keyword=value, limit=0).total == count, value
+        assert cat.search(keyword=value, limit=0).total == count, value
 
 
 def test_case_is_folded_and_the_facet_agrees(tmp_path, transport):
@@ -90,10 +94,10 @@ def test_case_is_folded_and_the_facet_agrees(tmp_path, transport):
              keywords={"sv": ["Barn"]}),
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     assert list(cat.facets()["keyword"]) == [("BARN", 2)]
     for spelling in ("BARN", "Barn", "barn", " bArN "):
-        assert cat.datasets(keyword=spelling, limit=0).total == 2, spelling
+        assert cat.search(keyword=spelling, limit=0).total == 2, spelling
 
 
 def test_the_commonest_spelling_is_the_one_shown(tmp_path, transport):
@@ -103,7 +107,7 @@ def test_the_commonest_spelling_is_the_one_shown(tmp_path, transport):
         for i, spelling in enumerate(["Kommun", "Kommun", "kommun", "KOMMUN\n"])
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     assert list(cat.facets()["keyword"]) == [("Kommun", 4)]
 
 
@@ -111,21 +115,21 @@ def test_a_record_with_two_spellings_counts_once(tmp_path, transport):
     """395 dataset-keyword pairs in the registry are this."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Kommun"], "en": ["kommun"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     assert [row.count for row in cat.facets()["keyword"]] == [1]
-    assert cat.datasets(keyword="KOMMUN", limit=0).total == 1
+    assert cat.search(keyword="KOMMUN", limit=0).total == 1
 
 
 def test_an_unknown_keyword_raises_and_suggests(tmp_path, transport):
     """It used to fall back to a substring match; that is what query= is for."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["Geodata"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     with pytest.raises(QueryError) as info:
         cat.datasets(keyword="geoda")
     assert "unknown keyword" in str(info.value)
     assert "geodata" in str(info.value)
-    assert cat.datasets(query="geoda", limit=0).total == 1
+    assert cat.search(query="geoda", limit=0).total == 1
 
 
 def test_a_keyword_list_is_any_of_like_every_other_filter(tmp_path, transport):
@@ -137,9 +141,9 @@ def test_a_keyword_list_is_any_of_like_every_other_filter(tmp_path, transport):
              keywords={"sv": ["Region"]}),
     ]
     cat = Catalog(write_catalog(tmp_path, records), max_age=None,
-                  _transport=transport, access_rights=None)
-    assert cat.datasets(keyword=["kommun", "region"], limit=0).total == 2
-    assert cat.datasets(keyword=["kommun"], limit=0).total == 1
+                  _transport=transport)
+    assert cat.search(keyword=["kommun", "region"], limit=0).total == 2
+    assert cat.search(keyword=["kommun"], limit=0).total == 1
 
 
 def test_a_keyword_only_the_other_kind_has_is_zero_not_an_error(catalog):
@@ -149,16 +153,16 @@ def test_a_keyword_only_the_other_kind_has_is_zero_not_an_error(catalog):
     in this Catalog. Checked per kind, data_services(keyword="kommun") would
     raise for the commonest keyword in the registry.
     """
-    assert catalog.datasets(keyword="vägnät", limit=0).total == 1
-    assert catalog.data_services(keyword="vägnät", limit=0).total == 0
-    assert catalog.datasets(keyword="innovation", limit=0).total == 0
+    assert catalog.search(keyword="vägnät", limit=0).total == 1
+    assert catalog.data_services(keyword="vägnät") == []
+    assert catalog.search(keyword="innovation", limit=0).total == 0
 
 
 def test_a_blank_value_never_reaches_the_facets(tmp_path, transport):
     """33 datasets carry a keyword that is a newline and four spaces."""
     record = dict(CATALOG_RECORDS[0], keywords={"sv": ["\n    ", "riktig"]})
     cat = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                  _transport=transport, access_rights=None)
+                  _transport=transport)
     assert [v for v, _ in cat.facets()["keyword"]] == ["riktig"]
 
 
@@ -172,7 +176,7 @@ def test_a_blank_value_never_reaches_the_facets(tmp_path, transport):
 def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
     """`keyword=[]` returned all 23,576 while `theme=[]` returned none."""
     with pytest.raises(QueryError) as info:
-        catalog.datasets(limit=0, **filters)
+        catalog.search(limit=0, **filters)
     assert "needs a value" in str(info.value)
 
 
@@ -180,14 +184,14 @@ def test_an_empty_value_is_refused_not_read_as_everything(catalog, filters):
 def test_a_date_bound_has_to_be_a_date(catalog, value):
     """`modified_after=None` became "" and matched every dated record."""
     with pytest.raises(QueryError) as info:
-        catalog.datasets(limit=0, modified_after=value)
+        catalog.search(limit=0, modified_after=value)
     assert "date" in str(info.value)
 
 
 @pytest.mark.parametrize("value", ["2024", "2024-01", "2024-01-01",
                                    "2024-01-01T09:00:00"])
 def test_the_date_shapes_publishers_write_are_still_accepted(catalog, value):
-    catalog.datasets(limit=0, modified_after=value)
+    catalog.search(limit=0, modified_after=value)
 
 
 # -- smaller contracts -------------------------------------------------------
@@ -195,14 +199,24 @@ def test_the_date_shapes_publishers_write_are_still_accepted(catalog, value):
 
 def test_limit_none_is_reported_as_none_not_as_the_row_count(catalog):
     """`.limit` is documented as what you asked for."""
-    assert catalog.datasets(limit=None).limit is None
-    assert catalog.datasets(limit=1).limit == 1
-    assert catalog.datasets(limit=0).limit == 0
+    assert catalog.search(limit=None).limit is None
+    assert catalog.search(limit=1).limit == 1
+    assert catalog.search(limit=0).limit == 0
+
+
+@pytest.mark.parametrize("window", [{"limit": 0}, {"limit": None}, {"offset": 1},
+                                    {"facet_limit": 5}, {"query": "väg"}])
+def test_a_complete_list_refuses_a_window_and_points_at_search(catalog, window):
+    """datasets() returns every match; a limit there would be silently ignored
+    or silently obeyed, and either would surprise someone."""
+    with pytest.raises(QueryError) as info:
+        catalog.datasets(**window)
+    assert "search(" in str(info.value)
 
 
 def test_an_unregistered_rdf_type_gives_a_plain_entry_not_a_keyerror():
     """_TYPE_PRIORITY names dcat:DatasetSeries and no model answers for it."""
-    from dataportalen.models import Entry, wrap_entry
+    from dataportalen.entries import Entry, wrap_entry
 
     entry = wrap_entry({"metadata": {"http://x/1": {
         "http://www.w3.org/1999/02/22-rdf-syntax-ns#type": [
@@ -212,10 +226,10 @@ def test_an_unregistered_rdf_type_gives_a_plain_entry_not_a_keyerror():
 
 
 def test_the_request_path_quotes_the_ids_it_interpolates(tmp_path, transport):
-    """Catalog(path=..., access_rights=None) accepts any file; a crafted id must not redirect."""
+    """Catalog(path) accepts any file; a crafted id must not redirect."""
     record = dict(CATALOG_RECORDS[0], context_id="../../evil", entry_id="9")
     fresh = Catalog(write_catalog(tmp_path, [record]), max_age=None,
-                    _transport=transport, access_rights=None)
+                    _transport=transport)
     transport.push("x", content_type="text/turtle")
     fresh.get(record["uri"], format="turtle")
     assert "/store/..%2F..%2Fevil/metadata/9" in transport.requests[-1]
@@ -301,5 +315,5 @@ def test_an_empty_file_is_not_a_catalogue(tmp_path, transport):
     path = tmp_path / "empty.jsonl"
     path.write_text("", encoding="utf-8")
     with pytest.raises(ParseError) as info:
-        Catalog(str(path), max_age=None, _transport=transport, access_rights=None)
+        Catalog(str(path), max_age=None, _transport=transport)
     assert "empty" in str(info.value)

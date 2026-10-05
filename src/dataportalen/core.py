@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterator, List, Mapping, Optional, Tuple
 # version: The package version, in one place.
 # ==========================================================================
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 
 # ==========================================================================
@@ -88,6 +88,15 @@ class ParseError(DataportalError):
 
 class QueryError(DataportalError):
     """A Solr query could not be built from the given arguments."""
+
+
+class DataportalWarning(UserWarning):
+    """Something worked, but probably not the way you meant it to.
+
+    Raised as a warning, never as an error: a live catalogue that will ask
+    the registry for every call, a search that will fetch thousands of
+    records page by page, a ``live=True`` that changes nothing.
+    """
 
 
 # ==========================================================================
@@ -441,6 +450,7 @@ __all__ = [
     "ServerError",
     "ParseError",
     "QueryError",
+    "DataportalWarning",
     "logger",
     "enable_logging",
     "progress_reporter",

@@ -25,7 +25,7 @@ from typing import (
     Union,
 )
 
-from .core import ParseError, QueryError
+from .core import ParseError, QueryError, logger
 
 # ==========================================================================
 # namespaces: RDF vocabularies used by DCAT-AP-SE and EntryStore.
@@ -883,9 +883,9 @@ def terms(uris: Sequence[str], languages: Sequence[str] = DEFAULT_LANGUAGES) -> 
 
 
 _VOCABULARY_FILE = os.path.join(os.path.dirname(__file__), "vocabulary.json")
-_ORGANISATIONS_FILE = os.path.join(os.path.dirname(__file__), "organisations.json")
-#: Short names for publishers, kept by hand: `scb` for the 50-character slug.
-_ALIASES_FILE = os.path.join(os.path.dirname(__file__), "aliases.json")
+#: Every publisher the package can name, kept by hand: its id, URI and at
+#: most one short alias -- `scb` for the 50-character id.
+_PUBLISHERS_FILE = os.path.join(os.path.dirname(__file__), "publishers.json")
 
 _PARENTHETICAL = re.compile(r"\([^)]*\)")
 #: Labels for file and media types carry the extension in a parenthetical,
@@ -1023,45 +1023,62 @@ def _build_terms() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     return by_slug, by_uri
 
 
-def _build_publishers() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
-    """``(slug -> [uri], uri -> slug)`` for publishers.
+#: An organisation number, read from the tail of a dataportal.se URI.
+_ORGANISATION_NUMBER = re.compile(r"/organisation/(SE\d+)/?$", re.IGNORECASE)
 
-    A publisher is listed under its slugged name and, where it has one, its
-    organisation number. The reverse map prefers the name, because that is
-    what a caller wants printed back at them.
+
+def _build_publishers() -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
+    """``(slug -> [uri], uri -> slug, alias -> slug)`` for publishers.
+
+    A publisher is listed under its id and, where its URI carries one, its
+    organisation number (``se2021000837``). The reverse map gives the id,
+    because that is what a caller wants printed back at them. An alias that
+    would shadow an id, a number or another alias is left out and logged:
+    a collision is for a person to settle, not for load order to.
     """
-    organisations = _load(_ORGANISATIONS_FILE, "organisations")
+    publishers = _load(_PUBLISHERS_FILE, "publishers")
     by_slug: Dict[str, List[str]] = {}
     by_uri: Dict[str, str] = {}
-    for slug, record in organisations.items():
+    for slug, record in publishers.items():
         uri = record.get("uri")
         if not uri:
             continue
         by_slug.setdefault(slug, []).append(uri)
-        if uri not in by_uri or slug.strip("se0123456789"):
-            by_uri[uri] = slug
-    return by_slug, by_uri
-
-
-def _build_aliases() -> Dict[str, str]:
-    """``alias -> publisher slug``, both slugified so lookups match input."""
-    return {slugify(alias): slugify(target)
-            for alias, target in _load(_ALIASES_FILE, "aliases").items()
-            if alias and target}
+        by_uri[uri] = slug
+        number = _ORGANISATION_NUMBER.search(uri)
+        if number:
+            by_slug.setdefault(number.group(1).lower(), []).append(uri)
+    claims: Dict[str, List[str]] = {}
+    for slug, record in publishers.items():
+        alias = slugify(record.get("alias") or "")
+        if alias:
+            claims.setdefault(alias, []).append(slug)
+    aliases: Dict[str, str] = {}
+    for alias, slugs in claims.items():
+        if len(slugs) > 1 or alias in by_slug:
+            logger.warning("publisher alias %r is claimed by %s and collides; "
+                           "left out", alias, ", ".join(slugs))
+            continue
+        aliases[alias] = slugs[0]
+    return by_slug, by_uri, aliases
 
 
 _BY_SLUG, _BY_URI = _build_terms()
-_PUBLISHERS, _PUBLISHER_BY_URI = _build_publishers()
-_ALIASES = _build_aliases()
+_PUBLISHERS, _PUBLISHER_BY_URI, _ALIASES = _build_publishers()
 
 
-def aliases_for(slug: Optional[str]) -> List[str]:
-    """The short names a publisher goes by, sorted; ``[]`` for most.
+def alias_for(slug: Optional[str]) -> Optional[str]:
+    """The one short name a publisher goes by, or ``None`` for most.
 
-    >>> aliases_for("statistikmyndigheten_scb_statistiska_centralbyran")
-    ['scb']
+    >>> alias_for("statistikmyndigheten_scb_statistiska_centralbyran")
+    'scb'
+    >>> alias_for("trafikverket") is None
+    True
     """
-    return sorted(alias for alias, target in _ALIASES.items() if target == slug)
+    for alias, target in _ALIASES.items():
+        if target == slug:
+            return alias
+    return None
 
 
 def publisher_for(uri: Optional[str]) -> Optional[str]:
@@ -1178,7 +1195,8 @@ FILTER_VOCABULARIES: Dict[str, Tuple[str, ...]] = {
                 "http://opendefinition.org/", "https://opendefinition.org/"),
     "access_rights": (
         "http://publications.europa.eu/resource/authority/access-right/",),
-    "updated": ("http://publications.europa.eu/resource/authority/frequency/",
+    "accrual_periodicity": (
+        "http://publications.europa.eu/resource/authority/frequency/",
                 "http://purl.org/cld/freq/"),
     "language": ("http://publications.europa.eu/resource/authority/language/",
                  "http://id.loc.gov/vocabulary/iso639-1/",

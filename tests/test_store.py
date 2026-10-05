@@ -38,10 +38,10 @@ def test_two_records_sharing_a_uri_both_survive(tmp_path, transport):
     twin = dict(CATALOG_RECORDS[0], context_id="99", entry_id="9")
     path = write_catalog(tmp_path, [CATALOG_RECORDS[0], twin])
     assert len(rows_of(path)) == 2
-    cat = Catalog(path, max_age=None, _transport=transport, access_rights=None)
+    cat = Catalog(path, max_age=None, _transport=transport)
     assert len(cat) == 2
     # get() by that URI still answers with one of them, deterministically.
-    assert cat.get(CATALOG_RECORDS[0]["uri"])["context_id"] == "50"
+    assert cat.get(CATALOG_RECORDS[0]["uri"]).context_id == "50"
 
 
 def test_rewriting_an_entry_replaces_its_own_row(tmp_path, transport):
@@ -86,7 +86,7 @@ def test_the_uri_is_indexed_for_lookup(tmp_path):
 
 def test_info_reports_when_it_was_built_and_last_caught_up(tmp_path, transport):
     path = write_catalog(tmp_path, stamp="2026-09-30T00:00:00")
-    cat = Catalog(path, max_age=None, _transport=transport, access_rights=None)
+    cat = Catalog(path, max_age=None, _transport=transport)
     info = cat.info()
     assert info["first_retrieved"] == "2026-09-30T00:00:00"
     assert info["last_refreshed"] == "2026-09-30T00:00:00"
@@ -106,7 +106,7 @@ def test_age_comes_from_the_database_not_the_files_mtime(tmp_path, transport):
         _meta_set(db, last_refreshed=old.isoformat())
     db.close()
 
-    cat = Catalog(path, max_age=None, _transport=transport, access_rights=None)
+    cat = Catalog(path, max_age=None, _transport=transport)
     assert cat.age_days == 30
     assert cat.last_refreshed == old.isoformat()
 
@@ -118,7 +118,7 @@ def test_a_database_from_another_schema_is_refused(tmp_path, transport):
         _meta_set(db, schema="99")
     db.close()
     with pytest.raises(ParseError) as info:
-        Catalog(path, max_age=None, _transport=transport, access_rights=None)
+        Catalog(path, max_age=None, _transport=transport)
     assert "schema" in str(info.value)
     assert SCHEMA_VERSION in str(info.value)
 
@@ -128,7 +128,7 @@ def test_an_empty_database_is_not_a_catalogue(tmp_path, transport):
     db = _connect(path)
     db.close()
     with pytest.raises(ParseError):
-        Catalog(path, max_age=None, _transport=transport, access_rights=None)
+        Catalog(path, max_age=None, _transport=transport)
 
 
 # -- read_catalog ------------------------------------------------------------

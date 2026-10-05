@@ -1,1278 +1,559 @@
-"""Typed views over registry entries.
+"""The things a :class:`~dataportalen.Catalog` hands back.
 
-Every managed thing in the registry -- a dataset, a distribution, a catalog,
-an agent, a harvest report -- is an *entry*: an EntryStore envelope
-(``contextId``/``entryId``, an info graph, an access-rights list) wrapping an
-RDF metadata graph.
+Four models -- :class:`Publisher`, :class:`Dataset`, :class:`DataService` and
+:class:`Distribution` -- and :class:`SearchResult`, which carries datasets
+and their :class:`Facets`. They are the same whether a call was answered by
+the local catalogue or by the registry itself.
 
-:class:`Entry` models that envelope. Subclasses add DCAT-AP-SE accessors on
-top; :func:`wrap_entry` picks the right one from the metadata's ``rdf:type``.
+Every model reads by attribute (``dataset.title``, ``dataset.publisher.id``)
+and turns into plain JSON with ``to_dict()``, keeping the field names.
+Printing one prints that JSON. Every method that returns models also takes
+``as_dict=True`` and hands back the dicts instead.
+
+Text a publisher wrote is a :class:`MultilingualText`: Swedish, English or
+both, as written. ``.text()`` picks the catalogue's language and falls back
+to the other one.
+
+The fields are measured, not designed: every one of the 23,582 datasets in
+the registry fills exactly these, and ``tests/test_records.py`` holds the
+package to it. A field is always there. Where the publisher said nothing it
+is ``None``, ``[]`` or an empty text -- and ``broken``, ``unverified``,
+``byte_size`` and ``stale`` are ``None`` unless they have something to say.
 """
 
 from __future__ import annotations
 
-import datetime as _dt
+import dataclasses as _dc
 import json as _json
 from collections import namedtuple as _namedtuple
 from collections.abc import Mapping as _Mapping
-from collections.abc import Sequence as _ABCSequence
-from typing import (
-    Any,
-    Dict,
-    Iterator,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
 
 from .core import QueryError
-from .rdf import (
-    ADMS,
-    DCAT,
-    DCATAP,
-    DCTERMS,
-    ES,
-    ESCAPE,
-    FOAF,
-    OWL,
-    PROV,
-    RDF,
-    SCHEMA,
-    SKOS,
-    SPDX,
-    VCARD,
-    Graph,
-    Resource,
-    expand,
-    label_for,
-    slug_for,
-)
+from .entries import ENGLISH, SWEDISH
 
 __all__ = [
-    "Entry",
-    "Dataset",
+    "MultilingualText",
+    "Keywords",
+    "License",
+    "Contact",
+    "Temporal",
+    "LinkMark",
+    "Publisher",
     "Distribution",
+    "Dataset",
     "DataService",
-    "Agent",
-    "ContactPoint",
+    "SearchResult",
     "FacetValue",
-    "PeriodOfTime",
     "Facets",
     "Facet",
-    "text",
     "DATASET_FILTERS",
     "DATA_SERVICE_FILTERS",
-    "Results",
-    "SearchPage",
-    "wrap_entry",
+    "PUBLISHER_FILTERS",
 ]
 
-E = TypeVar("E", bound="Entry")
-#: The record a :class:`Results` holds: a dataset or a data service dict.
-R = TypeVar("R")
-
-_MISSING = object()
+#: The languages a catalogue can prefer.
+LANGUAGES = (SWEDISH, ENGLISH)
 
 
-#: The two languages a record is ever keyed by. The registry is Swedish and
-#: publishes a partial English translation: over the whole corpus 53% of
-#: datasets are Swedish only, 36% carry both, 10% are English only.
-SWEDISH = "sv"
-ENGLISH = "en"
+def _dumps(value: Any) -> str:
+    return _json.dumps(value, indent=4, ensure_ascii=False)
 
 
-def _fold(lang: Optional[str]) -> str:
-    """Which of the two keys a literal's language tag belongs under.
-
-    Publishers tag a fair amount of text ``und`` (undetermined) and the odd
-    literal in a third language -- there is one Norwegian organisation name.
-    Untagged or foreign-tagged text in a Swedish registry is Swedish, so
-    everything that is not English folds into ``"sv"``. That keeps every
-    localized field to exactly the two keys a reader can rely on.
-    """
-    if not lang:
-        return SWEDISH
-    return ENGLISH if lang.split("-")[0].lower() == ENGLISH else SWEDISH
+def _plain(value: Any) -> Any:
+    """``value`` as JSON-compatible dicts, lists and scalars, all the way down."""
+    to_dict = getattr(value, "to_dict", None)
+    if to_dict is not None and not isinstance(value, type):
+        return to_dict()
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    return value
 
 
-def _langmap(values: Dict[Optional[str], Any]) -> Dict[str, Any]:
-    """Localized values as ``{"sv": ..., "en": ...}``, folded and deduplicated.
-
-    A key is present only when that language has something in it, so a
-    Swedish-only title is ``{"sv": ...}`` rather than ``{"sv": ..., "en": None}``
-    -- absence says "not translated" where ``None`` would say "translated to
-    nothing".
-    """
-    out: Dict[str, Any] = {}
-    for lang, value in values.items():
-        if value is None or value == [] or value == "":
-            continue
-        key = _fold(lang)
-        if key not in out:
-            # Copied, so merging a second tag below cannot mutate the caller's.
-            out[key] = list(value) if isinstance(value, list) else value
-        elif isinstance(out[key], list) and isinstance(value, list):
-            # Two tags folded together: merge rather than let one win.
-            for item in value:
-                if item not in out[key]:
-                    out[key].append(item)
-    return out
+# --- text -------------------------------------------------------------------
 
 
-def text(value: Any, prefer: str = SWEDISH) -> Optional[str]:
-    """One string out of a language map: the best there is.
+class MultilingualText(_Mapping):
+    """Text as the publisher wrote it: ``{"sv": ..., "en": ...}``, either or both.
 
-        >>> text({"sv": "Vägtrafiknät", "en": "Road traffic network"})
+    53% of datasets are Swedish only, 36% carry both, 10% are English only,
+    so ``["sv"]`` is not safe to write and :meth:`text` is::
+
+        dataset.title.text()          # the catalogue's language, else the other
+        dataset.title.text("en")      # English if there is any
+        dataset.title["sv"]           # still a mapping, for exactly one language
+
+    It compares equal to the plain dict, and :meth:`to_dict` is that dict.
+
+        >>> title = MultilingualText({"sv": "Vägtrafiknät", "en": "Road traffic network"})
+        >>> title.text()
         'Vägtrafiknät'
-        >>> text({"en": "Road traffic network"})
+        >>> title.text("en")
         'Road traffic network'
-        >>> text({}) is None
-        True
-
-    Every piece of publisher-written text in a record is a map, because 36% of
-    datasets carry both languages and throwing one away would be a choice made
-    for you. But 10% of them have no Swedish at all, so ``record["title"]["sv"]``
-    is not safe to write -- this is.
-
-    ``prefer="en"`` flips the order. Passing a plain string returns it
-    unchanged, so it is safe on a field whose shape you are unsure of.
-    """
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    if not isinstance(value, dict):
-        return value
-    other = ENGLISH if prefer == SWEDISH else SWEDISH
-    found = value.get(prefer) or value.get(other)
-    if found is None:
-        found = next((v for v in value.values() if v), None)
-    return found
-
-
-_SPACES = dict.fromkeys(map(ord, " \t\n\r\u00a0\u202f\u2009"))
-
-
-def _whole_number(text: Any) -> Optional[int]:
-    """A non-negative whole number as publishers write one, or ``None``.
-
-        >>> _whole_number("5 420 000")
-        5420000
-        >>> _whole_number("39000.0")
-        39000
-        >>> _whole_number("2022-02-09") is None
+        >>> MultilingualText({"en": "Road traffic network"}).text()
+        'Road traffic network'
+        >>> MultilingualText({}).text() is None
         True
     """
-    digits = str(text).translate(_SPACES)
-    whole, dot, fraction = digits.partition(".")
-    if whole.isdigit() and (not dot or fraction.strip("0") == ""):
-        return int(whole)
-    return None
 
+    __slots__ = ("_values", "_lang")
 
-#: The shape a publisher always has, even when there is none. A record never
-#: hands back a bare None where a dict is documented.
-_EMPTY_AGENT = {
-    "uri": None,
-    "name": {},
-    "type": None,
-    "identifiers": [],
-    "email": None,
-    "homepage": None,
-}
+    def __init__(self, values: Optional[Mapping[str, str]] = None,
+                 lang: str = SWEDISH) -> None:
+        self._values: Dict[str, str] = dict(values or {})
+        self._lang = lang
 
+    def text(self, lang: Optional[str] = None) -> Optional[str]:
+        """One string: ``lang`` (default: the catalogue's), else the other
+        language, else whatever there is. ``None`` when there is nothing."""
+        first = lang or self._lang
+        other = ENGLISH if first == SWEDISH else SWEDISH
+        found = self._values.get(first) or self._values.get(other)
+        if found:
+            return found
+        return next((value for value in self._values.values() if value), None)
 
-def _iso(value: Any) -> Optional[str]:
-    """A date/datetime as an ISO-8601 string; anything else passed through."""
-    if value is None:
-        return None
-    if isinstance(value, (_dt.date, _dt.datetime)):
-        return value.isoformat()
-    return str(value)
+    def to_dict(self) -> Dict[str, str]:
+        """The language-keyed values, as a new dict."""
+        return dict(self._values)
 
-#: Most specific first; used to pick the subject a graph is really about.
-_TYPE_PRIORITY = [
-    DCAT.DatasetSeries,
-    DCAT.Dataset,
-    DCAT.DataService,
-    DCAT.Distribution,
-    FOAF.Organization,
-    FOAF.Agent,
-]
+    def _in(self, lang: str) -> "MultilingualText":
+        return MultilingualText(self._values, lang)
 
+    def __getitem__(self, lang: str) -> str:
+        return self._values[lang]
 
-def _primary_subject(graph: Graph) -> Optional[str]:
-    """The subject of the most specific known type described in ``graph``."""
-    for rdf_type in _TYPE_PRIORITY:
-        subjects = graph.subjects_of_type(rdf_type)
-        named = [s for s in subjects if not s.startswith("_:")]
-        if named:
-            return named[0]
-        if subjects:
-            return subjects[0]
-    return None
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
 
+    def __len__(self) -> int:
+        return len(self._values)
 
-class Entry:
-    """One registry entry: the EntryStore envelope plus its metadata graph."""
-
-    #: ``rdf:type`` values that :func:`wrap_entry` maps to this class.
-    rdf_types: Sequence[str] = ()
-
-    __slots__ = (
-        "metadata",
-        "info",
-        "relations",
-        "rights",
-        "context_id",
-        "entry_id",
-        "_client",
-        "_raw",
-        "_resource",
-    )
-
-    def __init__(
-        self,
-        metadata: Graph,
-        info: Optional[Graph] = None,
-        relations: Optional[Graph] = None,
-        rights: Sequence[str] = (),
-        context_id: Optional[str] = None,
-        entry_id: Optional[str] = None,
-        client: Any = None,
-        raw: Optional[Mapping[str, Any]] = None,
-    ) -> None:
-        self.metadata = metadata
-        self.info = info if info is not None else Graph()
-        self.relations = relations if relations is not None else Graph()
-        self.rights: List[str] = list(rights)
-        self.context_id = context_id
-        self.entry_id = entry_id
-        self._client = client
-        self._raw = dict(raw) if raw is not None else None
-        self._resource: Any = _MISSING
-
-    # -- construction ------------------------------------------------------
-
-    @classmethod
-    def from_json(
-        cls: Type[E],
-        data: Mapping[str, Any],
-        *,
-        client: Any = None,
-    ) -> E:
-        """Build an entry from one ``resource.children[i]`` search hit."""
-        return cls(
-            metadata=Graph(data.get("metadata") or {}),
-            info=Graph(data.get("info") or {}),
-            relations=Graph(data.get("relations") or {}),
-            rights=data.get("rights") or (),
-            context_id=data.get("contextId"),
-            entry_id=data.get("entryId"),
-            client=client,
-            raw=data,
-        )
-
-    def as_(self, model: Type[E]) -> E:
-        """Reinterpret this entry through another model class."""
-        return model(
-            metadata=self.metadata,
-            info=self.info,
-            relations=self.relations,
-            rights=self.rights,
-            context_id=self.context_id,
-            entry_id=self.entry_id,
-            client=self._client,
-            raw=self._raw,
-        )
-
-    @classmethod
-    def from_resource(
-        cls: Type[E],
-        resource: Resource,
-        *,
-        client: Any = None,
-        context_id: Optional[str] = None,
-        entry_id: Optional[str] = None,
-    ) -> E:
-        """Wrap a subject that is already present in some graph.
-
-        Used for entities that are delivered inline -- contact points, and
-        distributions pulled in by a ``recursive=dcat`` fetch.
-        """
-        entry = cls(
-            metadata=resource.graph,
-            client=client,
-            context_id=context_id,
-            entry_id=entry_id,
-        )
-        entry._resource = resource
-        return entry
-
-    # -- envelope ----------------------------------------------------------
-
-    @property
-    def entry_uri(self) -> Optional[str]:
-        """The registry's own URI for this entry (``.../store/<ctx>/entry/<id>``)."""
-        subjects = self.info.named_subjects()
-        return subjects[0] if subjects else None
-
-    @property
-    def entry_info(self) -> Optional[Resource]:
-        uri = self.entry_uri
-        return Resource(self.info, uri) if uri else None
-
-    @property
-    def resource_uri(self) -> Optional[str]:
-        """The URI of the described thing -- the publisher's own dataset URI."""
-        info = self.entry_info
-        if info is not None:
-            uri = info.uri_of(ES.resource)
-            if uri:
-                return uri
-        # Without an envelope, fall back to whichever subject this entry is
-        # about -- not simply the first subject, since one graph may describe
-        # a dataset together with its distributions.
-        subject = self.resource.subject
-        return subject if subject and not subject.startswith("_:") else None
-
-    @property
-    def created(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        """When the registry first harvested this entry."""
-        info = self.entry_info
-        return info.date(DCTERMS.created) if info else None
-
-    @property
-    def modified(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        """When the registry last changed this entry."""
-        info = self.entry_info
-        return info.date(DCTERMS.modified) if info else None
-
-    @property
-    def creator(self) -> Optional[str]:
-        info = self.entry_info
-        return info.uri_of(DCTERMS.creator) if info else None
-
-    @property
-    def entry_type(self) -> Optional[str]:
-        """``es:Link``, ``es:Local``, ``es:Reference``, ..."""
-        info = self.entry_info
-        return info.uri_of(RDF.type) if info else None
-
-    @property
-    def is_public(self) -> bool:
-        """Whether the guest user may read this entry's metadata."""
-        return "readmetadata" in self.rights
-
-    # -- metadata ----------------------------------------------------------
-
-    @property
-    def resource(self) -> Resource:
-        """The metadata subject that describes this entry's resource."""
-        if self._resource is _MISSING:
-            self._resource = self._find_resource()
-        return self._resource
-
-    def _find_resource(self) -> Resource:
-        """Locate the subject this entry is *about*.
-
-        A recursive fetch returns the dataset together with its distributions
-        and publisher, so "the first subject" is not good enough: prefer the
-        resource URI from the envelope, then this model's own rdf:type, then
-        the most specific type present in the graph.
-        """
-        uri = None
-        info = self.entry_info
-        if info is not None:
-            uri = info.uri_of(ES.resource)
-        if uri and uri in self.metadata:
-            return Resource(self.metadata, uri)
-        for rdf_type in self.rdf_types:
-            subjects = self.metadata.subjects_of_type(rdf_type)
-            named = [s for s in subjects if not s.startswith("_:")]
-            if named or subjects:
-                return Resource(self.metadata, (named or subjects)[0])
-        primary = _primary_subject(self.metadata)
-        if primary is not None:
-            return Resource(self.metadata, primary)
-        named = self.metadata.named_subjects()
-        if named:
-            return Resource(self.metadata, named[0])
-        subjects = self.metadata.subjects()
-        return Resource(self.metadata, subjects[0] if subjects else uri or "")
-
-    @property
-    def uri(self) -> Optional[str]:
-        """Alias of :attr:`resource_uri`."""
-        return self.resource_uri
-
-    @property
-    def types(self) -> List[str]:
-        return self.resource.types
-
-    def is_a(self, rdf_type: str) -> bool:
-        return self.resource.is_a(rdf_type)
-
-    # Convenience passthroughs so simple cases never touch ``.resource``.
-    def value(self, predicate: str, languages: Optional[Sequence[str]] = None) -> Optional[str]:
-        return self.resource.value(predicate, languages)
-
-    def values(self, predicate: str, lang: Optional[str] = None) -> List[str]:
-        return self.resource.values(predicate, lang)
-
-    def uris(self, predicate: str) -> List[str]:
-        return self.resource.uris(predicate)
-
-    @property
-    def title(self) -> Optional[str]:
-        return self.resource.value(DCTERMS.title)
-
-    @property
-    def titles(self) -> Dict[Optional[str], str]:
-        return self.resource.localized(DCTERMS.title)
-
-    @property
-    def description(self) -> Optional[str]:
-        return self.resource.value(DCTERMS.description)
-
-    @property
-    def descriptions(self) -> Dict[Optional[str], str]:
-        return self.resource.localized(DCTERMS.description)
-
-    # -- linked entries ----------------------------------------------------
-
-    def _require_client(self) -> Any:
-        if self._client is None:
-            raise RuntimeError(
-                "this entry was built without a client; fetch it through "
-                "Dataportal(...) to follow references"
-            )
-        return self._client
-
-    def fetch(self, uri: str) -> Optional["Entry"]:
-        """Look up another managed entry by its resource URI."""
-        found = self._require_client()._lookup_many([uri])
-        return found[0] if found else None
-
-    def fetch_many(self, uris: Sequence[str]) -> List["Entry"]:
-        """Look up several managed entries in as few requests as possible."""
-        return self._require_client()._lookup_many(list(uris))
-
-    # -- output ------------------------------------------------------------
-
-    def to_dict(self) -> Dict[str, Any]:
-        """A plain, JSON-serializable dict of this entry.
-
-        This is the package's primary output: no RDF terms, no URI-only
-        vocabulary values, no objects that :func:`json.dumps` chokes on.
-        Dates are ISO-8601 strings and every controlled-vocabulary field is
-        ``{"uri": ..., "label": ...}``.
-
-        Subclasses shape this per entity type; the base gives the envelope
-        plus whatever title and description are present.
-        """
-        return dict(self._envelope_dict(), **{
-            "title": self._text(self.titles),
-            "description": self._text(self.descriptions),
-            "types": self.types,
-        })
-
-    def _envelope_dict(self) -> Dict[str, Any]:
-        return {
-            "uri": self.resource_uri,
-            "context_id": self.context_id,
-            "entry_id": self.entry_id,
-        }
-
-    def _text(self, values: Dict[Optional[str], Any]) -> Dict[str, Any]:
-        """Localized values as ``{"sv": ..., "en": ...}``, ``{}`` when empty.
-
-        There is no language setting: the record carries what the publisher
-        wrote, in both languages when both exist. Always a dict. `keywords`
-        used to come back as ``[]`` when a record had none -- 1,324 records,
-        5.5% -- so ``record["keywords"].get("sv")`` raised on exactly the
-        records with nothing to say.
-        """
-        return _langmap(values) or {}
-
-    def _term(self, uri: Optional[str]) -> Optional[str]:
-        """One controlled value as a short name: ``"local_authority"``.
-
-        Not a URI and not an object -- see :mod:`dataportalen.rdf`.
-        """
-        return slug_for(uri)
-
-    def _licence(self, uri: Optional[str]) -> Optional[Dict[str, Any]]:
-        """A licence as ``{"id", "label", "uri"}``, or ``None``.
-
-        The one vocabulary value that is not self-explanatory: nobody knows
-        what ``cc_by_nc_sa_4_0`` permits without looking it up, so the
-        readable name and the page to look it up on travel with it. ``id``
-        is still what ``license=`` filters on.
-        """
-        if not uri:
-            return None
-        slug = slug_for(uri)
-        return {"id": slug, "label": label_for(slug), "uri": uri}
-
-    def _terms(self, uris: Sequence[str]) -> List[str]:
-        out = []
-        for uri in uris:
-            slug = slug_for(uri)
-            if slug and slug not in out:
-                out.append(slug)
-        return out
-
-    def _publisher_dict(self) -> Optional[Dict[str, Any]]:
-        """The publishing organisation, named when the graph describes it.
-
-        A search hit carries only the publisher URI; a ``recursive=True``
-        fetch carries the agent too, in which case the name comes along for
-        free instead of costing another request.
-        """
-        uri = self.resource.uri_of(DCTERMS.publisher)
-        if not uri:
-            # Never None. 10 datasets and 16 data services name no publisher
-            # at all, and every documented way of reading one subscripts it --
-            # `text(record["publisher"]["name"])` would raise on exactly those.
-            # An empty value is `{}` or None inside the dict, as everywhere
-            # else in a record, so the shape is the same for all of them.
-            return dict(_EMPTY_AGENT)
-        for ref in self.resource.refs(DCTERMS.publisher):
-            return Agent.from_resource(ref, client=self._client).to_dict()
-        return dict(_EMPTY_AGENT, uri=uri)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """:meth:`to_dict` rendered as a JSON string."""
-        return _json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
-
-    def raw_json(self) -> Dict[str, Any]:
-        """The registry's own JSON payload for this entry, untouched.
-
-        The escape hatch for anything :meth:`to_dict` does not surface.
-        """
-        if self._raw is not None:
-            return dict(self._raw)
-        return {
-            "contextId": self.context_id,
-            "entryId": self.entry_id,
-            "rights": list(self.rights),
-            "info": self.info.to_json(),
-            "metadata": self.metadata.to_json(),
-            "relations": self.relations.to_json(),
-        }
-
-    def to_rdf(self) -> Dict[str, Any]:
-        """The metadata graph as RDF/JSON, for callers who want the triples."""
-        return self.metadata.to_json()
-
-    def to_rdf_dict(self) -> Dict[str, List[Any]]:
-        """Every predicate on this entry's subject, keyed by CURIE.
-
-        Lossy but complete-ish: useful when a publisher uses a predicate the
-        typed accessors do not cover.
-        """
-        return self.resource.to_dict()
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
 
     def __repr__(self) -> str:
-        label = self.title or self.resource_uri or self.entry_uri or "?"
-        return "<%s %s/%s %r>" % (type(self).__name__, self.context_id, self.entry_id, label)
+        return "MultilingualText(%r)" % (self._values,)
 
 
-# --- supporting (non-managed) structures ------------------------------------
+class Keywords(_Mapping):
+    """Keywords per language: ``{"sv": [...], "en": [...]}``; empty when none.
+
+        >>> keywords = Keywords({"sv": ["väg", "trafik"], "en": ["road"]})
+        >>> keywords.list()
+        ['väg', 'trafik']
+        >>> keywords.list("en")
+        ['road']
+        >>> keywords.all()
+        ['väg', 'trafik', 'road']
+    """
+
+    __slots__ = ("_values", "_lang")
+
+    def __init__(self, values: Optional[Mapping[str, Sequence[str]]] = None,
+                 lang: str = SWEDISH) -> None:
+        self._values: Dict[str, List[str]] = {
+            key: list(items) for key, items in (values or {}).items()}
+        self._lang = lang
+
+    def list(self, lang: Optional[str] = None) -> List[str]:
+        """The keywords in ``lang`` (default: the catalogue's), else the other."""
+        first = lang or self._lang
+        other = ENGLISH if first == SWEDISH else SWEDISH
+        return [*(self._values.get(first) or self._values.get(other) or ())]
+
+    def all(self) -> List[str]:
+        """Every keyword in either language, each once, in order."""
+        seen: Dict[str, None] = {}
+        for items in self._values.values():
+            seen.update(dict.fromkeys(items))
+        return [*seen]
+
+    def to_dict(self) -> Dict[str, List[str]]:
+        """The language-keyed lists, as a new dict."""
+        return {key: [*items] for key, items in self._values.items()}
+
+    def __getitem__(self, lang: str) -> List[str]:
+        return self._values[lang]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
+
+    def __repr__(self) -> str:
+        return "Keywords(%r)" % (self._values,)
 
 
-class _Wrapped:
-    """A thin wrapper around a :class:`Resource` describing a nested node."""
+# --- models -----------------------------------------------------------------
 
-    __slots__ = ("resource",)
 
-    def __init__(self, resource: Resource) -> None:
-        self.resource = resource
-
-    @property
-    def uri(self) -> str:
-        return self.resource.uri
+class _Model:
+    """What every model shares: ``to_dict()``, and printing as that JSON."""
 
     def to_dict(self) -> Dict[str, Any]:
-        return self.resource.to_dict()
+        """Every field, in order, as JSON-compatible values -- nested models too."""
+        return {field.name: _plain(getattr(self, field.name))
+                for field in _dc.fields(self)}  # type: ignore[arg-type]
 
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<%s %s>" % (type(self).__name__, self.uri)
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
 
 
-class PeriodOfTime(_Wrapped):
-    """``dcterms:PeriodOfTime`` -- a dataset's temporal coverage.
+@_dc.dataclass(repr=False)
+class License(_Model):
+    """A licence: its id, what it is called, where to read it."""
 
-    Publishers use ``dcat:startDate``/``endDate`` or the ``schema.org``
-    equivalents, and some give only a year. :attr:`start` and :attr:`end`
-    therefore return a date when one can be parsed and the raw lexical value
-    otherwise; :attr:`start_value`/:attr:`end_value` always give the raw text.
+    id: Optional[str]
+    label: MultilingualText
+    uri: Optional[str]
+
+    def __repr__(self) -> str:
+        return "<License %s>" % (self.id,)
+
+
+@_dc.dataclass(repr=False)
+class Contact(_Model):
+    """A contact point: a person or a function, and how to reach them."""
+
+    uri: Optional[str]
+    name: Optional[str]
+    email: Optional[str]
+
+    def __repr__(self) -> str:
+        return "<Contact %r %s>" % (self.name, self.email or "")
+
+
+@_dc.dataclass(repr=False)
+class Temporal(_Model):
+    """The period a dataset covers. Either end may be ``None``."""
+
+    start: Optional[str]
+    end: Optional[str]
+
+    def __repr__(self) -> str:
+        return "<Temporal %s..%s>" % (self.start or "", self.end or "")
+
+
+@_dc.dataclass(repr=False)
+class LinkMark(_Model):
+    """What was said about a distribution, or a record's source: why, and when.
+
+    The registry said it, unless ``by`` is ``"local"``: a verdict asked from
+    this machine.
     """
 
-    def _bound(
-        self, dcat_term: str, schema_term: str
-    ) -> Optional[Union[_dt.date, _dt.datetime, str]]:
-        for predicate in (dcat_term, schema_term):
-            parsed = self.resource.date(predicate)
-            if parsed is not None:
-                return parsed
-            values = self.resource.values(predicate)
-            if values:
-                return values[0]
-        return None
+    reason: Optional[str]
+    checked: Optional[str]
+    by: Optional[str] = None
 
-    @property
-    def start(self) -> Optional[Union[_dt.date, _dt.datetime, str]]:
-        return self._bound(DCAT.startDate, SCHEMA.startDate)
-
-    @property
-    def end(self) -> Optional[Union[_dt.date, _dt.datetime, str]]:
-        return self._bound(DCAT.endDate, SCHEMA.endDate)
-
-    @property
-    def start_value(self) -> Optional[str]:
-        values = self.resource.values(DCAT.startDate) or self.resource.values(SCHEMA.startDate)
-        return values[0] if values else None
-
-    def to_dict(self):
-        """``{"start": ..., "end": ...}`` as ISO strings where parseable."""
-        return {"start": _iso(self.start), "end": _iso(self.end)}
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<PeriodOfTime %s..%s>" % (self.start, self.end)
+    def __repr__(self) -> str:
+        return "<LinkMark %r %s>" % (self.reason, self.checked or "")
 
 
-class Checksum(_Wrapped):
-    """``spdx:Checksum`` on a distribution."""
+@_dc.dataclass(repr=False)
+class Publisher(_Model):
+    """A publisher: an authority, a municipality, a company, a university.
 
-    @property
-    def algorithm(self) -> Optional[str]:
-        return self.resource.uri_of(SPDX.algorithm)
-
-    @property
-    def value(self) -> Optional[str]:
-        return self.resource.value(SPDX.checksumValue)
-
-    def to_dict(self):
-        return {"algorithm": self.algorithm, "value": self.value}
-
-
-class ContactPoint(Entry):
-    """A ``vcard:Kind`` contact point.
-
-    Contact points usually live inline in a dataset's graph as blank nodes,
-    so this is normally built via :attr:`Dataset.contact_points` rather than
-    fetched on its own.
+    ``id`` is what ``publisher=`` takes and what the ``publisher`` facet
+    reports; ``alias`` is the one short name some go by (``scb``), accepted
+    wherever the id is. The counts are filled on what
+    :meth:`Catalog.publishers` and :meth:`Catalog.publisher` return, and
+    ``facets`` on what :meth:`Catalog.publisher` returns; a publisher nested
+    in a dataset leaves them ``None``. A record with no publisher still has
+    one, with every field ``None``.
     """
 
-    rdf_types = (VCARD.Organization, VCARD.Organisation, VCARD.Individual, VCARD.Kind)
+    id: Optional[str]
+    uri: Optional[str]
+    name: MultilingualText
+    alias: Optional[str]
+    type: Optional[str]
+    homepage: Optional[str]
+    email: Optional[str]
+    identifiers: List[str]
+    dataset_count: Optional[int] = None
+    data_service_count: Optional[int] = None
+    facets: Optional["Facets"] = None
+
+    def __repr__(self) -> str:
+        return "<Publisher %s>" % (self.id,)
+
+
+@_dc.dataclass(repr=False)
+class Distribution(_Model):
+    """One distribution of a dataset: a file, an API or a web page.
+
+    ``kind`` says which, read from the metadata with no request -- see
+    :data:`dataportalen.retrieval.KINDS`. ``broken`` is set on a distribution
+    the registry got an HTTP error for or found no host for (held only with
+    ``exclude_broken=False``), ``unverified`` on one its checker could not
+    get through to, and ``byte_size`` on the 1.4% whose publisher states a
+    size.
+    """
+
+    uri: Optional[str]
+    title: MultilingualText
+    description: MultilingualText
+    access_url: Optional[str]
+    download_url: Optional[str]
+    format: Optional[str]
+    license: Optional[License]
+    status: Optional[str]
+    availability: Optional[str]
+    languages: List[str]
+    issued: Optional[str]
+    modified: Optional[str]
+    access_service_uris: List[str]
+    kind: str
+    broken: Optional[LinkMark] = None
+    unverified: Optional[LinkMark] = None
+    byte_size: Optional[int] = None
+
+    def __repr__(self) -> str:
+        return "<Distribution %s %s>" % (
+            self.kind, self.download_url or self.access_url or "")
+
+
+@_dc.dataclass(repr=False)
+class Dataset(_Model):
+    """A dataset, and the distributions it is published as.
+
+    ``stale`` is set when the source catalogue it was harvested from failed
+    its latest harvest: the record is what the last good one left.
+    """
+
+    uri: Optional[str]
+    context_id: str
+    entry_id: str
+    type: str
+    title: MultilingualText
+    description: MultilingualText
+    keywords: Keywords
+    identifier: Optional[str]
+    landing_page: Optional[str]
+    publisher: Publisher
+    themes: List[str]
+    license: Optional[License]
+    access_rights: Optional[str]
+    accrual_periodicity: Optional[str]
+    languages: List[str]
+    spatial: List[str]
+    temporal: Optional[Temporal]
+    issued: Optional[str]
+    modified: Optional[str]
+    contact_points: List[Contact]
+    distributions: List[Distribution]
+    stale: Optional[LinkMark] = None
+
+    def __repr__(self) -> str:
+        return "<Dataset %r %s>" % (self.title.text(), self.uri or "")
+
+
+@_dc.dataclass(repr=False)
+class DataService(_Model):
+    """A data service -- an API rather than a file. ``stale`` as on a dataset."""
+
+    uri: Optional[str]
+    context_id: str
+    entry_id: str
+    type: str
+    title: MultilingualText
+    description: MultilingualText
+    keywords: Keywords
+    service_type: Optional[str]
+    endpoint_url: Optional[str]
+    endpoint_description: Optional[str]
+    serves_datasets: List[str]
+    conforms_to: List[str]
+    publisher: Publisher
+    themes: List[str]
+    license: Optional[License]
+    access_rights: Optional[str]
+    landing_page: Optional[str]
+    contact_points: List[Contact]
+    stale: Optional[LinkMark] = None
+
+    def __repr__(self) -> str:
+        return "<DataService %r %s>" % (self.title.text(), self.uri or "")
+
+
+@_dc.dataclass(repr=False)
+class SearchResult(_Model):
+    """What :meth:`Catalog.search` returns: datasets, and what all matches are made of.
+
+    ::
+
+        result = catalog.search(theme="transport")
+        result.total        # how many matched
+        result.datasets     # every one of them, or the window you asked for
+        result.facets       # counted over every match, not just the window
+
+    With no ``limit`` it holds every match, so ``len(result) == result.total``.
+    """
+
+    datasets: List[Dataset]
+    facets: "Facets"
+    total: int
+    offset: int = 0
+    limit: Optional[int] = None
 
     @property
-    def name(self) -> Optional[str]:
-        return self.resource.value(VCARD.fn) or self.resource.value(VCARD["organization-name"])
+    def has_more(self) -> bool:
+        """Whether more matched than :attr:`datasets` holds past ``offset``."""
+        return self.offset + len(self.datasets) < self.total
 
-    @property
-    def email(self) -> Optional[str]:
-        """The contact e-mail, with any ``mailto:`` prefix removed."""
-        for candidate in self.emails:
-            return candidate
+    def to_dict(self) -> Dict[str, Any]:
+        """``{"total", "offset", "limit", "datasets", "facets", "facets_omitted"}``."""
+        return {"total": self.total, "offset": self.offset, "limit": self.limit,
+                "datasets": [dataset.to_dict() for dataset in self.datasets],
+                "facets": self.facets.to_dict(),
+                "facets_omitted": self.facets.omitted}
+
+    def __len__(self) -> int:
+        return len(self.datasets)
+
+    def __iter__(self) -> Iterator[Dataset]:
+        return iter(self.datasets)
+
+    def __repr__(self) -> str:
+        return "<SearchResult %d of %d>" % (len(self.datasets), self.total)
+
+
+# --- from the dicts the engines build ----------------------------------------
+#
+# Both engines -- the local catalogue and the registry -- build the same
+# record dicts (`client._present`). These turn one into a model, so whatever
+# answered, the caller gets the same shape.
+
+
+def _text(value: Any, lang: str) -> MultilingualText:
+    return MultilingualText(value if isinstance(value, dict) else None, lang)
+
+
+def _keywords(value: Any, lang: str) -> Keywords:
+    return Keywords(value if isinstance(value, dict) else None, lang)
+
+
+def _mark(value: Any) -> Optional[LinkMark]:
+    if not value:
         return None
-
-    @property
-    def emails(self) -> List[str]:
-        out: List[str] = []
-        for uri in self.resource.uris(VCARD.hasEmail):
-            out.append(uri[len("mailto:"):] if uri.lower().startswith("mailto:") else uri)
-        for text in self.resource.values(VCARD.hasEmail):
-            out.append(text[len("mailto:"):] if text.lower().startswith("mailto:") else text)
-        for ref in self.resource.refs(VCARD.hasEmail):
-            value = ref.value(VCARD.value) or ref.uri_of(VCARD.value)
-            if value:
-                out.append(value[len("mailto:"):] if value.lower().startswith("mailto:") else value)
-        return out
-
-    @property
-    def url(self) -> Optional[str]:
-        return self.resource.uri_of(VCARD.hasURL)
-
-    @property
-    def title(self) -> Optional[str]:  # type: ignore[override]
-        return self.name or super().title
-
-    def to_dict(self):
-        return {
-            "uri": None if self.resource.is_bnode else self.resource.uri,
-            "name": self.name,
-            "email": self.email,
-        }
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<ContactPoint %r %s>" % (self.name, self.email or "")
+    return LinkMark(value.get("reason"), value.get("checked"), value.get("by"))
 
 
-# --- primary DCAT-AP-SE classes ---------------------------------------------
-
-
-class Agent(Entry):
-    """``foaf:Agent`` -- a publisher or contact organisation."""
-
-    rdf_types = (FOAF.Agent, FOAF.Organization, PROV.Agent)
-
-    @property
-    def name(self) -> Optional[str]:
-        return self.resource.value(FOAF.name) or self.resource.value(DCTERMS.title)
-
-    @property
-    def names(self) -> Dict[Optional[str], str]:
-        names = self.resource.localized(FOAF.name)
-        if not names:
-            names = self.resource.localized(DCTERMS.title)
-        return names
-
-    @property
-    def title(self) -> Optional[str]:  # type: ignore[override]
-        return self.name
-
-    @property
-    def homepage(self) -> Optional[str]:
-        """``foaf:homepage``, falling back to ``foaf:page``."""
-        return self.resource.uri_of(FOAF.homepage) or self.resource.uri_of(FOAF.page)
-
-    @property
-    def mbox(self) -> Optional[str]:
-        uri = self.resource.uri_of(FOAF.mbox)
-        if uri and uri.lower().startswith("mailto:"):
-            return uri[len("mailto:"):]
-        return uri
-
-    @property
-    def agent_type(self) -> Optional[str]:
-        """``dcterms:type`` -- e.g. the EU authority type of the organisation."""
-        return self.resource.uri_of(DCTERMS.type)
-
-    @property
-    def identifiers(self) -> List[str]:
-        """Organisation identifiers (``dcterms:identifier``, ``adms:identifier``)."""
-        out = self.resource.values(DCTERMS.identifier)
-        out += self.resource.uris(DCTERMS.identifier)
-        for ref in self.resource.refs(ADMS.identifier):
-            value = ref.value(SKOS.notation) or ref.value(DCTERMS.identifier)
-            if value:
-                out.append(value)
-        return out
-
-    def to_dict(self):
-        # No context/entry id: a nested object is not something you fetch.
-        return dict(uri=self.resource_uri, **{
-            "name": self._text(self.names),
-            "type": self._term(self.agent_type),
-            "homepage": self.homepage,
-            "email": self.mbox,
-            "identifiers": self.identifiers,
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Agent %r %s>" % (self.name, self.resource_uri or "")
-
-
-class Distribution(Entry):
-    """``dcat:Distribution`` -- one downloadable or accessible form of a dataset."""
-
-    rdf_types = (DCAT.Distribution,)
-
-    @property
-    def access_url(self) -> Optional[str]:
-        urls = self.access_urls
-        return urls[0] if urls else None
-
-    @property
-    def access_urls(self) -> List[str]:
-        return self.resource.uris(DCAT.accessURL)
-
-    @property
-    def download_url(self) -> Optional[str]:
-        urls = self.download_urls
-        return urls[0] if urls else None
-
-    @property
-    def download_urls(self) -> List[str]:
-        return self.resource.uris(DCAT.downloadURL)
-
-    @property
-    def format(self) -> Optional[str]:
-        """``dcterms:format`` -- usually an EU file-type authority URI."""
-        return self.resource.uri_of(DCTERMS.format) or self.resource.value(DCTERMS.format)
-
-    @property
-    def media_type(self) -> Optional[str]:
-        return self.resource.uri_of(DCAT.mediaType) or self.resource.value(DCAT.mediaType)
-
-    @property
-    def byte_size(self) -> Optional[int]:
-        """The file's size in bytes, where the publisher states one.
-
-        485 of 34,931 distributions do. A plain integer parse reads 470 of
-        them: 11 are written with a space or a no-break space between the
-        thousands (``5 420 000``), 3 are typed as decimals, and 1 is a date.
-        This reads 484; the date stays unread. Two distributions give two
-        sizes, and the first readable one is used.
-        """
-        for raw in self.resource.values(DCAT.byteSize):
-            size = _whole_number(raw)
-            if size is not None:
-                return size
+def _license(value: Any, lang: str) -> Optional[License]:
+    if not value:
         return None
-
-    @property
-    def license(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.license)
-
-    @property
-    def access_service_uris(self) -> List[str]:
-        """``dcat:accessService`` -- data services serving this distribution."""
-        return self.resource.uris(DCAT.accessService)
-
-    @property
-    def conforms_to(self) -> List[str]:
-        return self.resource.uris(DCTERMS.conformsTo)
-
-    @property
-    def checksum(self) -> Optional[Checksum]:
-        ref = self.resource.ref(SPDX.checksum)
-        return Checksum(ref) if ref is not None else None
-
-    @property
-    def language_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.language)
-
-    @property
-    def issued(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.issued)
-
-    @property
-    def modified_date(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.modified)
-
-    @property
-    def status(self) -> Optional[str]:
-        return self.resource.uri_of(ADMS.status)
-
-    @property
-    def availability(self) -> Optional[str]:
-        """``dcatap:availability`` -- how long the distribution is guaranteed."""
-        return self.resource.uri_of(DCATAP.availability)
-
-    def to_dict(self):
-        # One field per URL. 147 of 35,148 distributions name two access
-        # URLs and 130 two download URLs; the first is kept, and a reader
-        # stops writing `["..."]` around the other 99.6%.
-        out = dict(uri=self.resource_uri, **{
-            "title": self._text(self.titles),
-            "description": self._text(self.descriptions),
-            "access_url": self.access_url,
-            "download_url": self.download_url,
-            "format": self._term(self.format),
-            "license": self._licence(self.license),
-            "status": self._term(self.status),
-            "availability": self._term(self.availability),
-            "languages": self._terms(self.language_uris),
-            "issued": _iso(self.issued),
-            "modified": _iso(self.modified_date),
-            "access_service_uris": self.access_service_uris,
-        })
-        # Present only when known, like `broken`: 1.4% of files state a size,
-        # and a null on the other 98.6% would be a key that says nothing.
-        size = self.byte_size
-        if size is not None:
-            out["byte_size"] = size
-        return out
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Distribution %r %s>" % (self.title, self.download_url or self.access_url or "")
-
-
-class DataService(Entry):
-    """``dcat:DataService`` -- an API that serves datasets."""
-
-    rdf_types = (DCAT.DataService, ESCAPE.IndependentDataService)
-
-    @property
-    def endpoint_url(self) -> Optional[str]:
-        urls = self.endpoint_urls
-        return urls[0] if urls else None
-
-    @property
-    def endpoint_urls(self) -> List[str]:
-        return self.resource.uris(DCAT.endpointURL)
-
-    @property
-    def endpoint_description_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.endpointDescription)
-
-    @property
-    def serves_dataset_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.servesDataset)
-
-    @property
-    def service_type(self) -> Optional[str]:
-        """What kind of service, from ``dcterms:type``.
-
-        Present on 56% of the 599 in the registry, over five values:
-        ``rest`` for the 288 tagged with the Wikidata term, and the INSPIRE
-        ``view_service`` (31), ``download_service`` (14),
-        ``transformation_service`` and ``discovery_service`` (1 each).
-        """
-        return slug_for(self.resource.uri_of(DCTERMS.type))
-
-    @property
-    def keywords_by_language(self) -> Dict[Optional[str], List[str]]:
-        out: Dict[Optional[str], List[str]] = {}
-        for lit in self.resource.literals(DCAT.keyword):
-            out.setdefault(lit.lang, []).append(lit.value)
-        return out
-
-    @property
-    def publisher_uri(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.publisher)
-
-    @property
-    def theme_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.theme)
-
-    @property
-    def license(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.license)
-
-    @property
-    def access_rights(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.accessRights)
-
-    @property
-    def landing_page(self) -> Optional[str]:
-        return self.resource.uri_of(DCAT.landingPage)
-
-    @property
-    def conforms_to(self) -> List[str]:
-        return self.resource.uris(DCTERMS.conformsTo)
-
-    @property
-    def contact_point_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.contactPoint)
-
-    @property
-    def contact_points(self) -> List[ContactPoint]:
-        """Contact points described in this service's own graph."""
-        return _contact_points(self)
-
-    def publisher(self) -> Optional[Agent]:
-        uri = self.publisher_uri
-        if not uri:
-            return None
-        found = self.fetch(uri)
-        return found.as_(Agent) if found else None
-
-    def to_dict(self):
-        """This data service as a plain dict, shaped like a dataset record.
-
-        The same keys mean the same things, so a reader does not have to learn
-        two shapes -- but a data service has no distributions, no periodicity
-        and no spatial coverage, and those keys are absent rather than empty.
-        """
-        return dict(self._envelope_dict(), **{
-            "type": "data_service",
-            "title": self._text(self.titles),
-            "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language),
-            "service_type": self.service_type,
-            # One field per thing. Over all 599: four name more than one
-            # endpoint URL and one more than one description -- the first is
-            # kept. servesDataset (8 of 48) and conformsTo (36 of 177) are
-            # plural often enough to stay lists.
-            "endpoint_url": self.endpoint_url,
-            "endpoint_description": (self.endpoint_description_uris or [None])[0],
-            "serves_datasets": self.serves_dataset_uris,
-            "conforms_to": self.conforms_to,
-            "publisher": self._publisher_dict(),
-            "themes": self._terms(self.theme_uris),
-            "license": self._licence(self.license),
-            "access_rights": self._term(self.access_rights),
-            "landing_page": self.landing_page,
-            "contact_points": [c.to_dict() for c in self.contact_points],
-        })
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<DataService %r %s>" % (self.title, self.endpoint_url or "")
-
-
-def _contact_points(entry: Entry) -> List[ContactPoint]:
-    out: List[ContactPoint] = []
-    for ref in entry.resource.refs(DCAT.contactPoint):
-        out.append(ContactPoint.from_resource(ref, client=entry._client))
-    return out
-
-
-class Dataset(Entry):
-    """``dcat:Dataset`` -- the central class of the registry."""
-
-    rdf_types = (DCAT.Dataset,)
-
-    # -- descriptive -------------------------------------------------------
-
-    @property
-    def keywords(self) -> Dict[str, List[str]]:
-        """``dcat:keyword`` values as ``{"sv": [...], "en": [...]}``.
-
-        Keywords are the field publishers tag most erratically -- a quarter of
-        them arrive ``und`` -- so the fold in :func:`_langmap` does real work
-        here.
-        """
-        return _langmap(self.keywords_by_language)
-
-    @property
-    def keywords_by_language(self) -> Dict[Optional[str], List[str]]:
-        out: Dict[Optional[str], List[str]] = {}
-        for lit in self.resource.literals(DCAT.keyword):
-            out.setdefault(lit.lang, []).append(lit.value)
-        return out
-
-    @property
-    def identifier(self) -> Optional[str]:
-        values = self.resource.values(DCTERMS.identifier)
-        if values:
-            return values[0]
-        return self.resource.uri_of(DCTERMS.identifier)
-
-    @property
-    def landing_page(self) -> Optional[str]:
-        return self.resource.uri_of(DCAT.landingPage)
-
-    @property
-    def theme_uris(self) -> List[str]:
-        """``dcat:theme`` -- data theme / category URIs."""
-        return self.resource.uris(DCAT.theme)
-
-    @property
-    def subject_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.subject)
-
-    @property
-    def language_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.language)
-
-    @property
-    def spatial_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.spatial)
-
-    @property
-    def accrual_periodicity(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.accrualPeriodicity)
-
-    @property
-    def access_rights(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.accessRights)
-
-    @property
-    def license(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.license)
-
-    @property
-    def version(self) -> Optional[str]:
-        return self.resource.value(OWL.versionInfo) or self.resource.value(DCAT.version)
-
-    @property
-    def provenance(self) -> List[str]:
-        return self.resource.values(DCTERMS.provenance) + self.resource.uris(DCTERMS.provenance)
-
-    @property
-    def conforms_to(self) -> List[str]:
-        return self.resource.uris(DCTERMS.conformsTo)
-
-    @property
-    def source_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.source)
-
-    @property
-    def hvd_categories(self) -> List[str]:
-        """``dcatap:hvdCategory`` -- high-value dataset categories."""
-        return self.resource.uris(DCATAP.hvdCategory)
-
-    @property
-    def applicable_legislation(self) -> List[str]:
-        return self.resource.uris(DCATAP.applicableLegislation)
-
-    # -- dates -------------------------------------------------------------
-
-    @property
-    def issued(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        return self.resource.date(DCTERMS.issued)
-
-    @property
-    def modified_date(self) -> Optional[Union[_dt.date, _dt.datetime]]:
-        """``dcterms:modified`` from the publisher (not the harvest time)."""
-        return self.resource.date(DCTERMS.modified)
-
-    @property
-    def temporal(self) -> Optional[PeriodOfTime]:
-        ref = self.resource.ref(DCTERMS.temporal)
-        return PeriodOfTime(ref) if ref is not None else None
-
-    @property
-    def temporal_resolution(self) -> Optional[str]:
-        return self.resource.value(DCAT.temporalResolution)
-
-    @property
-    def spatial_resolution_in_meters(self) -> Optional[float]:
-        value = self.resource.python(DCAT.spatialResolutionInMeters)
-        return float(value) if isinstance(value, (int, float)) else None
-
-    # -- relationships -----------------------------------------------------
-
-    @property
-    def publisher_uri(self) -> Optional[str]:
-        return self.resource.uri_of(DCTERMS.publisher)
-
-    @property
-    def distribution_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.distribution)
-
-    @property
-    def in_series_uris(self) -> List[str]:
-        return self.resource.uris(DCAT.inSeries)
-
-    @property
-    def is_part_of_uris(self) -> List[str]:
-        return self.resource.uris(DCTERMS.isPartOf)
-
-    @property
-    def contact_point_uris(self) -> List[str]:
-        """Every ``dcat:contactPoint`` reference, resolved or not."""
-        return self.resource.uris(DCAT.contactPoint)
-
-    @property
-    def contact_points(self) -> List[ContactPoint]:
-        """Contact points described in this dataset's own graph.
-
-        A search hit carries only the reference when the contact point is a
-        URI rather than a blank node; use :meth:`fetch_contact_points` (or
-        fetch the dataset with ``recursive=True``) to resolve those.
-        """
-        return _contact_points(self)
-
-    def fetch_contact_points(self) -> List[ContactPoint]:
-        """Contact points, resolving any that are referenced by URI only."""
-        inline = _contact_points(self)
-        described = {c.uri for c in inline}
-        missing = [u for u in self.contact_point_uris if u not in described]
-        if not missing:
-            return inline
-        return inline + [e.as_(ContactPoint) for e in self.fetch_many(missing)]
-
-    # -- lazy lookups ------------------------------------------------------
-
-    def publisher(self) -> Optional[Agent]:
-        """Fetch the publishing agent (one extra request)."""
-        uri = self.publisher_uri
-        if not uri:
-            return None
-        found = self.fetch(uri)
-        return found.as_(Agent) if found else None
-
-    def distributions(self) -> List[Distribution]:
-        """Fetch this dataset's distributions.
-
-        A search hit carries only the distribution URIs; calling this resolves
-        them in batches. The catalogue download avoids the round trips
-        entirely by crawling every distribution once and splicing them in.
-        """
-        inline = [
-            Distribution.from_resource(ref, client=self._client, context_id=self.context_id)
-            for ref in self.resource.refs(DCAT.distribution)
-            if ref.is_a(DCAT.Distribution)
-        ]
-        uris = self.distribution_uris
-        if inline and len(inline) == len(uris):
-            # A recursive fetch already delivered every distribution inline.
-            return inline
-        if not uris:
-            return inline
-        return [e.as_(Distribution) for e in self.fetch_many(uris)]
-
-    def to_dict(self, distributions=True):
-        """This dataset as a plain, JSON-serializable dict.
-
-        One key per concept: ``title``, ``description`` and ``keywords`` are
-        language maps, never a scalar plus a plural. Vocabulary URIs come back
-        as short names -- ``"transport"``, not a URI -- dates as ISO strings,
-        and the publisher and any inline distributions as nested dicts.
-
-        Fields that are empty for ~97%+ of the registry are left out to keep
-        the output workable -- ``version``, ``provenance``, ``subjects``,
-        ``hvd_categories``, ``source_uris`` and similar. They remain available
-        as typed properties on the model (``dataset.version``) and in
-        :meth:`to_rdf_dict`, which holds everything the publisher supplied.
-
-        ``distributions`` includes the distributions present in this entry's
-        graph -- all of them after a ``recursive=True`` fetch, none of them
-        for a plain search hit, where ``distribution_uris`` still lists the
-        references.
-        """
-        temporal = self.temporal
-        out = dict(self._envelope_dict(), **{
-            "type": "dataset",
-            "title": self._text(self.titles),
-            "description": self._text(self.descriptions),
-            "keywords": self._text(self.keywords_by_language),
-            "identifier": self.identifier,
-            "landing_page": self.landing_page,
-            "publisher": self._publisher_dict(),
-            "themes": self._terms(self.theme_uris),
-            "license": self._licence(self.license),
-            "access_rights": self._term(self.access_rights),
-            "accrual_periodicity": self._term(self.accrual_periodicity),
-            "languages": self._terms(self.language_uris),
-            "spatial": self._terms(self.spatial_uris),
-            "temporal": temporal.to_dict() if temporal else None,
-            "issued": _iso(self.issued),
-            "modified": _iso(self.modified_date),
-            "contact_points": [c.to_dict() for c in self.contact_points],
-        })
-        if distributions:
-            out["distributions"] = [
-                Distribution.from_resource(ref, client=self._client).to_dict()
-                for ref in self.resource.refs(DCAT.distribution)
-                if ref.is_a(DCAT.Distribution)
-            ]
-        return out
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<Dataset %r %s/%s>" % (self.title, self.context_id, self.entry_id)
+    return License(value.get("id"), _text(value.get("label"), lang), value.get("uri"))
+
+
+def _contacts(values: Any) -> List[Contact]:
+    return [Contact(c.get("uri"), c.get("name"), c.get("email")) for c in values or ()]
+
+
+def _publisher(value: Any, lang: str, facets: Optional["Facets"] = None) -> Publisher:
+    value = value or {}
+    return Publisher(
+        id=value.get("id"), uri=value.get("uri"), name=_text(value.get("name"), lang),
+        alias=value.get("alias"), type=value.get("type"),
+        homepage=value.get("homepage"), email=value.get("email"),
+        identifiers=[*(value.get("identifiers") or ())],
+        dataset_count=value.get("dataset_count"),
+        data_service_count=value.get("data_service_count"),
+        facets=_localize(facets, lang) if facets is not None else None)
+
+
+def _distribution(d: Mapping[str, Any], lang: str) -> Distribution:
+    return Distribution(
+        uri=d.get("uri"), title=_text(d.get("title"), lang),
+        description=_text(d.get("description"), lang),
+        access_url=d.get("access_url"), download_url=d.get("download_url"),
+        format=d.get("format"), license=_license(d.get("license"), lang),
+        status=d.get("status"), availability=d.get("availability"),
+        languages=[*(d.get("languages") or ())], issued=d.get("issued"),
+        modified=d.get("modified"),
+        access_service_uris=[*(d.get("access_service_uris") or ())],
+        kind=d.get("kind") or "unknown", broken=_mark(d.get("broken")),
+        unverified=_mark(d.get("unverified")), byte_size=d.get("byte_size"))
+
+
+def _dataset(d: Mapping[str, Any], lang: str) -> Dataset:
+    temporal = d.get("temporal")
+    return Dataset(
+        uri=d.get("uri"), context_id=d.get("context_id"), entry_id=d.get("entry_id"),
+        type=d.get("type") or "dataset", title=_text(d.get("title"), lang),
+        description=_text(d.get("description"), lang),
+        keywords=_keywords(d.get("keywords"), lang),
+        identifier=d.get("identifier"), landing_page=d.get("landing_page"),
+        publisher=_publisher(d.get("publisher"), lang),
+        themes=[*(d.get("themes") or ())], license=_license(d.get("license"), lang),
+        access_rights=d.get("access_rights"),
+        accrual_periodicity=d.get("accrual_periodicity"),
+        languages=[*(d.get("languages") or ())], spatial=[*(d.get("spatial") or ())],
+        temporal=Temporal(temporal.get("start"), temporal.get("end")) if temporal else None,
+        issued=d.get("issued"), modified=d.get("modified"),
+        contact_points=_contacts(d.get("contact_points")),
+        distributions=[_distribution(dist, lang) for dist in d.get("distributions") or ()],
+        stale=_mark(d.get("stale")))
+
+
+def _data_service(d: Mapping[str, Any], lang: str) -> DataService:
+    return DataService(
+        uri=d.get("uri"), context_id=d.get("context_id"), entry_id=d.get("entry_id"),
+        type=d.get("type") or "data_service", title=_text(d.get("title"), lang),
+        description=_text(d.get("description"), lang),
+        keywords=_keywords(d.get("keywords"), lang),
+        service_type=d.get("service_type"), endpoint_url=d.get("endpoint_url"),
+        endpoint_description=d.get("endpoint_description"),
+        serves_datasets=[*(d.get("serves_datasets") or ())],
+        conforms_to=[*(d.get("conforms_to") or ())],
+        publisher=_publisher(d.get("publisher"), lang),
+        themes=[*(d.get("themes") or ())], license=_license(d.get("license"), lang),
+        access_rights=d.get("access_rights"), landing_page=d.get("landing_page"),
+        contact_points=_contacts(d.get("contact_points")), stale=_mark(d.get("stale")))
+
+
+def _record(d: Mapping[str, Any], lang: str) -> Any:
+    """A dataset or a data service, by its ``type``."""
+    if d.get("type") == "data_service":
+        return _data_service(d, lang)
+    return _dataset(d, lang)
+
+
+def _localize(facets: "Facets", lang: str) -> "Facets":
+    """The same facets, their labels reading in ``lang``."""
+    return Facets({
+        name: Facet([FacetValue(row.value, row.count, row.label._in(lang))
+                     for row in values], values.omitted)
+        for name, values in facets._counts.items()})
+
+
+# --- facets -----------------------------------------------------------------
 
 
 class FacetValue(_namedtuple("FacetValue", "value count")):
     """One value a filter accepts, and how many records carry it.
 
     Still a plain ``(value, count)`` pair, so it unpacks in a loop and
-    compares equal to one. ``count`` is records of whatever was searched --
-    datasets from ``datasets()``, data services from ``data_services()`` --
-    which is why it is not called ``count`` any more. It shadows
-    ``tuple.count`` on purpose: nobody counts occurrences in a pair::
+    compares equal to one::
 
-        for value, count in page.facets["theme"]:
+        for value, count in result.facets["theme"]:
             ...
 
-    :attr:`label` rides alongside rather than in the tuple -- ``{"sv": ...,
-    "en": ...}``, from the vocabulary for a controlled value and from the
-    records themselves for a publisher. It is ``{}`` for values
-    that are their own label, such as keywords.
+    :attr:`label` rides alongside rather than in the tuple -- a
+    :class:`MultilingualText`, from the vocabulary for a controlled value and
+    from the records themselves for a publisher. It is empty for values
+    that are their own label, such as keywords and kinds::
 
-        row = page.facets["publisher"][0]
+        row = result.facets["publisher"][0]
         row.value                     # 'trafikverket', what you filter with
-        row.label["sv"]               # 'Trafikverket', what you show
+        row.label.text()              # 'Trafikverket', what you show
 
     It is not part of the tuple, so ``_replace`` and pickling drop it, and
     the class carries a ``__dict__`` to hold it -- a namedtuple subclass
@@ -1281,17 +562,26 @@ class FacetValue(_namedtuple("FacetValue", "value count")):
 
     def __new__(cls, value, count, label=None):
         row = super().__new__(cls, value, count)
-        row.label = label or {}
+        row.label = (label if isinstance(label, MultilingualText)
+                     else MultilingualText(label or None))
         return row
 
+    def to_dict(self) -> Dict[str, Any]:
+        """``{"value", "count", "label"}``."""
+        return {"value": self.value, "count": self.count, "label": self.label.to_dict()}
 
-# --- search results ---------------------------------------------------------
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
 
 
 #: What a dataset can be filtered and faceted by. Every one was measured
-#: over all 23,575 datasets: publisher and license are on 100% of them,
-#: keyword 94.8%, language 89.3%, access_rights 82.3%, theme 78.2%, format
-#: 69.7%, updated 63.3%.
+#: over all 23,575 datasets: publisher is on 100% of them, keyword 94.8%,
+#: access_rights 82.3%, theme 78.2%, format 69.7%, accrual_periodicity 63.3%.
+#:
+#: `license` and `language` were filters and are not any more: every
+#: dataset still carries them (`dataset.license.id`, `dataset.languages`),
+#: but they are read, not searched by. `updated` is `accrual_periodicity`,
+#: named after the field it reads.
 #:
 #: `place` was one of these and is not any more. 4,471 datasets set a
 #: spatial coverage (19%), and 3,068 of those say "Sweden". The 1,902 with a
@@ -1312,18 +602,21 @@ class FacetValue(_namedtuple("FacetValue", "value count")):
 #: `retrieval.classify` reads out of each distribution, so it exists in a
 #: downloaded catalogue and not in the registry's index.
 DATASET_FILTERS = ("publisher", "publisher_type", "theme",
-                   "keyword", "format", "kind", "license", "access_rights",
-                   "updated", "language")
+                   "keyword", "format", "kind", "access_rights",
+                   "accrual_periodicity")
 
 #: The same for a data service, and it is a different list. Over all 599:
 #: access_rights 97.8%, publisher 97.3%, keyword 83.5%, service_type 55.9%,
-#: theme 53.8%, license 51.8%. The three that are missing are missing for a
-#: reason -- a data service has no distributions (so no `format`) and no
-#: `accrual_periodicity` (no `updated`), and `language` has one single value
-#: across all 599.
+#: theme 53.8%. A data service has no distributions (so no `format` or
+#: `kind`) and no `accrual_periodicity`.
 DATA_SERVICE_FILTERS = ("publisher", "publisher_type",
-                        "service_type", "theme", "keyword", "license",
-                        "access_rights")
+                        "service_type", "theme", "keyword", "access_rights")
+
+#: What :meth:`Catalog.publishers` can be narrowed by: the filters datasets
+#: and data services share, so a publisher's two counts answer the same
+#: question.
+PUBLISHER_FILTERS = ("publisher", "publisher_type", "theme", "keyword",
+                     "access_rights")
 
 
 class Facet(list):
@@ -1331,7 +624,7 @@ class Facet(list):
 
     A plain list of ``(value, count)`` pairs, biggest first::
 
-        for value, count in page.facets["publisher"]:
+        for value, count in result.facets["publisher"]:
             ...
 
     ``omitted`` is how many further values there were, above whatever
@@ -1344,6 +637,13 @@ class Facet(list):
         super().__init__(values)
         self.omitted = omitted
 
+    def to_dict(self) -> List[Dict[str, Any]]:
+        """Each value as ``{"value", "count", "label"}``, biggest first."""
+        return [row.to_dict() for row in self]
+
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
+
     def __repr__(self) -> str:                            # pragma: no cover
         more = " +%d more" % self.omitted if self.omitted else ""
         return "<Facet %d%s>" % (len(self), more)
@@ -1355,15 +655,15 @@ class Facets(_Mapping):
     Every filter you can search by, counted over everything that matched --
     not just the rows you are holding::
 
-        page = catalog.datasets(query="cykel")
-        page.total                   # 388
-        page.facets["publisher"]     # [('trafikverket', 88), ...]
-        page.facets["theme"]         # [('transport', 201), ...]
+        result = catalog.search(query="cykel")
+        result.total                   # 388
+        result.facets["publisher"]     # [('trafikverket', 88), ...]
+        result.facets["theme"]         # [('transport', 201), ...]
 
     You filter with a value; a facet tells you which values there are. Each
     one can be fed straight back in to narrow the search::
 
-        catalog.datasets(query="cykel", publisher="trafikverket")
+        catalog.search(query="cykel", publisher="trafikverket")
 
     Counts are per dataset: a dataset with three CSV files counts once under
     ``format`` -> ``csv``.
@@ -1379,10 +679,11 @@ class Facets(_Mapping):
         self._counts = {}
         for name in counts:
             values = list(counts[name])
+            omitted = getattr(counts[name], "omitted", 0)
             if limit is not None and len(values) > limit:
-                self._counts[name] = Facet(values[:limit], len(values) - limit)
+                self._counts[name] = Facet(values[:limit], omitted + len(values) - limit)
             else:
-                self._counts[name] = Facet(values)
+                self._counts[name] = Facet(values, omitted)
 
     @property
     def omitted(self) -> Dict[str, int]:
@@ -1417,187 +718,24 @@ class Facets(_Mapping):
         found = self[filter]
         return found[0] if found else None
 
-    def to_dict(self) -> Dict[str, Dict[str, int]]:
-        """``{filter: {value: count}}``, JSON-serializable and still ordered.
+    def to_dict(self) -> Dict[str, List[Dict[str, Any]]]:
+        """``{filter: [{"value", "count", "label"}, ...]}``, biggest first.
 
-        Any values cut by a ``facet_limit`` are counted in
-        :attr:`omitted` rather than here.
+        Any values cut by a ``facet_limit`` are counted in :attr:`omitted`
+        rather than here.
         """
+        return {name: values.to_dict() for name, values in self._counts.items()}
+
+    def counts(self) -> Dict[str, Dict[str, int]]:
+        """``{filter: {value: count}}``: the compact form, without labels."""
         return {
             name: {value: count for value, count in values}
             for name, values in self._counts.items()
         }
 
+    def __str__(self) -> str:
+        return _dumps(self.to_dict())
+
     def __repr__(self) -> str:                            # pragma: no cover
         return "<Facets %s>" % " ".join(
             "%s=%d" % (name, len(values)) for name, values in self._counts.items())
-
-
-class Results(List[R]):
-    """What a search gives you: a list of record dicts, and the total.
-
-    It *is* a list -- index it, slice it, loop over it, pass it to
-    ``pandas.DataFrame`` -- and it carries what the registry said about the
-    wider result::
-
-        page = catalog.datasets(theme="transport")
-        len(page)        # what you got, at most `limit`
-        page.total       # how many matched altogether
-        page.has_more    # whether anything follows
-        page.facets      # what all of them are made of, per filter
-
-    The same type comes back whether the search ran against the local
-    catalogue or the registry, so code does not care which it used.
-    """
-
-    __slots__ = ("total", "offset", "limit", "facets")
-
-    def __init__(
-        self,
-        records: Sequence[R] = (),
-        total: Optional[int] = None,
-        offset: int = 0,
-        limit: Optional[int] = None,
-        facets: Optional["Facets"] = None,
-    ) -> None:
-        super().__init__(records)
-        self.total = len(self) if total is None else int(total)
-        self.offset = offset
-        self.limit = limit
-        #: What everything that matched is made of -- see :class:`Facets`.
-        self.facets = facets if facets is not None else Facets({})
-
-    @property
-    def has_more(self) -> bool:
-        """Whether more matched than you are holding.
-
-        Over the API ``total`` is the index's estimate, so treat it as a hint;
-        against a local catalogue it is exact.
-        """
-        return self.offset + len(self) < self.total
-
-    def __repr__(self) -> str:                            # pragma: no cover
-        return "<Results %d of %d>" % (len(self), self.total)
-
-
-class SearchPage(_ABCSequence):
-    """One page of search results.
-
-    Behaves like a list of entries and additionally carries ``total``,
-    ``offset`` and ``limit``. The registry's own facet response, when one was
-    asked for, is in ``raw["facetFields"]``.
-    """
-
-    __slots__ = ("entries", "total", "offset", "limit", "raw", "_client", "_params")
-
-    def __init__(
-        self,
-        entries: Sequence[Entry],
-        total: int,
-        offset: int,
-        limit: int,
-        raw: Optional[Mapping[str, Any]] = None,
-        client: Any = None,
-        params: Optional[Mapping[str, Any]] = None,
-    ) -> None:
-        self.entries = list(entries)
-        self.total = total
-        self.offset = offset
-        self.limit = limit
-        self.raw = dict(raw or {})
-        self._client = client
-        self._params = dict(params or {})
-
-    def __getitem__(self, index):  # type: ignore[override]
-        return self.entries[index]
-
-    def __len__(self) -> int:
-        return len(self.entries)
-
-    def __iter__(self) -> Iterator[Entry]:
-        return iter(self.entries)
-
-    @property
-    def has_more(self) -> bool:
-        """Whether another page exists.
-
-        ``total`` is a Solr estimate that can exceed the number of entries the
-        caller may actually read, so treat this as a hint.
-        """
-        return self.offset + len(self.entries) < self.total and bool(self.entries)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """The whole page as a plain dict: totals and entries."""
-        return {
-            "total": self.total,
-            "offset": self.offset,
-            "limit": self.limit,
-            "count": len(self.entries),
-            "has_more": self.has_more,
-            "results": [entry.to_dict() for entry in self.entries],
-        }
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """:meth:`to_dict` rendered as a JSON string."""
-        return _json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
-
-    def next_page(self) -> Optional["SearchPage"]:
-        """Fetch the following page, or ``None`` when exhausted."""
-        if not self.has_more or self._client is None:
-            return None
-        params = dict(self._params)
-        params["offset"] = self.offset + len(self.entries)
-        return self._client._search(**params)
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return "<SearchPage %d-%d of ~%d>" % (
-            self.offset,
-            self.offset + len(self.entries),
-            self.total,
-        )
-
-
-# --- rdf:type -> model mapping ----------------------------------------------
-
-MODEL_REGISTRY: Dict[str, Type[Entry]] = {}
-
-
-def register_model(model: Type[Entry], *rdf_types: str) -> Type[Entry]:
-    """Register a model class for one or more ``rdf:type`` URIs."""
-    for rdf_type in rdf_types or model.rdf_types:
-        MODEL_REGISTRY[expand(rdf_type)] = model
-    return model
-
-
-for _model in (
-    Dataset,
-    Distribution,
-    DataService,
-    Agent,
-    ContactPoint,
-):
-    register_model(_model)
-
-def wrap_entry(
-    data: Mapping[str, Any],
-    *,
-    client: Any = None,
-    default: Optional[Type[Entry]] = None,
-) -> Entry:
-    """Build the most specific :class:`Entry` subclass for a search hit."""
-    base = Entry.from_json(data, client=client)
-    if default is not None:
-        return base.as_(default)
-    types = set(base.resource.types)
-    for rdf_type in _TYPE_PRIORITY:
-        # `in MODEL_REGISTRY` rather than a bare lookup: _TYPE_PRIORITY names
-        # dcat:DatasetSeries, which has no model, and the registry holds 13
-        # of them. A hit would have raised KeyError instead of giving back a
-        # plain Entry.
-        if rdf_type in types and rdf_type in MODEL_REGISTRY:
-            return base.as_(MODEL_REGISTRY[rdf_type])
-    for rdf_type in types:
-        model = MODEL_REGISTRY.get(rdf_type)
-        if model is not None:
-            return base.as_(model)
-    return base

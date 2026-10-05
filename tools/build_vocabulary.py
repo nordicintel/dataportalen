@@ -49,7 +49,7 @@ from typing import Dict, Iterable, Optional, Set
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dataportalen.client import STABLE_SORT, _Registry  # noqa: E402
-from dataportalen.models import Dataset  # noqa: E402
+from dataportalen.entries import DatasetEntry  # noqa: E402
 from dataportalen.query import Q, predicate_field  # noqa: E402
 from dataportalen.rdf import DCAT as _DCAT  # noqa: E402
 
@@ -353,7 +353,7 @@ def sample_datasets(client, sample: int, seed: int) -> list:
     total = client._count(query)
 
     def read(offset, limit):
-        return client._search(query, model=Dataset, limit=limit, offset=offset,
+        return client._search(query, model=DatasetEntry, limit=limit, offset=offset,
                               sort=STABLE_SORT).entries
 
     if sample >= total:

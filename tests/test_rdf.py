@@ -407,10 +407,52 @@ def test_every_alias_names_a_publisher_the_package_can_resolve():
     """The file is kept by hand; a typo in it must fail here, not in a search."""
     from dataportalen.rdf import _ALIASES, _PUBLISHERS
 
-    assert _ALIASES, "aliases.json shipped empty"
+    assert _ALIASES, "publishers.json shipped without aliases"
     for alias, target in _ALIASES.items():
         assert target in _PUBLISHERS, "%s -> %s is not a publisher" % (alias, target)
         assert alias not in _PUBLISHERS, "%s shadows a real publisher" % alias
+
+
+def test_a_publisher_has_at_most_one_alias_and_no_two_share_one():
+    """One short name per publisher, unique: an alias names exactly one."""
+    import json
+
+    from dataportalen.rdf import _ALIASES, _PUBLISHERS_FILE, alias_for
+
+    with open(_PUBLISHERS_FILE, encoding="utf-8") as handle:
+        table = json.load(handle)["publishers"]
+    given = [row["alias"] for row in table.values() if row.get("alias")]
+    assert len(given) == len(set(given)) == len(_ALIASES)
+    targets = list(_ALIASES.values())
+    assert len(targets) == len(set(targets))
+    for alias, target in _ALIASES.items():
+        assert alias_for(target) == alias
+
+
+def test_a_colliding_alias_is_left_out_not_chosen(monkeypatch, tmp_path):
+    """Two claims on one alias, or an alias that is an id: neither wins."""
+    import json
+
+    from dataportalen import rdf
+
+    path = tmp_path / "publishers.json"
+    path.write_text(json.dumps({"publishers": {
+        "a_myndighet": {"uri": "http://dataportal.se/organisation/SE1111111111",
+                        "alias": "am"},
+        "a_museum": {"uri": "http://example.org/museum", "alias": "am"},
+        "b_verket": {"uri": "http://example.org/b", "alias": "a_museum"},
+    }}), encoding="utf-8")
+    monkeypatch.setattr(rdf, "_PUBLISHERS_FILE", str(path))
+    by_slug, by_uri, aliases = rdf._build_publishers()
+    assert aliases == {}
+    assert by_slug["se1111111111"] == ["http://dataportal.se/organisation/SE1111111111"]
+
+
+def test_an_organisation_number_is_read_from_the_uri():
+    from dataportalen.rdf import publisher_for, resolve_publisher
+
+    assert resolve_publisher("se2021006297") == resolve_publisher("trafikverket")
+    assert publisher_for(resolve_publisher("SE2021006297")[0]) == "trafikverket"
 
 
 def test_publisher_for_is_the_reverse_of_the_filter_value():

@@ -109,7 +109,7 @@ def _file(name: str, format: str) -> Dict[str, Any]:
 
 
 def _agent(uri: str, name: str) -> Dict[str, Any]:
-    """A publisher as the download stores it; `id` and `aliases` are added
+    """A publisher as the download stores it; `id` and `alias` are added
     when the record is read."""
     return {"uri": uri, "name": {"sv": name}, "type": "national_authority",
             "homepage": None, "email": None, "identifiers": []}
@@ -291,7 +291,7 @@ def cat(transport: FakeTransport, tmp_path):
     from dataportalen import Catalog
 
     with Catalog(write_catalog(tmp_path), max_age=None,
-                 _transport=transport, access_rights=None) as catalog:
+                 _transport=transport) as catalog:
         yield catalog
 
 

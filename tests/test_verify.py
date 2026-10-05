@@ -1,7 +1,7 @@
 """Asking a server whether a distribution is there.
 
 The registry's checker could not get through to a third of what it marks.
-`Catalog.verify` asks again from here -- only when called -- and this is how
+`Catalog._verify` asks again from here -- only when called -- and this is how
 an answer becomes a verdict.
 """
 
@@ -233,7 +233,7 @@ def test_one_host_is_paused_between_requests():
     assert pauses == [0.4, 0.4]
 
 
-# -- Catalog.verify ------------------------------------------------------------
+# -- Catalog._verify -----------------------------------------------------------
 
 
 def with_files(*pairs):
@@ -261,7 +261,7 @@ def path(tmp_path):
 
 def verified(path, site, **kwargs):
     cat = Catalog(path, max_age=None, _transport=site, exclude_broken=False)
-    summary = cat.verify(_insecure=site, **kwargs)
+    summary = cat._verify(_insecure=site, **kwargs)
     return cat, summary
 
 
@@ -274,12 +274,12 @@ def test_verify_asks_about_the_unverified_and_nothing_else(path, monkeypatch):
     assert summary["checked"] == 3
     assert (summary["alive"], summary["dead"], summary["unverified"]) == (1, 1, 1)
 
-    by_url = {d["access_url"]: d for d in cat.datasets()[0]["distributions"]}
-    assert "unverified" not in by_url[RESET] and "broken" not in by_url[RESET]
-    assert by_url[GONE]["broken"]["reason"] == "Not Found"
-    assert by_url[GONE]["broken"]["by"] == "local"
-    assert by_url[STILL]["unverified"] == {"reason": "maximum redirect reached",
-                                           "checked": CHECKED}
+    by_url = {d.access_url: d for d in cat.datasets()[0].distributions}
+    assert by_url[RESET].unverified is None and by_url[RESET].broken is None
+    assert by_url[GONE].broken.reason == "Not Found"
+    assert by_url[GONE].broken.by == "local"
+    assert by_url[STILL].unverified.to_dict() == {
+        "reason": "maximum redirect reached", "checked": CHECKED, "by": None}
 
 
 def test_what_it_found_is_stored_and_read_by_everything(path, monkeypatch):
@@ -289,7 +289,7 @@ def test_what_it_found_is_stored_and_read_by_everything(path, monkeypatch):
     by_url = {d["access_url"]: d for d in read_catalog(path)[0]["distributions"]}
     assert by_url[GONE]["broken"]["by"] == "local"
     later = Catalog(path, max_age=None, _transport=Site())
-    assert GONE not in [d["access_url"] for d in later.datasets()[0]["distributions"]]
+    assert GONE not in [d.access_url for d in later.datasets()[0].distributions]
     assert later.info()["excluded"]["dead_distributions"] == 1
 
 
@@ -300,8 +300,8 @@ def test_a_later_registry_verdict_beats_an_older_local_one(tmp_path, monkeypatch
     record["distributions"][0]["broken"]["checked"] = "2999-01-01T00:00:00"
     path = write_catalog(tmp_path, [record])
     cat, _ = verified(path, Site(), which="broken")
-    assert cat.datasets()[0]["distributions"][0]["broken"] == {
-        "reason": "Not Found", "checked": "2999-01-01T00:00:00"}
+    assert cat.datasets()[0].distributions[0].broken.to_dict() == {
+        "reason": "Not Found", "checked": "2999-01-01T00:00:00", "by": None}
 
 
 def test_a_newer_local_look_brings_a_dead_distribution_back(tmp_path, monkeypatch):
@@ -309,13 +309,17 @@ def test_a_newer_local_look_brings_a_dead_distribution_back(tmp_path, monkeypatc
     path = write_catalog(tmp_path, [with_files((GONE, "Not Found"))])
     cat, summary = verified(path, Site(), which="broken")
     assert summary["alive"] == 1
-    assert "broken" not in cat.datasets()[0]["distributions"][0]
+    assert cat.datasets()[0].distributions[0].broken is None
 
 
 def test_which_must_be_one_of_three(path):
     cat = Catalog(path, max_age=None, _transport=Site())
     with pytest.raises(QueryError):
-        cat.verify("everything")
+        cat._verify("everything")
+
+
+def test_verify_is_not_public(path):
+    assert not hasattr(Catalog(path, max_age=None, _transport=Site()), "verify")
 
 
 def test_nothing_is_asked_unless_verify_is_called(path):

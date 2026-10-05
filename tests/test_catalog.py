@@ -291,7 +291,7 @@ def test_a_publisher_is_resolved_not_left_as_a_uri(full_export, tmp_path):
     download_catalog(str(out), client=_Registry(transport=full_export))
     dataset = read_catalog(str(out))[0]
     assert dataset["publisher"] == {
-        "id": "trafikverket", "aliases": [],
+        "id": "trafikverket", "alias": None,
         "uri": "http://example.org/org",
         "name": {"sv": "Trafikverket"},
         "type": "national_authority",

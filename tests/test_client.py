@@ -15,7 +15,7 @@ from dataportalen import (
     TransportError,
 )
 from dataportalen.client import _Registry
-from dataportalen.models import Dataset
+from dataportalen.entries import DatasetEntry
 from dataportalen.query import Q
 from dataportalen.rdf import DCAT
 
@@ -83,7 +83,7 @@ def test_search_page_exposes_totals_and_typed_entries(client, transport, search_
     page = client._search()
     assert page.total == search_response["results"]
     assert len(page) == len(search_response["resource"]["children"])
-    assert all(isinstance(e, Dataset) for e in page)
+    assert all(isinstance(e, DatasetEntry) for e in page)
     assert page[0].title
 
 

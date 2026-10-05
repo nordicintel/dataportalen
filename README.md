@@ -5,7 +5,7 @@
 [![Licence](https://img.shields.io/pypi/l/dataportalen)](LICENSE)
 
 Python access to [dataportal.se](https://www.dataportal.se) that gives you
-**plain dicts, not RDF**.
+**Python objects, not RDF**.
 
 Sweden's open-data registry describes its 23,500 datasets in RDF, which means
 every value arrives as a web address: a dataset about roads is filed under
@@ -15,7 +15,7 @@ under "transport". Working out that it means "transport" is, per the
 problem.
 
 This package makes it not your problem. You search with words and you get
-dictionaries back.
+datasets back, as objects or as plain dicts.
 
 ## Install
 
@@ -29,44 +29,46 @@ Distribution and import name are both `dataportalen`. The unrelated
 ## Quick start
 
 ```python
-from dataportalen import Catalog, text
+from dataportalen import Catalog
 
 catalog = Catalog()      # downloads the catalogue the first time: ~7 min, ~95 MB
-print(catalog.info())    # {'datasets': 17555, 'data_services': 578, ...}
+print(catalog.info())    # {'datasets': 23422, 'data_services': 599, ...}
 
-page = catalog.datasets(theme="transport", format="csv")
-print(page.total)                    # 44
-print(page.facets["publisher"][:3])  # who publishes them
+result = catalog.search(theme="transport", format="csv")
+print(result.total)                    # 57
+print(result.facets["publisher"][:3])  # who publishes them
 
-for dataset in page:
-    print(text(dataset["title"]), text(dataset["publisher"]["name"]))
-    for dist in dataset["distributions"]:
-        print("   ", dist["format"], dist["access_url"])
+for dataset in result.datasets:
+    print(dataset.title.text(), dataset.publisher.name.text())
+    for dist in dataset.distributions:
+        print("   ", dist.kind, dist.format, dist.access_url)
 ```
 
 **That first line takes about seven minutes.** It downloads the whole catalogue
-once, and every search after that is local and takes hundredths of a second.
+once, and every call after that is local and takes hundredths of a second.
 When the copy is over a week old, the next `Catalog()` catches up in under a
 minute.
 
-By default the catalogue holds the datasets that say `public`, minus the
-distributions the registry's nightly link check got an HTTP error for or found
-no host for, and the datasets left with none. A distribution the check could
-not get through to stays, marked `unverified`; `catalog.verify()` asks its
-server directly, and is the only call that ever contacts a publisher.
-`Catalog(access_rights=None, exclude_broken=False)` holds everything.
+What comes back are four models — `Dataset`, `DataService`, `Distribution`
+and `Publisher` — read by attribute. Text a publisher wrote is a
+`MultilingualText`: `.text()` gives Swedish, or English where there is no
+Swedish; `Catalog(language="en")` turns that round. Every model has
+`to_dict()`, printing one prints its JSON, and every method takes
+`as_dict=True` for plain dicts.
 
-Every distribution says what it is — `kind` is `file`, `pxweb`, `api`,
-`web_page` and so on — and `kind="file"` filters on it.
+`search()` finds datasets and counts what they are made of — the facets.
+`datasets()`, `data_services()` and `publishers()` list every match of the
+filters you give them. Every distribution says what it is — `kind` is `file`,
+`pxweb`, `api`, `web_page` and so on — and `kind="file"` filters on it.
 
-Publishers are there too: `catalog.publishers()` lists them, and
-`catalog.publisher("scb")` is one of them with what it publishes.
-`catalog.sources()` lists the source catalogues the registry harvests, and a
-record from one whose latest harvest failed carries `stale`.
+The catalogue holds every dataset in the registry, minus the distributions the
+registry's nightly link check got an HTTP error for or found no host for, and
+the datasets left with none; `Catalog(exclude_broken=False)` keeps those too.
+`access_rights="public"` narrows any call to what is published openly.
 
-No room for a download, or one question to ask? `LiveCatalog()` has the same
-searches and asks the registry directly, a page at a time — without link
-health, `kind=` filtering, `sources()` or `verify()`.
+No room for a download, or one question to ask? `Catalog(live=True)` has the
+same methods and asks the registry directly — and `live=True` does the same
+for a single call.
 
 ## Documentation
 
@@ -74,8 +76,8 @@ health, `kind=` filtering, `sources()` or `verify()`.
   spelled out, the output shape underneath.
 - **[docs/guide.md](docs/guide.md)** — how to use it, in the order you hit it:
   searching, discovering filters, reading a result, recipes.
-- **[docs/reference.md](docs/reference.md)** — every method, filter, record key
-  and error, as tables.
+- **[docs/reference.md](docs/reference.md)** — every method, filter, model
+  field and error, as tables.
 - **[docs/internals.md](docs/internals.md)** — how it is built: the short
   values, the module layout, development, releasing.
 
@@ -87,7 +89,7 @@ in [NOTICE](NOTICE), with the details in
 [docs/internals.md](docs/internals.md#attribution).
 
 Metadata you retrieve is published by its respective publishers, each under its
-own licence — check the `license` field on the dataset.
+own licence — check `dataset.license` on each one.
 
 ## Status
 

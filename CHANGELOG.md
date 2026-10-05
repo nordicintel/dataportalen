@@ -4,6 +4,71 @@ All notable changes to this package. Versions are on
 [PyPI](https://pypi.org/project/dataportalen/); the headings link to the
 GitHub release.
 
+## [0.13.0](https://github.com/nordicintel/dataportalen/releases/tag/v0.13.0) — unreleased
+
+Breaking. The API is built around four models, and one `Catalog` answers
+from the database or from the registry. A database written by 0.12 is read
+as it is; nothing downloads again.
+
+- **Models, not dicts.** `Dataset`, `DataService`, `Distribution` and
+  `Publisher` read by attribute — `dataset.title.text()`,
+  `dataset.publisher.id`, `dist.kind` — and `SearchResult` carries datasets
+  and facets. Every model has `to_dict()`, with the field names the dicts
+  had, and printing one prints that JSON. Every method that returns models
+  takes `as_dict=True` for the dicts instead.
+- **`search()` is the search.** `catalog.search(query=None, *, limit=None,
+  offset=0, facet_limit=None, **filters)` finds datasets and returns
+  `SearchResult(datasets, facets, total, offset, limit)`. With no `limit` it
+  holds every match; facets always count every match.
+- **The lists are complete.** `datasets()`, `data_services()` and
+  `publishers()` take filters and return every match — no query, no window,
+  no facets. `publishers(**filters)` counts what the filters select.
+- **`MultilingualText`** replaces the `{"sv", "en"}` dict and the `text()`
+  helper: `.text()` picks the catalogue's language, set with
+  `Catalog(language="en")`, and falls back to the other. It still compares
+  equal to the dict. Keywords are `Keywords`, with `.list()` and `.all()`.
+- **`Catalog(live=True)`** replaces `LiveCatalog`, and warns when built.
+  `search()`, `datasets()`, `data_services()` and `publishers()` also take
+  `live=True` for one call. Live and local return the same shapes; an
+  unpaged live call fetches every page, warning above 1,000 records.
+- **The catalogue holds every access level.** `access_rights=` is no longer
+  a `Catalog` argument; it is a filter, and `access_rights="none"` finds the
+  records that set nothing. The default catalogue grows from 17,555 datasets
+  to 23,422.
+- **Filters.** `updated` is `accrual_periodicity`. `license`, `language`,
+  `issued_after`, `issued_before` and `modified_before` are gone — every
+  record still carries the fields — and each raises `QueryError` naming what
+  to do instead. `modified_after` reads `issued` for a dataset with no
+  `modified` (651 datasets). Facets follow the filters.
+- `sources()` is gone: `info()["sources"]` has the totals and the failed
+  sources that still hold records. `verify()` is no longer public.
+- `Facets.to_dict()` is `{filter: [{"value", "count", "label"}]}`; the old
+  `{filter: {value: count}}` is `Facets.counts()`. `FacetValue.label` is a
+  `MultilingualText`.
+- A publisher has one `alias` (`"scb"` or `None`) instead of an `aliases`
+  list. `organisations.json` and `aliases.json` are one `publishers.json`.
+- In `to_dict()`, `broken`, `unverified`, `byte_size` and `stale` are always
+  present, `None` when unset; a publisher nested in a record has
+  `dataset_count`, `data_service_count` and `facets` set to `None`.
+- New `DataportalWarning`. Removed exports: `LiveCatalog`, `text`, `Results`
+  and the `TypedDict` record types (`DatasetRecord`, `SourceRecord`, ...).
+
+| 0.12 | 0.13 |
+| --- | --- |
+| `catalog.datasets(theme="transport").total` | `catalog.search(theme="transport", limit=0).total` |
+| `catalog.datasets(limit=None, **f)` | `catalog.datasets(**f)` |
+| `for d in catalog.datasets(query="cykel"): d["title"]` | `for d in catalog.search("cykel").datasets: d.title` |
+| `text(d["title"])` | `d.title.text()` |
+| `d["publisher"]["id"]` | `d.publisher.id` |
+| `catalog.datasets(...)` as dicts | `catalog.datasets(..., as_dict=True)` |
+| `Catalog()` (public only) | `Catalog()` plus `access_rights="public"` on each call |
+| `Catalog(access_rights=None)` | `Catalog()` |
+| `updated="annual"` | `accrual_periodicity="annual"` |
+| `LiveCatalog().datasets(limit=10)` | `Catalog(live=True).search(limit=10)` |
+| `catalog.sources()` | `catalog.info()["sources"]` |
+| `publisher["aliases"]` | `publisher.alias` |
+| `page.facets.to_dict()` | `result.facets.counts()` |
+
 ## [0.12.0](https://github.com/nordicintel/dataportalen/releases/tag/v0.12.0) — 2026-10-04
 
 Breaking. Everything since 0.7.1; versions 0.8.0 to 0.11.0 were never
