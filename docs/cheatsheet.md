@@ -381,10 +381,10 @@ list(facets); "format" in facets
     "publisher": 287,
     "publisher_type": 8,
     "theme": 31,
-    "keyword": 16135,
+    "keyword": 16053,
     "format": 36,
     "kind": 10,
-    "license": 9,
+    "license": 8,
     "access_rights": 1,
     "updated": 18,
     "language": 55
