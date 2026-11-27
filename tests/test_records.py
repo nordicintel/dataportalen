@@ -14,6 +14,7 @@ key by key -- where a key missing or a key nobody declared is a problem too.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from typing import (
     Any,
     Dict,
@@ -22,7 +23,6 @@ from typing import (
     Union,
     get_args,
     get_origin,
-    get_overloads,
     get_type_hints,
 )
 
@@ -321,9 +321,14 @@ def test_the_dict_shapes_are_gone(name):
     assert not hasattr(dataportalen, name)
 
 
-def test_the_listings_are_plain_lists_and_say_of_what(cat):
+def test_the_listings_are_plain_lists(cat):
     assert type(cat.datasets()) is list
     assert type(cat.data_services()) is list
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="get_overloads requires Python 3.11")
+def test_listing_overload_return_types():
+    from typing import get_overloads
 
     def returns(method):
         return [get_type_hints(f)["return"] for f in get_overloads(method)]
